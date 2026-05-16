@@ -169,6 +169,10 @@ vault/                      # Obsidian vault — 별도 private repo로 sync (Ob
 Project Charter_*.docx
 Project*Charter*.docx
 
+# deskrpg — spike 단계엔 RegTrack git에 미포함 (M4 정식 fork 시 결정)
+# seed-v8 D-13: 학술용 Sustainable Use License 1.0 준수. LICENSE·LICENSE-assets.md 보존 필수.
+deskrpg/
+
 # Spyder project settings
 .spyderproject
 .spyproject
