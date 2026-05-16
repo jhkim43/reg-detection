@@ -21,7 +21,7 @@
 - [1. 사전 점검 (Pre-push Audit)](#1-사전-점검-pre-push-audit)
 - [2. 권한·인증 설정](#2-권한인증-설정)
 - [3. Push 단계별 명령어](#3-push-단계별-명령어)
-  - [3.0 Push 경로 선택 — PR 필수 vs Fast-path](#30-push-경로-선택--pr-필수-vs-fast-path)
+  - [3.0 Push 경로 선택 — PR vs Fast-path](#30-push-경로-선택--pr-vs-fast-path)
 - [4. PR 생성](#4-pr-생성)
 - [5. 후속 정리](#5-후속-정리)
 - [6. 충돌·실수 대응](#6-충돌실수-대응)
@@ -149,17 +149,21 @@ git -C /Users/deukkyu/prjects/regtrack config user.email  # deukkyu3751@gmail.co
 
 > **모든 명령어는 본인이 직접 실행**. AI는 실행하지 않음.
 
-### 3.0 Push 경로 선택 — PR 필수 vs Fast-path
+### 3.0 Push 경로 선택 — PR vs Fast-path
 
 > **GitHub에서 PR이 구조적으로 강제되는 경우는 단 하나**: `dev`(또는 `main`) 브랜치에 **branch protection rule**이 걸려있을 때. 그 외엔 직접 push도 가능.
 
-**우리 §17 Scope Change Governance와 매핑한 권장 경로:**
+**우리 §17 Scope Change Governance와 매핑한 권장 경로 (dev 브랜치 기준 — 모두 선택):**
 
-| 변경 크기 | 경로 | 명령 흐름 | 리뷰 | 사용 예시 |
-|----------|------|----------|------|----------|
+| 변경 크기 | 권장 경로 | 명령 흐름 | 리뷰 | 사용 예시 |
+|----------|----------|----------|------|----------|
 | **small** (단일 모듈·데이터값) | **Fast-path** | feat branch push → 본인이 dev로 local merge → `git push origin dev` | 본인 1인 | parser_config 튜닝, 오타, 폴링 주기 조정 |
 | **medium** (여러 모듈·신규 기능) | **PR 권장** | feat branch push → GitHub PR → 팀원 1+ approve → merge | 1+ approve | 새 게시판 추가, 필터 추가 |
-| **large** (MVP·아키텍처) | **PR 필수** | feat branch push → GitHub PR → seed-vN 동봉 → 어드바이저+팀 → merge | 어드바이저 + 팀 | FSS → BOK 전환, LLM provider 변경 |
+| **large** (MVP·아키텍처) | **PR 권장** (seed-vN 동봉) | feat branch push → GitHub PR → 어드바이저+팀 리뷰 → merge | 어드바이저 + 팀 | FSS → BOK 전환, LLM provider 변경 |
+
+> **dev 브랜치에는 protection 없음** → 어느 크기든 직접 push도 기술적으로 가능.
+> 단 medium/large는 **리뷰 누락 시 일정 risk 큼** → PR 사용 권장 (강제 아님).
+> `main` 브랜치는 보호 — M5 release 시점에만 PR로 머지.
 
 #### 3.0.1 Fast-path (small 변경) — PR 생략
 
@@ -197,7 +201,7 @@ git branch -d feat/내작업이름
 # gh CLI 있으면
 gh api repos/jhkim43/reg-detection/branches/dev/protection 2>&1 | head -5
 # {} 또는 404면 보호 없음 (fast-path 가능)
-# rules 객체 나오면 보호 있음 (PR 필수)
+# rules 객체 나오면 보호 있음 (PR 강제됨 — main에 해당)
 
 # 또는 GitHub 웹에서:
 # Settings → Branches → Branch protection rules
@@ -209,13 +213,13 @@ remote: error: GH006: Protected branch update failed for refs/heads/dev.
 ```
 → PR 경로(§3.1~§4)로 전환.
 
-#### 3.0.4 권장 운영 정책 (팀 합의 필요)
+#### 3.0.4 운영 정책 (현 상태 + 권장 컨벤션)
 
-- **`main` 브랜치는 항상 보호** (협의 권장: M5 release 시점에만 PR로 머지)
-- **`dev` 브랜치는 보호 OFF** (small fast-path 허용) — 단 §17.2 분류를 commit 메시지에 강제
-- medium/large는 protection 없어도 **팀 컨벤션상 PR 필수** (코드 리뷰 + 머지 기록)
+- **`main` 브랜치는 보호 ON** — M5 release 시점에만 PR로 머지
+- **`dev` 브랜치는 보호 OFF** — 어느 크기든 직접 push 가능. 단 §17.2 분류를 commit 메시지에 명시 (`[small] / [medium] / [large]`)
+- medium/large는 **PR 권장** (강제 아님) — 코드 리뷰 + 머지 기록을 남기고 싶을 때 사용
 
-→ 이 정책이 합의되면 본 가이드 §3.0.1 fast-path를 small에서만 사용.
+→ 본인 판단으로 fast-path vs PR 선택. **리뷰가 필요한 변경은 PR, 단순 변경은 fast-path**.
 
 ---
 
