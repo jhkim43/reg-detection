@@ -278,6 +278,20 @@ import NanobotChat from "@/components/NanobotChat";
 
 → spike PR에는 본 문서만 포함. spike 코드는 본인 PC에만 존재.
 
+### 9.6 ⚠ Token 사용 경고 + 종료 명령
+
+**`nanobot gateway` 떠있는 동안 백그라운드 LLM 호출 발생** (cron `dream` 2h, heartbeat 30m). 작업 끝나면 반드시 종료:
+
+```bash
+# nanobot gateway 종료 (Linux/macOS)
+lsof -ti:8765 | xargs kill
+
+# 또는 모든 spike 프로세스 한 번에
+lsof -ti:8765 -ti:3000 -ti:18790 2>/dev/null | xargs -r kill && echo "✓ all stopped"
+```
+
+예산 추적은 PRD AC-008 ($30/60/90 단계별). 자세한 OS별 명령·팀원 onboarding은 [SPIKE-SETUP.md](../local-setup/SPIKE-SETUP.md) §8 참조.
+
 ---
 
 ## 10. M3-M4 정식 통합 진입 시 체크리스트
