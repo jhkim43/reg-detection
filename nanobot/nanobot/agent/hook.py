@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+import json
 from typing import Any
 
 from loguru import logger
 
 from nanobot.providers.base import LLMResponse, ToolCallRequest
-
+from nanobot.utils.helpers import safe_filename
 
 @dataclass(slots=True)
 class AgentHookContext:
@@ -25,6 +28,7 @@ class AgentHookContext:
     final_content: str | None = None
     stop_reason: str | None = None
     error: str | None = None
+    session_key: str | None = None
 
 
 class AgentHook:
@@ -121,3 +125,99 @@ class SDKCaptureHook(AgentHook):
         for call in context.tool_calls:
             self.tools_used.append(call.name)
         self.messages = list(context.messages)
+
+class TokenTrackingHook(AgentHook):
+    """Track token usage per iteration and persist session metadata to JSON."""
+
+    def __init__(self, workspace_path: str) -> None:
+        super().__init__(reraise=False)  # Don't crash on logging errors
+        self.workspace = Path(workspace_path)
+        self.sessions_dir = self.workspace / "sessions"
+        # Ensure the workspace and sessions directories exist
+        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "TokenTrackingHook initialized: will write session metadata files in {}",
+            self.sessions_dir,
+        )
+
+    async def after_iteration(self, context: AgentHookContext) -> None:
+        usage = context.usage or {}
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        cached_tokens = usage.get("cached_tokens", 0)
+        total_tokens = prompt_tokens + completion_tokens
+
+        logger.info(
+            "TokenTrackingHook.after_iteration called: iteration={}, usage={}",
+            context.iteration,
+            usage,
+        )
+
+        session_key = context.session_key or "default"
+        session_id = safe_filename(session_key.replace(":", "_"))
+        session_file = self.sessions_dir / f"{session_id}.token.json"
+        timestamp = datetime.now().isoformat()
+
+        session_data: dict[str, Any] = {}
+        if session_file.exists():
+            try:
+                session_data = json.loads(session_file.read_text(encoding="utf-8"))
+            except Exception:
+                session_data = {}
+
+        iterations = session_data.get("iterations", [])
+        event_phase = "llm_response"
+        if context.tool_results:
+            event_phase = "tool_execution"
+        elif context.response is not None and context.response.should_execute_tools:
+            event_phase = "tool_request"
+        elif context.response is not None and context.response.finish_reason == "length":
+            event_phase = "length_recovery"
+        elif context.response is not None and context.response.finish_reason == "error":
+            event_phase = "llm_error"
+        elif context.final_content is not None and context.stop_reason == "ask_user":
+            event_phase = "ask_user"
+        elif context.final_content is not None:
+            event_phase = "final_response"
+
+        iterations.append(
+            {
+                "event_index": len(iterations) + 1,
+                "iteration": context.iteration,
+                "phase": event_phase,
+                "response_finish_reason": context.response.finish_reason if context.response is not None else None,
+                "tool_calls": [tc.name for tc in context.tool_calls],
+                "tool_results": [type(result).__name__ for result in context.tool_results],
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "cached_tokens": cached_tokens,
+                "total_tokens": total_tokens,
+                "timestamp": timestamp,
+            }
+        )
+
+        totals = {
+            "prompt_tokens": sum(item.get("prompt_tokens", 0) for item in iterations),
+            "completion_tokens": sum(item.get("completion_tokens", 0) for item in iterations),
+            "cached_tokens": sum(item.get("cached_tokens", 0) for item in iterations),
+            "total_tokens": sum(item.get("total_tokens", 0) for item in iterations),
+        }
+
+        session_data["session_key"] = session_key
+        session_data["last_updated"] = timestamp
+        session_data["totals"] = totals
+        session_data["iterations"] = iterations
+
+        try:
+            session_file.write_text(
+                json.dumps(session_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.info("Session token metadata saved to {}", session_file)
+        except Exception as e:
+            logger.error(
+                "Failed to save session token metadata to {}: {}",
+                session_file,
+                e,
+                exc_info=True,
+            )
