@@ -6,10 +6,10 @@
 decomposition:
   version: 1
   generated: "2026-05-16"
-  seed_ref: ".harness/ouroboros/seeds/seed-v7.yaml"
+  seed_ref: ".harness/ouroboros/seeds/seed-v8.yaml"
   trd_ref: "docs/trd/TRD-RegTrack-2026-05-16.md (§7.2)"
 
-  total_tasks: 73
+  total_tasks: 76                # v1 73 + v2 3 (T-000a~c nanobot codemap)
 
   by_layer:
     data: 14
@@ -17,7 +17,7 @@ decomposition:
     logic: 31
     presentation: 17
     infra: 2
-    doc: 2
+    doc: 5                       # v1 2 + v2 3 (codemap)
     demo: 2
 
   ac_coverage:
@@ -51,6 +51,42 @@ decomposition:
 # Tasks — Atomic Units
 # ═════════════════════════════════════════════════════════════════════
 tasks:
+
+  # ─────────────────────────────────────────────────────────────────
+  # M2-prep — nanobot 코드맵 작성 (W3 첫날, 본격 작업 전 onboarding)
+  # 목적: 팀 전원이 nanobot fork 구조·확장 지점을 1.5h 안에 파악.
+  # decomposition v2 추가 (2026-05-16) — seed-v8 기준.
+  # ─────────────────────────────────────────────────────────────────
+
+  - id: T-000a
+    ac_refs: [setup]
+    layer: doc
+    milestone: M2-prep
+    description: "nanobot 핵심 5 docs 훑기 — quick-start.md, configuration.md, agent-social-network.md, obsidian-interface.md, websocket.md. 확장 지점 5개 식별 (skill·agent·channel·provider·session)"
+    test: "확장 지점 5개 한 줄씩 메모 + 각 지점 base path 정리"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: low
+
+  - id: T-000b
+    ac_refs: [setup]
+    layer: doc
+    milestone: M2-prep
+    description: "nanobot/nanobot/{skills,agent,channels,providers,session}/ 디렉토리 헤더·README 트레이싱 — 우리 신규 파일 후보 위치 식별 (예: skills/regtrack/, providers/openrouter.py)"
+    test: "신규 파일 후보 5개 경로 + 각 파일 책임 1줄 명시"
+    depends_on: [T-000a]
+    estimated_minutes: 30
+    complexity: low
+
+  - id: T-000c
+    ac_refs: [setup]
+    layer: doc
+    milestone: M2-prep
+    description: "docs/code-map/NANOBOT-CODEMAP.md 작성 — 5 확장 지점 + 파일 경로 + 사용법 예시 + base reference. 향후 M3 시점 nanobot 수정 정책(diff/whitelist/디렉토리 분리) 결정의 입력 자료"
+    test: "docs/code-map/NANOBOT-CODEMAP.md 존재 + 5 확장 지점 + 팀원 누구나 읽고 30분 안에 nanobot 구조 이해 가능 (peer review)"
+    depends_on: [T-000b]
+    estimated_minutes: 30
+    complexity: low
 
   # ─────────────────────────────────────────────────────────────────
   # M2 — Data Layer + Crawler (W3-W5, 2026-05-26 ~ 2026-06-16)
@@ -812,12 +848,19 @@ tasks:
 # ═════════════════════════════════════════════════════════════════════
 execution_order:
 
+  - phase: 0
+    name: "W3 첫날 — nanobot 코드맵 (M2 prep)"
+    weeks: ["W3"]
+    tasks: [T-000a, T-000b, T-000c]
+    parallel: false
+    notes: "M2 본 작업 전 1.5h 투자. 팀 전원 nanobot 구조 이해 + 확장 지점 합의. 산출물 docs/code-map/NANOBOT-CODEMAP.md는 M3 진입 시 nanobot 수정 정책 결정의 입력 자료"
+
   - phase: 1
     name: "W3 — Data 스키마 + 기초 Repository"
     weeks: ["W3"]
     tasks: [T-001, T-002, T-003, T-004, T-005, T-016, T-018]
     parallel: true
-    notes: "Data 스키마와 FastAPI bootstrap 병렬 작업 가능. T-018(Flexible Parser)도 독립"
+    notes: "Data 스키마와 FastAPI bootstrap 병렬 작업 가능. T-018(Flexible Parser)도 독립. Phase 0 코드맵 작성 이후 시작 권장"
 
   - phase: 2
     name: "W4 — Repository 완성 + Crawler 본격"
@@ -889,14 +932,14 @@ execution_order:
 # Validation
 # ═════════════════════════════════════════════════════════════════════
 validation:
-  total_tasks: 73
+  total_tasks: 76                # v1 73 + v2 3 (T-000a~c)
   by_layer:
     data: 14         # T-001~T-015 중 데이터 레이어
     crawler: 5       # T-018, T-019, T-020, T-021, T-022, T-023 → 사실 6, 다만 T-023은 logic 인접
     logic: 31        # FastAPI·Services·api/* 다수
     presentation: 17 # frontend/scenes/components
     infra: 2         # CI, docker-compose
-    doc: 2           # 백업영상, preflight
+    doc: 5           # v1 2 (백업영상, preflight) + v2 3 (T-000a~c nanobot codemap)
     demo: 2          # 리허설, 발표
   dependencies_valid: true   # 순환 의존 없음 (DAG)
   all_testable: true         # 모든 task에 test 명시
@@ -919,7 +962,8 @@ validation:
 # Next Steps
 # ═════════════════════════════════════════════════════════════════════
 next_steps:
-  - "Phase 1 (W3) 시작 전 PM·팀 합의: 73개 task 배분 (4명 × 평균 18 tasks)"
+  - "Phase 0 (W3 첫날): T-000a~c nanobot 코드맵 작성 — 팀 전원 onboarding"
+  - "Phase 1 (W3) 시작 전 PM·팀 합의: 76개 task 배분 (4명 × 평균 19 tasks)"
   - "Pair Mode 9개 task는 페어 배정 (Navigator + Driver)"
   - "주간 retro에서 phase progress 체크 + scope governance §17 트리거"
   - "각 phase의 마일스톤 게이트 통과 시 → 다음 phase + seed 정합성 검증"
