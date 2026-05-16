@@ -103,9 +103,11 @@ nanobot/nanobot/skills/regtrack/
 
 ## 4. 확장 지점 ③ — providers/ (OpenRouter + Qwen)
 
-**좋은 소식**: nanobot이 이미 OpenRouter를 **first-class provider**로 지원 (`configuration.md` §Providers 표). `openai_compat_provider.py`를 재사용.
+**좋은 소식 1**: nanobot이 이미 OpenRouter를 **first-class provider**로 지원 (`configuration.md` §Providers 표). `openai_compat_provider.py`를 재사용.
 
-**필요 작업 — minimal**:
+**좋은 소식 2 (2026-05-16 dev 갱신, commit `0bfbb55` 반영)**: token usage 추적이 **이미 dev에 hook 패턴으로 구현됨**. 우리가 wrapper provider를 새로 짤 필요 없음. 코드맵 v1에서 "A wrapper vs B hook 결정 필요"라고 적었던 부분은 **B(hook)가 이미 채택·구현됨**.
+
+**필요 작업 — minimal config**:
 
 `~/.nanobot/config.json`에 OpenRouter + Qwen 설정 추가 — **코드 수정 0줄**:
 ```json
@@ -124,23 +126,36 @@ nanobot/nanobot/skills/regtrack/
 }
 ```
 
-**필요 작업 — 신규 코드 (LLMUsageRecord 추적, AC-008)**:
+### 0bfbb55에서 이미 구현된 부분 (확인)
 
-OpenRouter 응답에서 토큰 비용을 LLMUsageRecord SQLite 테이블에 기록하는 hook 필요. 두 가지 방법:
+`nanobot/agent/hook.py`의 `TokenTrackingHook` 클래스:
+- `AgentHook` 상속, `after_iteration`에서 매 LLM 호출 후 자동 트리거
+- 추적 항목: `prompt_tokens`, `completion_tokens`, `cached_tokens`, `total_tokens`, `event_phase` (`llm_response`/`tool_execution`/`tool_request`/`length_recovery`/`llm_error`/`ask_user`/`final_response`)
+- `nanobot.py`·`commands.py`에서 자동 등록: `hooks=[TokenTrackingHook(config.workspace_path)]`
+- 저장 위치는 §6 session 참조 (workspace/sessions/{channel}_{chat_id}.token.json)
 
-**A) Wrapper provider 신규 파일** (권장 — 격리·테스트 용이)
+### RegTrack 신규 작업 (AC-008 — LLMUsageRecord SQLite)
+
+0bfbb55가 JSON 파일에 기록하는 데이터를 **RegTrack SQLite의 `llm_usage_records` 테이블에도 동시 기록**하면 AC-008 충족. 두 가지 방법:
+
+**A) 추가 hook 등록 (권장 — minimal 변경)**
 ```
-nanobot/nanobot/providers/openrouter_with_usage.py
-  → 기존 openai_compat_provider 상속
-  → response 후처리에서 RegTrack SQLite write
+nanobot/agent/hook.py 에 LLMUsageRecordHook 클래스 추가
+  → after_iteration에서 SQLAlchemy로 RegTrack SQLite write
+  → nanobot.py·commands.py의 hooks=[...] 리스트에 함께 등록
+  → CompositeHook으로 자동 합쳐짐 (TokenTrackingHook과 병렬 실행)
 ```
 
-**B) Hook 패턴 활용** (`agent/hook.py`의 `AgentHook` 등록)
+**B) JSON 파일을 백엔드가 주기적으로 읽어 SQLite로 sync (Watcher 패턴)**
 ```
-nanobot/agent/hook.py 에 callback 등록 — registry.py·base.py 수정 X
+별도 Python 서비스가 {workspace}/sessions/*.token.json 변경 감지
+  → SQLAlchemy로 llm_usage_records insert/update
+  → nanobot 코드 수정 0, 단 sync 지연 발생
 ```
 
-**M3 W6에서 결정**: prompt cache 지원 여부 검증 후 A/B 택1. seed-v7 pending_v8.
+→ **A 권장**: nanobot hook 1개 추가만으로 끝남. M3 W6 task T-027 (LLM usage tracker) 범위 내.
+
+**M3 W6에서 검증 사항** (변경 없음): OpenRouter prompt cache 지원 여부, AC-008 단계별 임계치($30/60/90) 트리거 로직.
 
 ---
 
@@ -186,17 +201,82 @@ nanobot/channels/regtrack_dashboard.py
 
 만약 수정이 필요해 보이는 상황이 생기면 → **retro 안건** (large 변경 분류, seed-v9 발급 가능성).
 
+### 6.1 Workspace sessions — 채널 매칭 저장 동작 (commit `0bfbb55` 추가, v2 보강)
+
+0bfbb55에서 `TokenTrackingHook(config.workspace_path)`가 도입되면서 workspace 안에 채널·세션별 token 추적 파일이 자동 생성됩니다. RegTrack 통합 설계에 영향이 있어 별도 정리.
+
+**디렉토리 구조**:
+```
+{workspace_path}/              ← 보통 ~/.nanobot/workspace/<workspace_name>/
+└── sessions/                  ← 0bfbb55가 mkdir(parents=True, exist_ok=True)
+    ├── cli.token.json                          ← CLI 세션 (default)
+    ├── websocket_alice.token.json              ← WS 클라이언트 alice
+    ├── websocket_anon-xxxxxxxxxxxx.token.json  ← 익명 WS 클라이언트
+    ├── telegram_12345.token.json               ← 텔레그램 chat_id=12345
+    └── ...
+```
+
+**채널 매칭 규칙**:
+- `session_key` 형식: `channel:chat_id` (nanobot 기본, `configuration.md` §Unified Session 참조)
+- 변환: `session_key.replace(":", "_")` → `safe_filename(...)` → `{safe_id}.token.json`
+- 예시:
+  - `cli` (default) → `cli.token.json`
+  - `websocket:alice` → `websocket_alice.token.json`
+  - `telegram:12345` → `telegram_12345.token.json`
+
+**JSON 구조**:
+```json
+{
+  "session_key": "websocket:alice",
+  "last_updated": "2026-05-16T16:00:00",
+  "totals": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cached_tokens": 0,
+    "total_tokens": 0
+  },
+  "iterations": [
+    {
+      "event_index": 1,
+      "iteration": 0,
+      "phase": "llm_response",
+      "response_finish_reason": "stop",
+      "tool_calls": [],
+      "tool_results": [],
+      "prompt_tokens": 1024,
+      "completion_tokens": 256,
+      "cached_tokens": 0,
+      "total_tokens": 1280,
+      "timestamp": "2026-05-16T16:00:00"
+    }
+  ]
+}
+```
+
+**RegTrack 통합 의미**:
+- RegTrack frontend(deskrpg-기반)는 nanobot websocket 채널로 connect → 자동으로 `websocket:<client_id>` 형식 session_key 부여 → `websocket_<client_id>.token.json` 파일이 자동 생성됨
+- 우리가 추가할 `LLMUsageRecordHook`(§4 A안)이 같은 데이터를 SQLite에도 동시 기록하면, JSON(파일)·SQLite(우리 백엔드) **dual write**가 됨
+- AC-008의 단계별 임계치($30/60/90) 트리거는 RegTrack 백엔드가 SQLite 쿼리로 처리 (JSON 파일을 읽지 않아도 됨)
+
+**원칙 유지**: `nanobot/session/manager.py` 자체는 여전히 수정 없음. 0bfbb55가 추가한 `{workspace}/sessions/*.token.json`은 hook이 만드는 사이드 파일이지 session manager 본체와 무관.
+
 ---
 
 ## 7. RegTrack 구현 시점별 매핑 (decomposition 참고)
 
-| 시점 | 확장 지점 | 신규 파일 | 참조 task |
+| 시점 | 확장 지점 | 신규/수정 | 참조 task |
 |------|----------|-----------|-----------|
 | M2 (W3-W5) | (없음) | — | T-001~T-025: 모두 RegTrack 별도 백엔드(FastAPI+SQLite). nanobot 미터치 |
-| M3 W6 | ③ provider | `providers/openrouter_with_usage.py` 또는 hook | T-026~T-030 (LLM 클라이언트·cache·tracker) |
+| M3 W6 | ③ provider + hook | **`hook.py`에 `LLMUsageRecordHook` 추가 (0bfbb55 `TokenTrackingHook` 패턴 확장)** + `nanobot.py`/`commands.py`의 `hooks=[...]` 리스트에 동시 등록 | T-026~T-030 (LLM 클라이언트·cache·tracker — v2: "신규 wrapper provider" → "기존 hook 패턴 확장"으로 정정) |
 | M3 W7-W8 | ② skill | `skills/regtrack/impact-analyzer/SKILL.md`, `meeting-orchestrator/SKILL.md` | T-035 (Pair), T-039 (Pair) |
-| M4 W9 | ④ channel | (config만, 코드 X) | T-054 (Frontend WS 연결) |
+| M4 W9 | ④ channel + ⑤ session | (config만, 코드 X). WS connect 시 자동 부여되는 `websocket:<client_id>` session_key → 0bfbb55가 만드는 `{workspace}/sessions/*.token.json`로 자동 추적됨 | T-054 (Frontend WS 연결) |
 | M4 W10 | ① agent | (호출, 코드 X) | T-067 (e2e Pair) |
+
+**v2 갱신 핵심 (2026-05-16, 0bfbb55 반영)**:
+- M3 W6의 "wrapper provider 신규" 결정은 **무효** — 0bfbb55가 hook 패턴을 dev에 채택했음
+- 우리 task는 "신규 구현"이 아닌 **"기존 hook 패턴 확장"** — 작업량 ↓, 충돌 risk ↓
+- §6.1의 channel 매칭 저장 동작 덕에 frontend WS 통합 시 추가 코드 0
+- 위 변경은 AC-008·T-027 description 정정 안건으로 M2 종료 retro에 보고 권장
 
 ---
 
@@ -228,6 +308,15 @@ nanobot/channels/regtrack_dashboard.py
 
 ## 10. 한 줄로 다시 정리
 
-> **신규 skill 4개 추가 + provider hook 1개 + websocket config 1개 — 나머지는 nanobot 그대로**.
+> **신규 skill 4개 추가 + `LLMUsageRecordHook` 1개 (0bfbb55 패턴 확장) + websocket config 1개 — 나머지는 nanobot 그대로**.
 > 그 외 모든 RegTrack 백엔드 비즈니스 로직은 **별도 FastAPI 서비스 + SQLite** (TRD §3).
 > nanobot upstream과의 충돌 가능성은 최소화.
+
+---
+
+## 변경 이력 (코드맵 자체)
+
+| 버전 | 일자 | 변경 |
+|------|------|------|
+| v1 | 2026-05-16 16:36 | 최초 작성 (commit `5ac7115`) |
+| **v2** | **2026-05-16 21:** | **0bfbb55 `TokenTrackingHook` 반영 — §4/§6.1/§7 갱신. v1의 "wrapper provider 신규 vs hook 결정"이 오인이었음을 정정** |
