@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.hook import AgentHook, SDKCaptureHook
+from nanobot.agent.hook import AgentHook, SDKCaptureHook, TokenTrackingHook
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.queue import MessageBus
 
@@ -91,6 +91,7 @@ class Nanobot:
                 "openrouter": config.providers.openrouter,
                 "aihubmix": config.providers.aihubmix,
             },
+            hooks=[TokenTrackingHook(config.workspace_path)],
         )
         return cls(loop)
 

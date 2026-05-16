@@ -48,7 +48,7 @@ from rich.table import Table
 from rich.text import Text
 
 from nanobot import __logo__, __version__
-
+from nanobot.agent.hook import TokenTrackingHook
 
 def _sanitize_surrogates(text: str) -> str:
     """Reconstruct surrogate pairs into real characters; replace lone surrogates.
@@ -717,6 +717,7 @@ def _run_gateway(
         },
         provider_snapshot_loader=load_provider_snapshot,
         provider_signature=provider_snapshot.signature,
+        hooks=[TokenTrackingHook(config.workspace_path)],
     )
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY

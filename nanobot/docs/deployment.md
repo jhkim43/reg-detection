@@ -27,7 +27,7 @@ docker compose down                                      # stop
 ```bash
 docker compose down # clean container and compose network
 docker rmi -f nanobot-nanobot-cli nanobot-nanobot-gateway # clean docker images
-docker compose up -d --build --force-recreate --no-cache nanobot-gateway # rebuild containers without cache
+docker compose up -d --build --force-recreate nanobot-gateway # rebuild containers without cache
 ```
 
 ### Docker
