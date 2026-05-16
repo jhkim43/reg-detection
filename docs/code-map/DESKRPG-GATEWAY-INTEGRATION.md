@@ -227,7 +227,60 @@ import NanobotChat from "@/components/NanobotChat";
 
 ---
 
-## 9. M3-M4 정식 통합 진입 시 체크리스트
+## 9. Spike 검증 결과 (2026-05-16)
+
+### 9.1 환경 셋업 (본인 PC, macOS)
+
+| 항목 | 사용 도구 | 비고 |
+|------|----------|------|
+| Node 격리 | **fnm** + Node 20 + `.nvmrc=20` | system Node 24와 충돌 회피 |
+| Python 격리 | **venv** + Python 3.12 (brew) | system 3.9.6은 nanobot >=3.11 요구 미달 |
+| deskrpg 설치 | `npm install` + `setup:lite` (수동 SQLite 셋업 — upstream setup-lite.js 경로 버그) | postgres 미사용. `data/deskrpg.db` 자동 생성, 27 테이블 |
+| nanobot 설치 | `pip install -e ./nanobot` (editable, 우리 fork 사용) | nanobot-ai 0.1.5.post3 |
+| nanobot config | `~/.nanobot/config.json` — OpenRouter + `qwen/qwen3.6-35b-a3b` | seed-v8 D-12 일치 |
+
+### 9.2 검증 시나리오 — 실제 동작 확인
+
+1. ✅ deskrpg dev server (port 3000) — 가입·캐릭터·채널·맵 진입·이동 정상
+2. ✅ nanobot gateway (port 8765 WS + 18790 health) — `websocketRequiresToken: false` 설정 필수
+3. ✅ Python websockets 클라이언트로 직접 WS 연결 → "hello" 보냄 → Qwen 응답 streaming 수신
+4. ✅ 브라우저 NanobotChat 컴포넌트 → WS 연결 → 메시지 송수신
+5. ✅ delta event를 stream_id로 누적해 한 줄로 표시 (ChatGPT-style streaming UI)
+6. ✅ 첫 메시지에 사용자 컨텍스트(`character.name`, `channel.name`) prepend → nanobot이 응답에 자연스럽게 반영
+
+### 9.3 발견한 함정 (정식 통합 시 주의)
+
+| 함정 | 우회 |
+|------|------|
+| nanobot `websocket_requires_token` 기본 `True` | config에 `false` 명시 (production은 `true` + token 발급 필요) |
+| nanobot이 토큰 단위 delta로 응답 → 줄 단위 표시 시 못생김 | `stream_id`로 누적해 한 줄로 합치기 |
+| TokenTrackingHook(0bfbb55)이 `{workspace}/sessions/<channel>_<chat_id>.token.json` 자동 생성 | 정식 통합 시 `LLMUsageRecordHook`를 같이 등록해 SQLite에도 dual write — 코드맵 §4 |
+| deskrpg `setup-lite.js`의 ROOT 경로 버그 (`scripts/`로 잘못 계산) | 수동 SQLite 셋업으로 우회. upstream 이슈 보고 안건 |
+| better-sqlite3 native binary가 Node 버전 종속 | npm install·실행은 **동일 Node 버전(20)에서만** 수행 |
+| 브라우저에서 직접 ws connect 시 nanobot이 origin 검증 X (그러나 401 인증 검증은 함) | allowFrom 와 token 두 가지 분리 — token 끄고 시연 |
+
+### 9.4 Spike 한계 (시연 시나리오 미충족)
+
+본 spike는 "양방향 통신 가능?" 검증만. 다음은 **정식 통합 (M3-M4)에서 구현**:
+
+- 영구 NPC 6명 시드 — T-003
+- spawn id 추출 + NPC 매핑 — 팀장 피드백, 코드맵 v2 §6.2 (예정)
+- Phaser scene 안 NPC 머리 위 dialog bubble — AC-002 + T-054
+- 회의 디지스트 4항목 BR-3 — AC-011 + T-039 (Pair Mode)
+- Citation 강제 BR-1 — AC-003 + T-035 (Pair Mode)
+- LLMUsageRecord SQLite 추적 + 단계별 임계 — AC-008 + T-027
+
+### 9.5 Spike 산출물 (deskrpg/ 안, RegTrack git 미포함)
+
+- `deskrpg/src/components/NanobotChat.tsx` — 임시 prototype, 정식 통합 시 폐기
+- `deskrpg/src/app/game/GamePageClient.tsx` 임시 import 1줄 + JSX 1줄 — 정식 통합 시 제거
+- `~/.nanobot/config.json` channels.websocket 섹션 — 정식 통합에선 token 인증 강화
+
+→ spike PR에는 본 문서만 포함. spike 코드는 본인 PC에만 존재.
+
+---
+
+## 10. M3-M4 정식 통합 진입 시 체크리스트
 
 - [ ] nanobot gateway protocol 안정성 검증 (agent persistence·multi-channel)
 - [ ] `gateway_resources` DB schema에 `kind` 필드 추가 + drizzle migration
