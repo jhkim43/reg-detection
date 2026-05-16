@@ -343,13 +343,14 @@ LPC 부품 변경 + 영속화 (AC-012).
 #### `GET /api/llm-usage/snapshot`
 현재 `LlmUsageSnapshot` 1회 fetch (WebSocket이 끊겼을 때 fallback).
 
-**Response 200 — `LlmUsageSnapshotDTO`**:
+**Response 200 — `LlmUsageSnapshotDTO`** (v6):
 ```json
 {
   "cost_usd": 0.42,
   "call_count": 17,
   "cache_hit_rate": 0.64,
-  "last_model": "gpt-4o-mini",
+  "last_model": "qwen/qwen-2.5-72b-instruct",
+  "threshold_level": "NONE",
   "updated_at": "2026-05-15T10:42:00Z"
 }
 ```
@@ -456,18 +457,22 @@ LLMUsageRecord 목록 (감사·디버깅용). pagination 지원.
 
 **Trigger**: 매 LLM 호출 직후 `services.llm.usage_tracker.track_and_warn()`이 broadcast.
 
-**Message — `LlmUsageSnapshotEvent`**:
+**Message — `LlmUsageSnapshotEvent`** (v6 — 단계별 색상):
 ```json
 {
   "cost_usd": 0.43,
   "call_count": 18,
   "cache_hit_rate": 0.61,
-  "last_model": "gpt-4o-mini",
-  "threshold_exceeded": false
+  "last_model": "qwen/qwen-2.5-72b-instruct",
+  "threshold_level": "NONE"
 }
 ```
 
-`threshold_exceeded: true`가 처음 발생하면 클라이언트가 위젯 색상을 노란색(≥$40) 또는 빨간색(≥$80)으로 변경.
+`threshold_level` enum (v6):
+- `"NONE"` — 누적 < $30 (위젯 기본 색상)
+- `"YELLOW"` — $30 ≤ 누적 < $60 (주의)
+- `"ORANGE"` — $60 ≤ 누적 < $90 (경고 + NPCReport ERROR)
+- `"RED"` — $90 ≤ 누적 (차단 임박 + NPCReport ERROR. $100 도달 시 호출 거부)
 
 > **연결 AC**: AC-008 (high — v3 격상)
 
@@ -609,23 +614,59 @@ tags:
 
 ---
 
-## 5. 외부 통합 — LLM API (OpenAI / Claude)
+## 5. 외부 통합 — LLM API (OpenRouter + Qwen, v6)
+
+> **v6 변경**: provider를 OpenRouter + Qwen으로 통일. OpenRouter는 OpenAI 호환 API라 클라이언트 코드는 거의 동일 (`base_url`과 model명만 다름).
+> 정확한 Qwen 변종은 v7에서 확정 — 현재 placeholder: `qwen/qwen-2.5-72b-instruct`.
 
 ### 5.1 사용 시나리오
 
-| 호출 위치 | Provider | Model | 평균 토큰 (input/output) |
+| 호출 위치 | Provider | Model (placeholder) | 평균 토큰 (input/output) |
 |----------|----------|-------|------------------------|
-| `analyzeImpact` (Citation 강제) | OpenAI | gpt-4o-mini | 2000 / 600 |
-| `classifyChangeType` (1줄 diff) | OpenAI | gpt-4o-mini | 1500 / 50 |
-| `generateMeetingDigest` | OpenAI | gpt-4o-mini | 3000 / 400 |
-| (stretch) 의미 검색 임베딩 | OpenAI | text-embedding-3-small | 500 / 0 |
+| `analyzeImpact` (Citation 강제) | OpenRouter | qwen/qwen-2.5-72b-instruct | 2000 / 600 |
+| `classifyChangeType` (1줄 diff) | OpenRouter | qwen/qwen-2.5-72b-instruct | 1500 / 50 |
+| `generateMeetingDigest` | OpenRouter | qwen/qwen-2.5-72b-instruct | 3000 / 400 |
+| (stretch) 의미 검색 임베딩 | OpenRouter | text-embedding-3-small (또는 BGE) | 500 / 0 |
 
-### 5.2 통일 클라이언트 — `services.llm.LLMClient`
+### 5.1.1 OpenRouter 연결 정보
+
+| 항목 | 값 |
+|------|-----|
+| **Base URL** | `https://openrouter.ai/api/v1` |
+| **Endpoint** | `POST /chat/completions` (OpenAI 호환) |
+| **Auth** | `Authorization: Bearer sk-or-v1-...` |
+| **Optional headers** | `HTTP-Referer: https://regtrack.local`, `X-Title: RegTrack` (OpenRouter 리더보드용) |
+| **Rate limit** | account tier 별 다름 (시연용엔 충분) |
+| **Prompt cache** | Qwen 변종별 지원 다름 — 확인 필요 |
+
+### 5.2 통일 클라이언트 — `services.llm.LLMClient` (v6)
+
+OpenRouter는 OpenAI SDK로 직접 호출 가능 (호환):
 
 ```python
+from openai import AsyncOpenAI
+
 class LLMClient:
-    def __init__(self, provider: str, model: str, cache: PromptCache):
-        ...
+    def __init__(self, provider: str, model: str, api_key: str, cache: PromptCache):
+        # v6: OpenRouter는 OpenAI SDK 그대로 사용
+        if provider == "OPENROUTER":
+            self.client = AsyncOpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+                default_headers={
+                    "HTTP-Referer": "https://regtrack.local",
+                    "X-Title": "RegTrack",
+                },
+            )
+        elif provider == "OPENAI":
+            self.client = AsyncOpenAI(api_key=api_key)  # 기본 base_url
+        elif provider == "CLAUDE":
+            from anthropic import AsyncAnthropic
+            self.client = AsyncAnthropic(api_key=api_key)
+
+        self.provider = provider
+        self.model = model
+        self.cache = cache
 
     async def complete(
         self,
@@ -635,33 +676,78 @@ class LLMClient:
         require_citation: bool = False,
         max_tokens: int = 1024,
     ) -> LlmResponse:
-        cache_key = hash(system + user + model)
+        # v6: $90 RED 차단 가드 (BUDGET_EXCEEDED)
+        if cumulative_cost_usd() >= 90.0:
+            raise BudgetExceededError(cumulative_cost_usd())
+
+        cache_key = hash(system + user + self.model)
         if hit := self.cache.get(cache_key):
-            self._track(model, 0, 0, cached=True, cost_usd=0.0)
+            self._track(self.model, 0, 0, cached=True, cost_usd=0.0)
             return hit
-        resp = await self._call_provider(...)
+
+        # OpenAI 호환 호출 (OpenRouter도 동일 schema)
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            max_tokens=max_tokens,
+        )
+
         self.cache.set(cache_key, resp)
-        self._track(model, resp.input_tokens, resp.output_tokens,
-                    cached=False, cost_usd=compute_cost(...))
+        self._track(
+            self.model,
+            resp.usage.prompt_tokens,
+            resp.usage.completion_tokens,
+            cached=False,
+            cost_usd=compute_cost(self.provider, self.model, resp.usage),
+        )
         return resp
 ```
 
-### 5.3 비용 추적 hook (BR-2)
+### 5.2.1 OpenRouter 가격 조회 (자동화 가능)
+
+```python
+# OpenRouter는 /api/v1/models 엔드포인트로 가격 조회 가능
+GET https://openrouter.ai/api/v1/models
+→ {"data": [{"id": "qwen/qwen-2.5-72b-instruct",
+              "pricing": {"prompt": "0.00000035", "completion": "0.0000004"}}, ...]}
+```
+
+`compute_cost(provider, model, usage)`는 위 캐시된 pricing 테이블로 계산. 시연 시작 시 한 번 fetch.
+
+### 5.3 비용 추적 hook (BR-2, v6 단계별)
 
 매 호출 직후:
 1. `LLMUsageRecord` INSERT
-2. 누적 cost ≥ $40이면 NPCReport(ERROR) push + stderr 경고
-3. `LlmUsageSnapshot` broadcast → `/ws/llm-usage`
+2. **단계별 임계치 처리** (v6):
+   - 누적 cost ≥ $30: `LlmUsageSnapshot.threshold_level = "YELLOW"` + stderr 경고
+   - 누적 cost ≥ $60: `threshold_level = "ORANGE"` + NPCReport(ERROR) push
+   - 누적 cost ≥ $90: `threshold_level = "RED"` + NPCReport(ERROR) + **다음 호출부터 BUDGET_EXCEEDED 차단**
+3. `LlmUsageSnapshot` broadcast → `/ws/llm-usage` (위젯 색상 자동 갱신)
 
-### 5.4 환경 변수
+### 5.4 환경 변수 (v6)
 
 ```
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=...
-DEFAULT_LLM_MODEL=gpt-4o-mini
-LLM_BUDGET_WARN_USD=40.0
+# v6: OpenRouter 기본
+OPENROUTER_API_KEY=sk-or-v1-...
+DEFAULT_LLM_PROVIDER=OPENROUTER
+DEFAULT_LLM_MODEL=qwen/qwen-2.5-72b-instruct      # v7에서 확정
+
+# fallback (옵션 — 사용 안 함)
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+
+# 단계별 임계치 (v6)
+LLM_BUDGET_YELLOW_USD=30.0
+LLM_BUDGET_ORANGE_USD=60.0
+LLM_BUDGET_RED_USD=90.0
 LLM_BUDGET_LIMIT_USD=100.0
+
 LLM_CACHE_TTL_HOURS=24
+
+# OpenRouter 추가 헤더 (리더보드 노출)
+OPENROUTER_REFERER=https://regtrack.local
+OPENROUTER_TITLE=RegTrack
 ```
 
 ---

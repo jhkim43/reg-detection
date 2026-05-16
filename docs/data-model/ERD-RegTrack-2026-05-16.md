@@ -366,7 +366,8 @@ CREATE TABLE crawler_agents (
 CREATE TABLE impact_analyzer_agents (
     id              TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
     rag_strategy    TEXT NOT NULL CHECK (rag_strategy IN ('BM25','HYBRID')) DEFAULT 'BM25',
-    llm_provider    TEXT NOT NULL CHECK (llm_provider IN ('OPENAI','CLAUDE')) DEFAULT 'OPENAI'
+    llm_provider    TEXT NOT NULL CHECK (llm_provider IN ('OPENROUTER','OPENAI','CLAUDE'))
+                    DEFAULT 'OPENROUTER'   -- v6: OPENROUTER 추가 + default
 );
 ```
 
@@ -476,8 +477,8 @@ CREATE INDEX idx_vault_topic ON vault_documents(topic_tag);
 CREATE TABLE llm_usage_records (
     id              TEXT PRIMARY KEY,
     agent_id        TEXT NOT NULL REFERENCES agents(id),
-    provider        TEXT NOT NULL CHECK (provider IN ('OPENAI','CLAUDE')),
-    model           TEXT NOT NULL,
+    provider        TEXT NOT NULL CHECK (provider IN ('OPENROUTER','OPENAI','CLAUDE')),  -- v6: OPENROUTER 추가
+    model           TEXT NOT NULL,                                                       -- 예: "qwen/qwen-2.5-72b-instruct"
     input_tokens    INTEGER NOT NULL,
     output_tokens   INTEGER NOT NULL,
     cost_usd        REAL NOT NULL,         -- SQLite REAL = double precision
