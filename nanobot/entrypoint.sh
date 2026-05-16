@@ -12,4 +12,11 @@ Fix (pick one):
 EOF
     exit 1
 fi
-exec nanobot "$@"
+
+# Development mode with auto-reload on file changes
+if [ "$DEV_MODE" = "1" ]; then
+    echo "Development mode enabled: auto-reloading on /app/nanobot changes"
+    watchmedo auto-restart -R -d /app/nanobot -p '*.py' -- nanobot "$@"
+else
+    exec nanobot "$@"
+fi
