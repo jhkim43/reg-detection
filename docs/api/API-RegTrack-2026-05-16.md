@@ -349,7 +349,7 @@ LPC 부품 변경 + 영속화 (AC-012).
   "cost_usd": 0.42,
   "call_count": 17,
   "cache_hit_rate": 0.64,
-  "last_model": "qwen/qwen-2.5-72b-instruct",
+  "last_model": "qwen/qwen3.6-35b-a3b",
   "threshold_level": "NONE",
   "updated_at": "2026-05-15T10:42:00Z"
 }
@@ -463,7 +463,7 @@ LLMUsageRecord 목록 (감사·디버깅용). pagination 지원.
   "cost_usd": 0.43,
   "call_count": 18,
   "cache_hit_rate": 0.61,
-  "last_model": "qwen/qwen-2.5-72b-instruct",
+  "last_model": "qwen/qwen3.6-35b-a3b",
   "threshold_level": "NONE"
 }
 ```
@@ -617,15 +617,15 @@ tags:
 ## 5. 외부 통합 — LLM API (OpenRouter + Qwen, v6)
 
 > **v6 변경**: provider를 OpenRouter + Qwen으로 통일. OpenRouter는 OpenAI 호환 API라 클라이언트 코드는 거의 동일 (`base_url`과 model명만 다름).
-> 정확한 Qwen 변종은 v7에서 확정 — 현재 placeholder: `qwen/qwen-2.5-72b-instruct`.
+> **v7 확정**: 모델 = `qwen/qwen3.6-35b-a3b` (MoE 35B/3B active). 가격 $0.15/$1.00 per 1M tokens.
 
 ### 5.1 사용 시나리오
 
 | 호출 위치 | Provider | Model (placeholder) | 평균 토큰 (input/output) |
 |----------|----------|-------|------------------------|
-| `analyzeImpact` (Citation 강제) | OpenRouter | qwen/qwen-2.5-72b-instruct | 2000 / 600 |
-| `classifyChangeType` (1줄 diff) | OpenRouter | qwen/qwen-2.5-72b-instruct | 1500 / 50 |
-| `generateMeetingDigest` | OpenRouter | qwen/qwen-2.5-72b-instruct | 3000 / 400 |
+| `analyzeImpact` (Citation 강제) | OpenRouter | qwen/qwen3.6-35b-a3b | 2000 / 600 |
+| `classifyChangeType` (1줄 diff) | OpenRouter | qwen/qwen3.6-35b-a3b | 1500 / 50 |
+| `generateMeetingDigest` | OpenRouter | qwen/qwen3.6-35b-a3b | 3000 / 400 |
 | (stretch) 의미 검색 임베딩 | OpenRouter | text-embedding-3-small (또는 BGE) | 500 / 0 |
 
 ### 5.1.1 OpenRouter 연결 정보
@@ -709,7 +709,7 @@ class LLMClient:
 ```python
 # OpenRouter는 /api/v1/models 엔드포인트로 가격 조회 가능
 GET https://openrouter.ai/api/v1/models
-→ {"data": [{"id": "qwen/qwen-2.5-72b-instruct",
+→ {"data": [{"id": "qwen/qwen3.6-35b-a3b",
               "pricing": {"prompt": "0.00000035", "completion": "0.0000004"}}, ...]}
 ```
 
@@ -731,7 +731,7 @@ GET https://openrouter.ai/api/v1/models
 # v6: OpenRouter 기본
 OPENROUTER_API_KEY=sk-or-v1-...
 DEFAULT_LLM_PROVIDER=OPENROUTER
-DEFAULT_LLM_MODEL=qwen/qwen-2.5-72b-instruct      # v7에서 확정
+DEFAULT_LLM_MODEL=qwen/qwen3.6-35b-a3b      # v7 확정 (MoE 35B/3B active)
 
 # fallback (옵션 — 사용 안 함)
 OPENAI_API_KEY=

@@ -159,7 +159,7 @@ echo "✅ All preflight checks passed"
 #### LLM 위젯 변화
 - 분류 LLM 호출 1회 (`classifyChangeType` 1줄 diff 생성)
 ```
-💰 $0.01 / 📞 1 / ⚡ 0% / 🤖 qwen-2.5-72b    [NONE]
+💰 $0.01 / 📞 1 / ⚡ 0% / 🤖 qwen3.6-35b-a3b    [NONE]
 ```
 
 #### 연결 컴포넌트
@@ -192,9 +192,9 @@ echo "✅ All preflight checks passed"
 
 #### LLM 위젯 변화 (실시간 갱신, ~3초 동안 위젯 카운터 증가)
 ```
-2:45  💰 $0.01 / 📞 1 / ⚡ 0%   / 🤖 qwen-2.5-72b   [NONE]
-2:48  💰 $0.04 / 📞 2 / ⚡ 0%   / 🤖 qwen-2.5-72b   [NONE]   ← BM25 + analyze
-2:50  💰 $0.07 / 📞 3 / ⚡ 33%  / 🤖 qwen-2.5-72b   [NONE]   ← Citation extract
+2:45  💰 $0.01 / 📞 1 / ⚡ 0%   / 🤖 qwen3.6-35b-a3b   [NONE]
+2:48  💰 $0.04 / 📞 2 / ⚡ 0%   / 🤖 qwen3.6-35b-a3b   [NONE]   ← BM25 + analyze
+2:50  💰 $0.07 / 📞 3 / ⚡ 33%  / 🤖 qwen3.6-35b-a3b   [NONE]   ← Citation extract
 ```
 
 #### 연결 컴포넌트
@@ -246,7 +246,7 @@ echo "✅ All preflight checks passed"
 
 #### LLM 위젯 변화
 ```
-4:00  💰 $0.08 / 📞 4 / ⚡ 25% / 🤖 qwen-2.5-72b   [NONE]
+4:00  💰 $0.08 / 📞 4 / ⚡ 25% / 🤖 qwen3.6-35b-a3b   [NONE]
 ```
 
 #### 연결 컴포넌트
@@ -276,7 +276,7 @@ echo "✅ All preflight checks passed"
 
 #### LLM 위젯 최종 (메인 시연 종료 시점)
 ```
-💰 $0.08 / 📞 4 / ⚡ 25% / 🤖 qwen-2.5-72b   [NONE]
+💰 $0.08 / 📞 4 / ⚡ 25% / 🤖 qwen3.6-35b-a3b   [NONE]
 ```
 
 > 100달러 예산 대비 0.08%. 시각적으로 progress bar 거의 비어있음.
@@ -336,7 +336,7 @@ echo "✅ All preflight checks passed"
 
 #### LLM 위젯 변화 (디지스트 LLM 호출)
 ```
-5:06  💰 $0.13 / 📞 5 / ⚡ 20% / 🤖 qwen-2.5-72b   [NONE]
+5:06  💰 $0.13 / 📞 5 / ⚡ 20% / 🤖 qwen3.6-35b-a3b   [NONE]
 ```
 
 #### 연결 컴포넌트

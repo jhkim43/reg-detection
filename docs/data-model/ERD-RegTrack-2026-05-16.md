@@ -478,7 +478,7 @@ CREATE TABLE llm_usage_records (
     id              TEXT PRIMARY KEY,
     agent_id        TEXT NOT NULL REFERENCES agents(id),
     provider        TEXT NOT NULL CHECK (provider IN ('OPENROUTER','OPENAI','CLAUDE')),  -- v6: OPENROUTER 추가
-    model           TEXT NOT NULL,                                                       -- 예: "qwen/qwen-2.5-72b-instruct"
+    model           TEXT NOT NULL,                                                       -- 예: "qwen/qwen3.6-35b-a3b" (v7)
     input_tokens    INTEGER NOT NULL,
     output_tokens   INTEGER NOT NULL,
     cost_usd        REAL NOT NULL,         -- SQLite REAL = double precision
