@@ -21,7 +21,7 @@
 - [1. 사전 점검 (Pre-push Audit)](#1-사전-점검-pre-push-audit)
 - [2. 권한·인증 설정](#2-권한인증-설정)
 - [3. Push 단계별 명령어](#3-push-단계별-명령어)
-  - [3.0 Push 경로 선택 — PR vs Fast-path](#30-push-경로-선택--pr-vs-fast-path)
+  - [3.0 Push 흐름 — dev는 PR 필수](#30-push-흐름--dev는-pr-필수)
 - [4. PR 생성](#4-pr-생성)
 - [5. 후속 정리](#5-후속-정리)
 - [6. 충돌·실수 대응](#6-충돌실수-대응)
@@ -149,77 +149,68 @@ git -C /Users/deukkyu/prjects/regtrack config user.email  # deukkyu3751@gmail.co
 
 > **모든 명령어는 본인이 직접 실행**. AI는 실행하지 않음.
 
-### 3.0 Push 경로 선택 — PR vs Fast-path
+### 3.0 Push 흐름 — dev는 PR 필수
 
-> **GitHub에서 PR이 구조적으로 강제되는 경우는 단 하나**: `dev`(또는 `main`) 브랜치에 **branch protection rule**이 걸려있을 때. 그 외엔 직접 push도 가능.
+> **현재 정책 (팀장 확인, 2026-05-16)**: `dev`·`main` 모두 **branch protection 적용** — dev로의 모든 머지는 PR을 거쳐야 함. 직접 push 불가.
 
-**우리 §17 Scope Change Governance와 매핑한 권장 경로 (dev 브랜치 기준 — 모두 선택):**
+**모든 변경은 feature branch → PR → dev 머지 경로를 따릅니다.** §17 Scope Change Governance는 PR 제목·라벨·리뷰 깊이 결정에만 사용:
 
-| 변경 크기 | 권장 경로 | 명령 흐름 | 리뷰 | 사용 예시 |
-|----------|----------|----------|------|----------|
-| **small** (단일 모듈·데이터값) | **Fast-path** | feat branch push → 본인이 dev로 local merge → `git push origin dev` | 본인 1인 | parser_config 튜닝, 오타, 폴링 주기 조정 |
-| **medium** (여러 모듈·신규 기능) | **PR 권장** | feat branch push → GitHub PR → 팀원 1+ approve → merge | 1+ approve | 새 게시판 추가, 필터 추가 |
-| **large** (MVP·아키텍처) | **PR 권장** (seed-vN 동봉) | feat branch push → GitHub PR → 어드바이저+팀 리뷰 → merge | 어드바이저 + 팀 | FSS → BOK 전환, LLM provider 변경 |
+| 변경 크기 | PR 라벨 | 리뷰 | commit 메시지 prefix | 사용 예시 |
+|----------|---------|------|--------------------|----------|
+| **small** (단일 모듈·데이터값) | `small` | 1인 self-approve 또는 팀원 1인 | `[small]` | parser_config 튜닝, 오타, 폴링 주기 조정 |
+| **medium** (여러 모듈·신규 기능) | `medium` | 팀원 1+ approve | `[medium]` | 새 게시판 추가, 필터 추가 |
+| **large** (MVP·아키텍처) | `large` | 어드바이저 + 팀 (seed-vN 동봉) | `[large]` | FSS → BOK 전환, LLM provider 변경 |
 
-> **dev 브랜치에는 protection 없음** → 어느 크기든 직접 push도 기술적으로 가능.
-> 단 medium/large는 **리뷰 누락 시 일정 risk 큼** → PR 사용 권장 (강제 아님).
-> `main` 브랜치는 보호 — M5 release 시점에만 PR로 머지.
+> dev에 직접 push 시도하면:
+> ```
+> remote: error: GH006: Protected branch update failed for refs/heads/dev.
+> ```
+> → 거부됨. 반드시 PR 경로 사용.
 
-#### 3.0.1 Fast-path (small 변경) — PR 생략
+#### 3.0.1 표준 워크플로우 (모든 변경 공통)
 
 ```bash
-# 본인 feat 브랜치에서 작업·커밋
-git checkout feat/내작업이름
-git add ... && git commit -m "[small] 사유 1줄"
+# 1. 최신 dev에서 feat 브랜치 파기
+git checkout dev
+git pull origin dev
+git checkout -b feat/내작업이름
 
-# 1. feat 브랜치 push (백업·기록용)
+# 2. 작업·커밋 (§17.2 분류 prefix 필수)
+git add ...
+git commit -m "[small] 또는 [medium] 또는 [large]: 사유 1줄"
+
+# 3. feat 브랜치 push
 git push -u origin feat/내작업이름
 
-# 2. dev로 local merge + push
-git checkout dev
-git pull origin dev                           # 최신 상태 sync
-git merge feat/내작업이름 --ff-only           # fast-forward만 허용 (불가 시 PR로 전환)
-git push origin dev
+# 4. PR 생성 (§4 참조)
+#    base: dev  ←  compare: feat/내작업이름
 
-# 3. (선택) feat 브랜치 정리
-git push origin --delete feat/내작업이름
-git branch -d feat/내작업이름
+# 5. PR 머지 후 정리
+git checkout dev
+git pull origin dev
+git branch -d feat/내작업이름                # 로컬 정리
+git push origin --delete feat/내작업이름     # 원격 정리
 ```
 
-**주의:**
-- `--ff-only`가 실패하면 dev에 다른 변경이 머지된 상태 → `git rebase origin/dev` 후 다시 시도, 또는 PR 경로로 전환
-- commit 메시지 1줄에 `[small] 사유`를 반드시 적기 — §17.2 enforcement
-- 본인이 collaborator 권한 있을 때만 가능 (없으면 fork → §3.2)
-
-#### 3.0.2 PR 경로 (medium/large) — 표준 흐름
-
-§3.1 → §3.2 → §3.3 → §4 그대로 따라감. 이번 M1 PR(분석·설계 산출물)이 여기에 해당.
-
-#### 3.0.3 dev 브랜치 protection 확인하는 법
+#### 3.0.2 dev 브랜치 protection 확인하는 법 (참고)
 
 ```bash
 # gh CLI 있으면
-gh api repos/jhkim43/reg-detection/branches/dev/protection 2>&1 | head -5
-# {} 또는 404면 보호 없음 (fast-path 가능)
-# rules 객체 나오면 보호 있음 (PR 강제됨 — main에 해당)
+gh api repos/jhkim43/reg-detection/branches/dev/protection 2>&1 | head -10
 
 # 또는 GitHub 웹에서:
 # Settings → Branches → Branch protection rules
 ```
 
-만약 dev에 보호가 걸려 있고 fast-path 시도하면:
-```
-remote: error: GH006: Protected branch update failed for refs/heads/dev.
-```
-→ PR 경로(§3.1~§4)로 전환.
+현재 dev에 적용된 보호 (팀장 설정):
+- Require pull request before merging
+- (필요 시 추가: required approvals N명, status checks 통과 등)
 
-#### 3.0.4 운영 정책 (현 상태 + 권장 컨벤션)
+#### 3.0.3 운영 정책
 
-- **`main` 브랜치는 보호 ON** — M5 release 시점에만 PR로 머지
-- **`dev` 브랜치는 보호 OFF** — 어느 크기든 직접 push 가능. 단 §17.2 분류를 commit 메시지에 명시 (`[small] / [medium] / [large]`)
-- medium/large는 **PR 권장** (강제 아님) — 코드 리뷰 + 머지 기록을 남기고 싶을 때 사용
-
-→ 본인 판단으로 fast-path vs PR 선택. **리뷰가 필요한 변경은 PR, 단순 변경은 fast-path**.
+- **`main` 브랜치는 보호 ON** — M5 release 시점에만 PR로 dev → main 머지
+- **`dev` 브랜치도 보호 ON** — 모든 변경은 PR을 거쳐 머지
+- §17.2 분류는 commit 메시지 prefix + PR 라벨로 가시화
 
 ---
 
