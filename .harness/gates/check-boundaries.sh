@@ -94,7 +94,7 @@ check_rule() {
       done <<< "$matches"
     done
     CHECKED=$((CHECKED + 1))
-  done < <(find "$search_dir" \( "${find_args[@]}" \) -type f 2>/dev/null | grep -v node_modules | grep -v __pycache__ | grep -v .next | grep -v dist | grep -v build)
+  done < <(find "$search_dir" \( "${find_args[@]}" \) -type f 2>/dev/null | grep -v node_modules | grep -v __pycache__ | grep -v .next | grep -v dist | grep -v build | grep -v "/nanobot/" | grep -v "/deskrpg/" | grep -v "/vendor/" | grep -v "/third_party/")
 }
 
 # Parse the YAML file

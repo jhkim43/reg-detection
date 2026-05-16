@@ -9,17 +9,20 @@ name: Harness Gates
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
 
 permissions:
   contents: read
 
 jobs:
   default-gates:
-    name: Default Gates (Blocking)
+    name: Default Gates (Informational — M1/M2 non-blocking)
     runs-on: ubuntu-latest
+    # M1-M2 학습 기간: 위반이 있어도 PR을 막지 않음.
+    # M3 진입 시점에 retro에서 blocking으로 전환 여부 결정.
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

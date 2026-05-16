@@ -78,7 +78,14 @@ check_section() {
 }
 
 # Check TODO/TBD placeholders
-TODO_COUNT=$(grep -ci "TODO\|TBD\|FIXME\|XXX" "$LATEST_SEED" 2>/dev/null || true)
+# - 주석 라인(^# 또는 ^space*#) 제외
+# - validation 메타 필드(no_tbd_placeholders) 제외
+# - 파일명 예시(xxx.md 등) 제외
+TODO_COUNT=$(grep -i "TODO\|TBD\|FIXME\|XXX" "$LATEST_SEED" 2>/dev/null \
+  | grep -v "^[[:space:]]*#" \
+  | grep -v "no_tbd_placeholders\|no_todo_placeholders" \
+  | grep -v "xxx\.md\|xxx\.html\|xxx\.txt" \
+  | wc -l | tr -d ' ' || true)
 TODO_COUNT="${TODO_COUNT:-0}"
 if [ "$TODO_COUNT" -gt 0 ]; then
   error "Found $TODO_COUNT TODO/TBD placeholders in seed spec"

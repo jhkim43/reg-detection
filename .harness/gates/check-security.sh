@@ -200,6 +200,7 @@ run_builtin_checks() {
       --include="*.py" --include="*.java" --include="*.go" \
       2>/dev/null | \
       grep -v "node_modules" | grep -v "__pycache__" | grep -v ".harness" | \
+      grep -v "/nanobot/" | grep -v "/deskrpg/" | grep -v "/vendor/" | grep -v "/third_party/" | \
       grep -v "\.test\." | grep -v "\.spec\." | grep -v "check-security" | \
       head -5 || true)
 

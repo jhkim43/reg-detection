@@ -74,15 +74,53 @@ git check-ignore -v vault/ .env.local .DS_Store "Project Charter_4팀_0514.docx"
 # 각 파일에 대해 어느 패턴이 매치하는지 표시되면 OK
 ```
 
-### 1.5 harness gates (있으면)
+### 1.5 harness gates — PR 전 로컬 검증 (권장)
+
+**목적**: CI(GitHub Actions `.github/workflows/harness-gates.yaml`)가 PR마다 자동 실행하지만, **로컬에서 미리 돌리면 CI fail로 인한 재push 사이클을 줄일 수 있음**.
+
+#### 게이트 정책 (2026-05-16 현재)
+
+| 단계 | 정책 | 비고 |
+|------|------|------|
+| **M1-M2** | non-blocking (informational) | workflow `continue-on-error: true`. 위반 있어도 PR 머지 가능 |
+| **M3 진입 시** | retro에서 blocking 전환 결정 | nanobot 커스터마이징 정책(diff/whitelist/분리)과 함께 |
+
+#### 로컬 실행 — 한번에 전체
 
 ```bash
-# 만약 .harness/detect-violations.sh가 실행 가능한 상태면
-chmod +x .harness/detect-violations.sh
-./.harness/detect-violations.sh || echo "⚠️ gates 실패 — 검토 필요"
+cd /Users/deukkyu/prjects/regtrack
+bash .harness/detect-violations.sh
+# 또는
+bash .harness/gates/check-secrets.sh .
+bash .harness/gates/check-boundaries.sh .
+bash .harness/gates/check-spec.sh .
+bash .harness/gates/check-layers.sh .
+bash .harness/gates/check-security.sh .
+bash .harness/gates/check-deps.sh .
+bash .harness/gates/check-structure.sh .
 ```
 
-> M1 단계엔 소스 코드가 없으므로 일부 gate(check-layers, check-boundaries)는 의미 없을 수 있음. M2부터 활성.
+#### 게이트 범위 (현 설정)
+
+- 다음 경로는 **검사 대상에서 제외** (upstream/외부 fork 코드):
+  - `nanobot/` (nanobot upstream fork, freezing 상태)
+  - `deskrpg/` (M4부터 추가 예정)
+  - `vendor/`, `third_party/`, `node_modules/`, `__pycache__/`, `.harness/`, `dist/`, `build/`, `.next/`
+- 우리가 작성한 **신규 코드만** 검사 대상
+
+#### 게이트 실패 시 행동 (단계별)
+
+1. **로컬에서 실패** → 코드 수정 후 다시 push
+2. **CI에서 실패** (M1-M2 non-blocking이라 머지 가능하지만):
+   - PR 코멘트에 사유 1줄 ("nanobot upstream 본래 코드" / "false positive 분석" 등)
+   - retro 안건으로 등록 (게이트 튜닝 필요한지)
+
+#### M3 진입 시 정책 전환 안건 (참고)
+
+M2 종료 retro에서 다음을 결정:
+1. **nanobot 수정 정책**: (a) diff 기반 검사 / (b) 화이트리스트 / (c) 디렉토리 분리
+2. **게이트 blocking 전환**: workflow `continue-on-error: true` 제거 → 위반 시 PR 머지 차단
+3. **pre-commit hook**: 각자 로컬에서 매 commit 자동 실행 (선택)
 
 ---
 
