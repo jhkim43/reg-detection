@@ -4,6 +4,9 @@ x-common-config: &common-config
     dockerfile: Dockerfile
   volumes:
     - ~/.nanobot:/home/nanobot/.nanobot
+    - ./nanobot:/app/nanobot
+  environment:
+    - DEV_MODE=1  # 개발 모드 활성화
   cap_drop:
     - ALL
   cap_add:
