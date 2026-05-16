@@ -70,16 +70,16 @@ done < <(find "$PROJECT_ROOT" -name "*.sql" -type f \
   2>/dev/null)
 
 # ─── Check: No test files in production directories ───────────────
-# This is a common AI agent mistake
-find "$PROJECT_ROOT/src" "$PROJECT_ROOT/app" \
-  -name "*.test.*" -o -name "*.spec.*" \
-  -type f 2>/dev/null | \
-  grep -v "__tests__" | \
-  grep -v "node_modules" | \
-  grep -v ".next" | while IFS= read -r file; do
-  # This is actually fine for co-located tests — just informational
-  :
-done
+# (co-located tests are fine — this block is informational only).
+# Skip if src/ or app/ 가 아직 없다 (M1 단계: docs/specs만 존재).
+SRC_DIRS=()
+[ -d "$PROJECT_ROOT/src" ] && SRC_DIRS+=("$PROJECT_ROOT/src")
+[ -d "$PROJECT_ROOT/app" ] && SRC_DIRS+=("$PROJECT_ROOT/app")
+if [ ${#SRC_DIRS[@]} -gt 0 ]; then
+  find "${SRC_DIRS[@]}" -name "*.test.*" -o -name "*.spec.*" -type f 2>/dev/null \
+    | grep -v "__tests__" | grep -v "node_modules" | grep -v ".next" \
+    | while IFS= read -r file; do :; done || true
+fi
 
 # Report
 echo ""
