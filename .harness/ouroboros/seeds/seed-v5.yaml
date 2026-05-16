@@ -1119,7 +1119,7 @@ resolved_ambiguities:
 process_governance:
   retrospective:
     cadence: "매주 금요일 30분"
-    participants: "팀 4인 (김지효 PM·이득규·백정헌·조민희)"
+    participants: "팀 4인 (팀장(PM)·팀원1·팀원2·팀원3)"
     agenda:
       - "지난 주 발견된 scope 변경 안건 1줄씩"
       - "이번 주 진척 vs 계획"

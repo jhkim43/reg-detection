@@ -1,16 +1,18 @@
 # Push & Integration Guide — RegTrack
 
-> **목적**: 로컬에서 작성한 분석/설계 산출물을 base repo(`jhkim43/reg-detection`)에 안전하게 push + PR 생성하는 가이드.
-> **대상**: 이득규 (deukkyu-tech) — 본인이 직접 실행. AI는 가이드만 제공.
+> **목적**: 로컬 작업물을 base repo(`jhkim43/reg-detection`)에 안전하게 push + PR 생성하는 팀 공용 가이드.
+> **대상**: 팀 전원. 각자 자기 feature 브랜치를 push할 때 동일 절차 적용. AI는 가이드만 제공·실행 X.
+> **이번 적용 예시**: M1 분석/설계 산출물 push (브랜치 `feat/spec-and-design`, 작업자 = deukkyu-tech). 다른 마일스톤·작업자는 변수만 교체.
 
-| 항목 | 내용 |
-|------|------|
-| **버전** | v1 |
-| **작성일** | 2026-05-16 |
-| **현재 위치** | `/Users/deukkyu/prjects/regtrack/` |
-| **현재 브랜치** | `feat/spec-and-design` |
-| **타겟 브랜치** | `dev` (먼저 PR) → 나중에 `main` |
-| **Remote** | `origin = https://github.com/jhkim43/reg-detection.git` |
+| 항목 | 이번 예시 값 | 일반화 |
+|------|-------------|--------|
+| **버전** | v2 (일반화) | — |
+| **작성일** | 2026-05-16 | — |
+| **현재 위치** | `/Users/deukkyu/prjects/regtrack/` | 본인 clone 경로 |
+| **현재 브랜치** | `feat/spec-and-design` | 본인 feature 브랜치 |
+| **타겟 브랜치** | `dev` (먼저 PR) → 나중에 `main` | 동일 (모든 작업자) |
+| **Remote** | `origin = https://github.com/jhkim43/reg-detection.git` | 동일 (모든 작업자) |
+| **작업자** | deukkyu-tech (예시) | 본인 GitHub 계정 |
 
 ---
 
@@ -19,6 +21,7 @@
 - [1. 사전 점검 (Pre-push Audit)](#1-사전-점검-pre-push-audit)
 - [2. 권한·인증 설정](#2-권한인증-설정)
 - [3. Push 단계별 명령어](#3-push-단계별-명령어)
+  - [3.0 Push 경로 선택 — PR 필수 vs Fast-path](#30-push-경로-선택--pr-필수-vs-fast-path)
 - [4. PR 생성](#4-pr-생성)
 - [5. 후속 정리](#5-후속-정리)
 - [6. 충돌·실수 대응](#6-충돌실수-대응)
@@ -92,7 +95,7 @@ chmod +x .harness/detect-violations.sh
 ```bash
 # 권한 확인 (브라우저)
 open https://github.com/jhkim43/reg-detection/settings/access
-# 본인(deukkyu-tech)이 보이는지 확인. 안 보이면 PM(김지효)에게 collaborator 추가 요청
+# 본인(deukkyu-tech)이 보이는지 확인. 안 보이면 PM(팀장)에게 collaborator 추가 요청
 
 # 또는: 본인 계정으로 fork
 open https://github.com/jhkim43/reg-detection/fork
@@ -145,6 +148,76 @@ git -C /Users/deukkyu/prjects/regtrack config user.email  # deukkyu3751@gmail.co
 ## 3. Push 단계별 명령어
 
 > **모든 명령어는 본인이 직접 실행**. AI는 실행하지 않음.
+
+### 3.0 Push 경로 선택 — PR 필수 vs Fast-path
+
+> **GitHub에서 PR이 구조적으로 강제되는 경우는 단 하나**: `dev`(또는 `main`) 브랜치에 **branch protection rule**이 걸려있을 때. 그 외엔 직접 push도 가능.
+
+**우리 §17 Scope Change Governance와 매핑한 권장 경로:**
+
+| 변경 크기 | 경로 | 명령 흐름 | 리뷰 | 사용 예시 |
+|----------|------|----------|------|----------|
+| **small** (단일 모듈·데이터값) | **Fast-path** | feat branch push → 본인이 dev로 local merge → `git push origin dev` | 본인 1인 | parser_config 튜닝, 오타, 폴링 주기 조정 |
+| **medium** (여러 모듈·신규 기능) | **PR 권장** | feat branch push → GitHub PR → 팀원 1+ approve → merge | 1+ approve | 새 게시판 추가, 필터 추가 |
+| **large** (MVP·아키텍처) | **PR 필수** | feat branch push → GitHub PR → seed-vN 동봉 → 어드바이저+팀 → merge | 어드바이저 + 팀 | FSS → BOK 전환, LLM provider 변경 |
+
+#### 3.0.1 Fast-path (small 변경) — PR 생략
+
+```bash
+# 본인 feat 브랜치에서 작업·커밋
+git checkout feat/내작업이름
+git add ... && git commit -m "[small] 사유 1줄"
+
+# 1. feat 브랜치 push (백업·기록용)
+git push -u origin feat/내작업이름
+
+# 2. dev로 local merge + push
+git checkout dev
+git pull origin dev                           # 최신 상태 sync
+git merge feat/내작업이름 --ff-only           # fast-forward만 허용 (불가 시 PR로 전환)
+git push origin dev
+
+# 3. (선택) feat 브랜치 정리
+git push origin --delete feat/내작업이름
+git branch -d feat/내작업이름
+```
+
+**주의:**
+- `--ff-only`가 실패하면 dev에 다른 변경이 머지된 상태 → `git rebase origin/dev` 후 다시 시도, 또는 PR 경로로 전환
+- commit 메시지 1줄에 `[small] 사유`를 반드시 적기 — §17.2 enforcement
+- 본인이 collaborator 권한 있을 때만 가능 (없으면 fork → §3.2)
+
+#### 3.0.2 PR 경로 (medium/large) — 표준 흐름
+
+§3.1 → §3.2 → §3.3 → §4 그대로 따라감. 이번 M1 PR(분석·설계 산출물)이 여기에 해당.
+
+#### 3.0.3 dev 브랜치 protection 확인하는 법
+
+```bash
+# gh CLI 있으면
+gh api repos/jhkim43/reg-detection/branches/dev/protection 2>&1 | head -5
+# {} 또는 404면 보호 없음 (fast-path 가능)
+# rules 객체 나오면 보호 있음 (PR 필수)
+
+# 또는 GitHub 웹에서:
+# Settings → Branches → Branch protection rules
+```
+
+만약 dev에 보호가 걸려 있고 fast-path 시도하면:
+```
+remote: error: GH006: Protected branch update failed for refs/heads/dev.
+```
+→ PR 경로(§3.1~§4)로 전환.
+
+#### 3.0.4 권장 운영 정책 (팀 합의 필요)
+
+- **`main` 브랜치는 항상 보호** (협의 권장: M5 release 시점에만 PR로 머지)
+- **`dev` 브랜치는 보호 OFF** (small fast-path 허용) — 단 §17.2 분류를 commit 메시지에 강제
+- medium/large는 protection 없어도 **팀 컨벤션상 PR 필수** (코드 리뷰 + 머지 기록)
+
+→ 이 정책이 합의되면 본 가이드 §3.0.1 fast-path를 small에서만 사용.
+
+---
 
 ### 3.1 표준 시나리오 — feat 브랜치 push
 

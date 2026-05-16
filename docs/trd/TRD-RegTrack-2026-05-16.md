@@ -995,7 +995,7 @@ docs/retro/
 - [지연] T-YY (사유)
 
 ## Scope 변경 안건
-- [small] FSS 보도 폴링 30분 → 60분 (이득규, commit abc1234)
+- [small] FSS 보도 폴링 30분 → 60분 (팀원1, commit abc1234)
 - [medium] 분석 NPC에 '비교 규제 1건' 추가 — 다음 주 T-23.5로
 - [large] (없음)
 

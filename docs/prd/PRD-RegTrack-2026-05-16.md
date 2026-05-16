@@ -18,7 +18,7 @@
 | **프로젝트명** | RegTrack — 지능형 규제 변화 모니터링 시스템 (Intelligent Regulation Change Monitoring) |
 | **버전** | PRD v4 (Draft) |
 | **작성일** | 2026-05-16 |
-| **작성자** | 이득규 (with 팀 4인: 김지효(PM)·이득규·백정헌·조민희) |
+| **작성자** | 팀원1 (with 팀 4인: 팀장(PM)·팀원1·팀원2·팀원3) |
 | **출처(Source)** | `.harness/ouroboros/seeds/seed-v4.yaml` (immutable spec, supersedes v3) · `Project Charter_4팀_0514.docx` |
 | **상태** | Draft |
 | **기간** | 12주 (W1~W12) |
@@ -97,6 +97,8 @@
 - Vector DB(pgvector) 기반 의미 검색 (BM25로 시작)
 - 주간 회의 cron 자동 실행 *(v2 stretch — 시연용은 수동 트리거)*
 - 회의 음성 합성 TTS *(v2 stretch — 현재는 자막)*
+- **상업 배포 (Production commercial launch)** — deskrpg fork는 Sustainable Use License 1.0 하에 학술용·내부 사용만 허용. 상업화 시 프론트엔드 라이센스 재선택·재구현 필요 *(v8 — seed-v8 D-13, R-18 참조)*
+- **deskrpg upstream의 비RegTrack 신규 기능 직접 통합** — 시연 종료 후 M5 retro 안건 *(v8)*
 
 ---
 
@@ -473,7 +475,7 @@ ARCHITECTURE_INVARIANTS.md Part 1 절대 규칙 준수:
 | 항목 | 내용 |
 |------|------|
 | **주기** | 매주 금요일 30분 |
-| **참석자** | 팀 4인 (김지효 PM·이득규·백정헌·조민희) |
+| **참석자** | 팀 4인 (팀장(PM)·팀원1·팀원2·팀원3) |
 | **어드바이저** | 대형 변경 안건 발생 시만 별도 회의 |
 | **Agenda** | (1) 이번 주 발견된 scope 변경 안건 1줄씩 / (2) 진척 vs 계획 / (3) 다음 주 cut/keep 결정 |
 | **Output** | git commit 또는 issue로 결정 기록 → 필요 시 seed-vN 새 버전 발행 |
@@ -516,10 +518,10 @@ ARCHITECTURE_INVARIANTS.md Part 1 절대 규칙 준수:
 
 | 역할 | 이름 | 서명 / 일자 |
 |------|------|------------|
-| PM (Captain) | 김지효 | _________________ |
-| 개발 | 이득규 | _________________ |
-| 기획/QA | 백정헌 | _________________ |
-| 개발 | 조민희 | _________________ |
+| PM (Captain) | 팀장 | _________________ |
+| 개발 | 팀원1 | _________________ |
+| 기획/QA | 팀원2 | _________________ |
+| 개발 | 팀원3 | _________________ |
 | Advisor | (성함) | _________________ |
 
 > 본 PRD는 seed-v1.yaml 기반의 **현 시점 합의안**입니다. 변경 시 새로운 PRD 버전(v2) 발행 + seed-v2.yaml 동시 생성 필요.

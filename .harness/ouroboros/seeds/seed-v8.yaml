@@ -1,12 +1,58 @@
-# Seed Specification v7 — RegTrack
+# Seed Specification v8 — RegTrack
 # Generated: 2026-05-16
-# Supersedes: seed-v6.yaml
+# Supersedes: seed-v7.yaml
 # Source Interview: .harness/ouroboros/interviews/2026-05-16-10-12.yaml
-# WARNING: This file is IMMUTABLE. To change, create seed-v8.yaml.
+# WARNING: This file is IMMUTABLE. To change, create seed-v9.yaml.
 # 작성 원칙: 한국어 주 + 영어 기술 용어 병기. TODO/TBD 금지.
 
 # ─────────────────────────────────────────────────────────────────────
-# Changes from v6 — 변경 이력 (immutable spec 진화 추적)
+# Changes from v7 — 변경 이력 (immutable spec 진화 추적)
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v7:
+  trigger: |
+    deskrpg upstream(https://github.com/dandacompany/deskrpg) 라이센스 확인 결과
+    "Sustainable Use License 1.0" 적용 — 학술/내부 사용 OK, 상업 배포 금지.
+    또한 LPC asset 일부는 LICENSE-assets.md에서 CC-BY-SA 3.0 등 별도 라이센스.
+    RegTrack은 학술 시연(AIMBA ABP) 범위로 사용 → 라이센스 위반 없음.
+    단 commercial pivot 시 라이센스 교체·재구현 필요 → non_goal에 명시 + R-18로 추적.
+
+  decided:
+    - "deskrpg 사용 범위: 학술 시연 + 내부 검증 only. 상업 배포 명시적 non-goal."
+    - "deskrpg fork 시점: M4 시작(W7) — 그 전까지는 reference 용도로만 참조"
+    - "LPC asset 라이센스 헤더는 LICENSE-assets.md 그대로 유지 (제거 X)"
+    - "deskrpg upstream pull은 시연 종료 후로 연기 (M5 retro 안건)"
+    - "팀 구성원 명칭은 일반 명칭(팀장/팀원1/팀원2/팀원3)으로 표기 — 역할 미확정"
+
+  added:
+    - "constraints.must: deskrpg fork는 학술용·시연용으로만 사용 (Sustainable Use License 1.0 준수)"
+    - "constraints.must_not: deskrpg fork를 상업 배포 (라이센스 위반)"
+    - "constraints.must_not: LPC asset의 별도 라이센스(LICENSE-assets.md) 헤더 제거"
+    - "tech_decisions D-13: deskrpg 라이센스 명시 + 학술 범위 한정"
+    - "non_goals: 상업 배포 (Production commercial launch) — 라이센스 사유"
+    - "resolved_ambiguities: deskrpg 라이센스 사용 가능 여부 (Sustainable Use License 1.0 학술 OK)"
+    - "R-18 (Risk Register): deskrpg/LPC 라이센스 위반 — Low/Medium severity (학술 범위 내 OK)"
+
+  modified:
+    - "deskrpg fork 시점 명시 (M4 W7) — v7까지는 미명시"
+    - "scope.future: '상업화'는 별도 검토(라이센스 재선택 필요) 명시"
+    - "모든 문서 팀원 실명 → 일반 명칭(팀장/팀원1/팀원2/팀원3) 치환 — 역할 미확정 반영"
+
+  unchanged:
+    - "Qwen 모델 결정 (v7 D-12)"
+    - "AC-008 단계별 임계치 ($30/60/90, v6 D-11)"
+    - "Obsidian REST API 통합 (v5)"
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "$100 / 2.5개월 총 예산"
+    - "Scope Change Governance (§17)"
+
+  pending_v9:
+    - "팀원 역할 4인 최종 확정 (현재 일반 명칭 팀장/팀원1/팀원2/팀원3로 표기)"
+    - "OpenRouter prompt cache 지원 여부 (v7 pending 유지 — W6 구현 시 확인)"
+    - "Qwen 정확도 benchmark 결과 (v7 pending 유지 — W6 첫 주)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v6 — 누적 변경 이력
 # ─────────────────────────────────────────────────────────────────────
 changelog_from_v6:
   trigger: |
@@ -80,9 +126,9 @@ changelog_from_v5:
     - "$100 / 2.5개월 총 예산"
     - "Scope Change Governance (§17)"
 
-version: 6
-created: "2026-05-16T15:00:00"
-supersedes: ".harness/ouroboros/seeds/seed-v5.yaml"
+version: 8
+created: "2026-05-16T18:00:00"
+supersedes: ".harness/ouroboros/seeds/seed-v7.yaml"
 interview_ref: ".harness/ouroboros/interviews/2026-05-16-10-12.yaml"
 charter_ref: "Project Charter_4팀_0514.docx"
 
@@ -256,6 +302,9 @@ goal:
     - "BCBS(바젤위) 영문 본문 번역 자동화 (v2)"
     - "픽셀 아트 자산 신규 제작 (MVP는 deskrpg 기본 자산 재활용 + 색상·이름 변경)"
     - "Vector DB(pgvector) 기반 의미 검색 (BM25로 시작, stretch)"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "상업 배포 (Production commercial launch) — deskrpg Sustainable Use License 1.0 위반. 상업화는 별도 라이센스 재선택·재구현 필요"
+    - "deskrpg upstream의 비RegTrack 신규 기능 직접 통합 (시연 종료 후 M5 retro 안건)"
 
 # ─────────────────────────────────────────────────────────────────────
 # Constraints — 절대 / 금지 / 권장
@@ -285,6 +334,10 @@ constraints:
     - "nanobot Captain skill 'obsidian-commander' (skills/obsidian/SKILL.md) 활용 — Bearer Token 인증"
     - "SSRF whitelist에 Obsidian 호스트 IP 등록 강제 (~/.nanobot/config.json ssrfWhitelist)"
     - "VaultDocument frontmatter는 '#topic' 태그 필수 + '## Connected Knowledge' 섹션 + [[wikilink]] 강제"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "deskrpg fork(github.com/dandacompany/deskrpg)는 Sustainable Use License 1.0 하에서 학술용·시연용으로만 사용 — 상업 배포 금지"
+    - "deskrpg fork 시점은 M4 시작(W7) — 그 전까지는 reference 용도(코드 분석)만 허용"
+    - "LPC asset 별도 라이센스 헤더(LICENSE-assets.md, 통상 CC-BY-SA 3.0)는 그대로 유지"
 
   must_not:
     - "PostgreSQL/pgvector를 MVP 의존성에 포함 (stretch goal로만)"
@@ -299,6 +352,10 @@ constraints:
     - "Backend가 vault/ 디렉토리를 파일시스템으로 직접 read/write (v5 — Obsidian REST API 강제)"
     - "Obsidian REST API 호출에 SSRF whitelist 등록 누락 (보안 강화)"
     - "누적 cost_usd >= $90 RED 임계 도달 후 LLM 호출 계속 (v6 — BUDGET_EXCEEDED 차단)"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "deskrpg fork를 상업 배포 (Sustainable Use License 1.0 위반)"
+    - "LPC asset의 별도 라이센스(LICENSE-assets.md) 헤더 제거 또는 누락"
+    - "deskrpg 라이센스 고지 누락한 채 외부 데모/배포 공개 (학술 시연 OK, 외부 배포 X)"
 
   should:
     - "RAG는 BM25부터 — 정확도 부족 시 pgvector stretch"
@@ -1163,13 +1220,31 @@ tech_decisions:
       - "OpenRouter prompt cache 지원 여부 미검증 (W6 LLMClient 구현 시 확인)"
       - "R-13 (Qwen 정확도): benchmark 미달 시 qwen3.6-27b 또는 plus로 전환 검토 (seed-v8)"
 
+  # ─── v8 추가 (deskrpg 라이센스 명시) ───
+  - decision: "deskrpg fork는 학술용·시연용으로만 사용 (Sustainable Use License 1.0 준수). 상업 배포는 명시적 non-goal로 차단."
+    reason: |
+      deskrpg(github.com/dandacompany/deskrpg)는 Sustainable Use License 1.0 적용 —
+      비상업·내부 사용은 허용, 상업 배포는 별도 라이센스 필요. AIMBA ABP 학술 시연은
+      "internal use + non-commercial"에 해당 → 위반 없음.
+      LPC asset 일부는 LICENSE-assets.md에서 CC-BY-SA 3.0 등 별도 라이센스 — 헤더 유지 필수.
+      Commercial pivot 가능성을 차단하기보다 명시적 non-goal로 두고 향후 별도 검토.
+    alternatives_considered:
+      - "라이센스 호환 OSS 프론트(Phaser·Excalibur 등)로 재구현 (12주 일정 risk + wow 상실)"
+      - "deskrpg fork 후 자체 라이센스로 재배포 (Sustainable Use License 1.0 위반)"
+      - "deskrpg embed only (iframe) — 코드 분석·커스텀 불가, RPG NPC 통합 어려움"
+    side_effects:
+      - "Commercial launch 시 프론트엔드 재구현 또는 별도 라이센스 협의 필요"
+      - "LICENSE·LICENSE-assets.md 파일을 RegTrack repo 루트에 그대로 유지·노출 (제거 금지)"
+      - "deskrpg upstream pull은 시연 종료 후로 연기 (M5 retro 안건)"
+      - "R-18로 추적: 라이센스 위반 risk (현재 학술 범위 내, severity Medium)"
+
 # ─────────────────────────────────────────────────────────────────────
 # Validation
 # ─────────────────────────────────────────────────────────────────────
 validation:
   goal_summary_clear: true
-  must_constraints: 22            # v4 18 + 4 (v5 REST API 통합)
-  must_not_constraints: 11        # v4 9 + 2 (vault 직접 접근·SSRF 누락 금지)
+  must_constraints: 25            # v5 22 + 3 (v8 deskrpg 라이센스·fork 시점·LPC asset 헤더)
+  must_not_constraints: 14        # v6 11 + 3 (v8 상업배포·LPC 헤더제거·라이센스 고지누락)
   acceptance_criteria_count: 12   # v1 10 + 2
   ac_all_testable: true
   ac_all_have_complexity: true
@@ -1244,6 +1319,14 @@ resolved_ambiguities:
   # v7 추가 (Qwen 모델 확정)
   - issue: "정확한 Qwen 변종 (v6 pending_v7)"
     decision: "qwen/qwen3.6-35b-a3b 채택 — MoE 35B/3B active, $0.15/$1.00 per 1M tokens. 시연 기간 ~$1.30 추정"
+
+  # v8 추가 (deskrpg 라이센스)
+  - issue: "deskrpg(github.com/dandacompany/deskrpg) 라이센스 사용 가능 여부"
+    decision: "Sustainable Use License 1.0 — 학술·내부 사용 OK, 상업 배포 금지. AIMBA ABP 학술 시연 범위는 위반 없음. LPC asset의 LICENSE-assets.md(CC-BY-SA 3.0 등) 헤더는 유지 필수."
+  - issue: "deskrpg fork 시점 (즉시 fork vs M4 진입 시)"
+    decision: "M4 시작(W7) — 그 전까지는 reference 용도(코드 분석)로만 사용. fork 시점에 LICENSE/LICENSE-assets.md 그대로 보존."
+  - issue: "팀 4인 역할·실명 명시 여부"
+    decision: "현재 미확정 — 모든 문서는 일반 명칭(팀장/팀원1/팀원2/팀원3)으로 표기. 역할 확정 시 seed-v9에서 갱신."
 
 # ─────────────────────────────────────────────────────────────────────
 # Process Governance — v4 신규 (scope 변경·리뷰 cadence)

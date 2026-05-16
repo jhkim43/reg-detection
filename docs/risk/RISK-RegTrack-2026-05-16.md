@@ -9,14 +9,14 @@
 | **작성일** | 2026-05-16 |
 | **출처** | Project Charter · seed-v6 · interviews/2026-05-16-10-12.yaml · PRD §10 |
 | **갱신 주기** | 주 1회 금요일 retro |
-| **owner** | 김지효 (PM, RACI 최종) + 팀 4인 (실행) |
+| **owner** | 팀장 (PM, RACI 최종) + 팀 4인 (실행) |
 
 ---
 
 ## 목차
 
 - [1. Risk 분류 체계](#1-risk-분류-체계)
-- [2. Risk Register (17개)](#2-risk-register-17개)
+- [2. Risk Register (18개)](#2-risk-register-17개)
 - [3. Risk Heatmap](#3-risk-heatmap)
 - [4. 12주 마일스톤 갠트](#4-12주-마일스톤-갠트)
 - [5. Risk-Milestone 매트릭스](#5-risk-milestone-매트릭스)
@@ -56,7 +56,7 @@ Low(1)          Low      Low        Med
 
 ---
 
-## 2. Risk Register (17개)
+## 2. Risk Register (18개)
 
 ### R-1 스코프 광기 수용
 
@@ -67,7 +67,7 @@ Low(1)          Low      Low        Med
 | **Impact** | High |
 | **Severity** | **Critical** |
 | **Status** | **ACCEPTED** (사용자 명시 결정) |
-| **Owner** | 김지효 (PM) |
+| **Owner** | 팀장 (PM) |
 | **Source** | seed-v1 user decision, PRD §10 R-1 |
 | **Trigger** | 마일스톤 1개 이상 슬립 (M2/M3/M4 게이트 통과 실패) |
 | **Mitigation** | (1) 양보 우선순위 §6 발동 (2) 다음 retro에서 재평가 (3) 어드바이저 알림 |
@@ -97,7 +97,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium |
 | **Severity** | **Low** (v6 격하) |
 | **Status** | MITIGATED |
-| **Owner** | 이득규 (개발) |
+| **Owner** | 팀원1 (개발) |
 | **Source** | seed-v1, v6 강화 |
 | **Trigger** | LlmUsageSnapshot.threshold_level = YELLOW($30) |
 | **Mitigation** | (1) AC-008 단계별 가드: YELLOW→ORANGE→RED (2) prompt cache 적극 (3) Qwen 모델 (저렴) (4) BUDGET_EXCEEDED 자동 차단 |
@@ -112,7 +112,7 @@ Low(1)          Low      Low        Med
 | **Impact** | High (FSS 크롤러 실패 시 AC-001 위반) |
 | **Severity** | Medium |
 | **Status** | OPEN (Flexible Parser 설계로 mitigation) |
-| **Owner** | 이득규 (Crawler 담당) |
+| **Owner** | 팀원1 (Crawler 담당) |
 | **Source** | 차터 Risks |
 | **Trigger** | `CrawlJob.parser_error IS NOT NULL` 또는 `items_found < expected` |
 | **Mitigation** | (1) Flexible Parser 추상화 (2) parser_error 알림 즉시 (3) parser_config JSON 외부화 (Hot update) |
@@ -127,7 +127,7 @@ Low(1)          Low      Low        Med
 | **Impact** | High (AC-003 위반 = 시연 wow → oops) |
 | **Severity** | **High** |
 | **Status** | MITIGATED (BR-1 Citation 강제) |
-| **Owner** | 이득규 (분석 NPC 담당) |
+| **Owner** | 팀원1 (분석 NPC 담당) |
 | **Source** | 차터 Risks |
 | **Trigger** | Citation 0개 응답 또는 char_offset 범위 외 |
 | **Mitigation** | (1) BR-1 강제: Citation 0개 시 422 reject (2) char_offset 검증 (3) require_citation=true 프롬프트 (4) 필요 시 HITL |
@@ -157,7 +157,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Low |
 | **Severity** | **Low** |
 | **Status** | ACCEPTED (시연 후 재평가) |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | seed-v1 tech_decision |
 | **Trigger** | nanobot upstream에 보안 패치 release |
 | **Mitigation** | 12주 동안 fork 시점 freeze. 시연 후 rebase 평가 |
@@ -172,7 +172,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium |
 | **Severity** | Medium |
 | **Status** | MITIGATED (v2: 맵 에디터·멀티플레이어만 제거, AI 미팅룸은 repurpose) |
-| **Owner** | 이득규 (deskrpg fork 담당) |
+| **Owner** | 팀원1 (deskrpg fork 담당) |
 | **Source** | PRD §10 R-8 (v2 갱신) |
 | **Trigger** | W2 spike에서 제거 범위 결정 못 함 |
 | **Mitigation** | hidden 처리 가능 (라우팅만 막음) |
@@ -187,7 +187,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium |
 | **Severity** | **High** |
 | **Status** | OPEN |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | PRD §10 R-9 (v2 추가) |
 | **Trigger** | W9-W10 회의실 씬 통합 미완 |
 | **Mitigation** | (1) AC-011 별도 트랙 (2) 클라이언트 자체 애니메이션 (D-4) — 백엔드 디지스트 1회만 (3) 시연일 D-7까지 통합 검증 |
@@ -202,7 +202,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Low |
 | **Severity** | **Low** |
 | **Status** | MITIGATED (Qwen 저렴) |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | PRD §10 R-10 (v2 추가) |
 | **Trigger** | 주 1회 디지스트 호출 비용 누적 |
 | **Mitigation** | Qwen 모델 + prompt cache. 시연 기간 ~$5 추가 흡수 가능 |
@@ -216,11 +216,11 @@ Low(1)          Low      Low        Med
 | **Impact** | High (Obsidian 호스트 IP·docker-compose·발표자 노트북) |
 | **Severity** | **High** |
 | **Status** | OPEN — PM 회의 안건 (seed-v6 pending) |
-| **Owner** | 김지효 (PM) |
+| **Owner** | 팀장 (PM) |
 | **Source** | seed-v6 resolved_ambiguities |
 | **Trigger** | W3 데이터 연동 시작 전까지 환경 미정 |
 | **Mitigation** | 다음 retro 1순위 안건 → 즉시 결정 → seed-v7 발급 |
-| **Contingency** | Mac 단일 노트북 가정 진행 (사용자 = 이득규 환경) |
+| **Contingency** | Mac 단일 노트북 가정 진행 (사용자 = 팀원1 환경) |
 
 ### R-12 OpenRouter API 가용성
 
@@ -231,7 +231,7 @@ Low(1)          Low      Low        Med
 | **Impact** | High (시연 중 LLM 호출 실패) |
 | **Severity** | Medium |
 | **Status** | OPEN |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | v6 신규 |
 | **Trigger** | API 5xx 또는 timeout |
 | **Mitigation** | (1) prompt cache (24h TTL) (2) 사전 캐싱 fixture (storyboard §7.2) (3) retry 3회 + 백오프 |
@@ -246,7 +246,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium (영향도 분석 품질) |
 | **Severity** | Medium |
 | **Status** | OPEN |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | v6 신규 |
 | **Trigger** | W6-W7 ImpactAnalyzer 통합 후 hit rate < 70% |
 | **Mitigation** | (1) W6 첫 주에 Qwen 정확도 benchmark (2) 미달 시 다른 Qwen 변종 또는 Claude로 전환 평가 |
@@ -261,7 +261,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium (Citation 품질) |
 | **Severity** | Medium |
 | **Status** | OPEN |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | TRD §6 D-3 재평가 트리거 |
 | **Trigger** | hit rate < 70% (한국어 형태소 매칭 실패) |
 | **Mitigation** | (1) Kiwi stopwords 튜닝 (2) Obsidian search API 보조 hybrid (3) 필요 시 MeCab 전환 |
@@ -276,7 +276,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Medium |
 | **Severity** | Medium |
 | **Status** | OPEN |
-| **Owner** | 김지효 (PM) + Git 머지 담당자 |
+| **Owner** | 팀장 (PM) + Git 머지 담당자 |
 | **Source** | base repo clone 결과 (dev, feat/add-obsidian-skill, feat/custom-docker, fork/nanobot-...) |
 | **Trigger** | 4명이 다른 브랜치에서 충돌 변경 |
 | **Mitigation** | (1) feature → dev → main 흐름 강제 (2) 마일스톤마다 dev 머지 (3) 주간 retro에서 PR 리뷰 |
@@ -291,7 +291,7 @@ Low(1)          Low      Low        Med
 | **Impact** | Low (빌드 사이즈·attack surface) |
 | **Severity** | **Low** |
 | **Status** | ACCEPTED |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | base repo clone (skills/: 13개 중 obsidian·github 외 11개 무관) |
 | **Trigger** | 보안 감사에서 dead code 지적 |
 | **Mitigation** | 시연 전 ImpactAnalyzerAgent.available_skills에 명시적 화이트리스트 |
@@ -306,11 +306,28 @@ Low(1)          Low      Low        Med
 | **Impact** | High (Obsidian REST API 호출 차단) |
 | **Severity** | Medium |
 | **Status** | OPEN |
-| **Owner** | 이득규 |
+| **Owner** | 팀원1 |
 | **Source** | `nanobot/docs/obsidian-interface.md` Step 5 |
 | **Trigger** | Obsidian 호출 403 또는 connection refused |
 | **Mitigation** | (1) seed-v5 must_not에 명시 (2) `~/.nanobot/config.json`에 `192.168.56.1/32` 등록 (3) preflight 스크립트에 ping 포함 |
 | **Contingency** | 시연 30분 전 config 재확인 |
+
+---
+
+### R-18 deskrpg / LPC Asset 라이센스 위반
+
+| 필드 | 값 |
+|------|------|
+| **Category** | LEGAL · OSS |
+| **Probability** | Low (학술 시연 범위 한정 시) |
+| **Impact** | Medium (위반 시 commercial pivot 차단, 외부 배포 차단) |
+| **Severity** | Medium |
+| **Status** | MITIGATED (학술 범위 + 라이센스 헤더 보존으로 통제) |
+| **Owner** | 팀장 (PM, 라이센스 정책) + 팀원 (deskrpg 담당) |
+| **Source** | deskrpg `LICENSE` (Sustainable Use License 1.0) + `LICENSE-assets.md` (LPC 자산 — 통상 CC-BY-SA 3.0) |
+| **Trigger** | (1) 상업 배포 시도 (2) LICENSE 파일 제거·덮어쓰기 (3) 외부 공개 데모에서 라이센스 고지 누락 |
+| **Mitigation** | (1) seed-v8 D-13에 학술용·시연용으로만 사용 명시 (2) PRD non_goals에 commercial launch 추가 (3) M4 fork 시 LICENSE / LICENSE-assets.md 그대로 유지 (4) README에 "deskrpg fork — 학술 시연용, 상업 배포 금지" 한 줄 명시 |
+| **Contingency** | Commercial pivot 결정 시: (a) deskrpg 별도 라이센스 협의 또는 (b) 호환 OSS 프론트(Phaser·Excalibur)로 재구현 (예상 2~3개월) |
 
 ---
 
@@ -345,6 +362,7 @@ quadrantChart
     R-15 협업통합: [0.55, 0.55]
     R-16 deadcode: [0.2, 0.2]
     R-17 SSRF: [0.2, 0.7]
+    R-18 license: [0.15, 0.5]
 ```
 
 ### 우선 대응 risks (Severity ≥ High)

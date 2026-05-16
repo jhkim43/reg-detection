@@ -61,21 +61,21 @@
 
 🎯 역할별 추천 읽기 순서:
 
-📌 김지효 PM
+📌 팀장(PM)
 → PRD §3 Goals + §17 Scope Governance
 → Risk Register §2 High risks
 → seed-v7
 
-📌 백정헌 (QA/기획)
+📌 팀원2 (QA/기획)
 → PRD §8 AC 12개
 → Storyboard (시연 풀스크립트)
 → decomposition.yaml test 필드
 
-📌 조민희 (개발)
+📌 팀원3 (개발)
 → TRD + ERD + API spec
 → decomposition Phase 1 (W3) tasks
 
-📌 이득규 (본인)
+📌 팀원1 (본인)
 → 이미 다 봤죠 ㅎㅎ
 
 ⏰ PR 머지는 다음 retro에서 결정해요.
@@ -125,7 +125,7 @@ GitHub에 PR 형태로 올라갈 예정입니다.
 
 회의 일정 잡으실 수 있는 시간 알려주시면 감사하겠습니다.
 
-이득규 드림
+팀원1 드림
 ─────────────────────────────────────────
 ```
 
