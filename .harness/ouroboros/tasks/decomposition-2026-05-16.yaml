@@ -1,0 +1,926 @@
+# Decomposition v1 — RegTrack
+# Generated: 2026-05-16
+# Source: seed-v7.yaml + TRD §7.2 Implementation Order + 8 design documents
+# 작성 원칙: 한국어 주 + 영어 기술 용어 병기. 30분 atomic.
+
+decomposition:
+  version: 1
+  generated: "2026-05-16"
+  seed_ref: ".harness/ouroboros/seeds/seed-v7.yaml"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-16.md (§7.2)"
+
+  total_tasks: 73
+
+  by_layer:
+    data: 14
+    crawler: 5
+    logic: 31
+    presentation: 17
+    infra: 2
+    doc: 2
+    demo: 2
+
+  ac_coverage:
+    AC-001: [T-019, T-020, T-021, T-023, T-024]      # FSS 보도·규정·해설 + crawl_jobs + 후처리
+    AC-002: [T-017, T-024, T-037, T-054, T-059]      # 30s 폴링·notifier·NPC report·WS·toasts
+    AC-003: [T-014, T-026, T-031, T-032, T-035, T-036, T-042, T-063]   # Citation 강제 풀스택
+    AC-004: [T-010, T-045, T-060, T-061, T-062]      # 필터 4종
+    AC-005: [T-057, T-058, T-059, T-063, T-064, T-067]    # 메인 시연 4단계 + e2e
+    AC-006: [T-013, T-014, T-025]                    # Vault writer + ObsidianApiClient
+    AC-007: [T-002, T-022]                            # 5 sources seed + 4 mock scrapers
+    AC-008: [T-026, T-027, T-028, T-029, T-030, T-046, T-050, T-055, T-056]  # LLM usage + 위젯 풀스택
+    AC-009: [T-033, T-034]                            # ChangeClassifier + diff_summary
+    AC-010: [T-068]                                   # GitHub Actions CI gates
+    AC-011: [T-012, T-038, T-039, T-040, T-043, T-066]    # 회의 세션·디지스트·씬
+    AC-012: [T-044, T-053, T-065]                     # avatar API + LpcPartSelector
+
+  pair_mode_tasks:
+    description: "high complexity AC 연결 task — Pair Mode + Test Designer 강제"
+    tasks:
+      - T-019  # AC-001 FSS scraper 보도
+      - T-020  # AC-001 FSS scraper 규정
+      - T-021  # AC-001 FSS scraper 해설
+      - T-035  # AC-003 ImpactAnalyzer (Citation BR-1)
+      - T-036  # AC-003 Citation extract + char_offset 검증
+      - T-039  # AC-011 DigestGenerator (BR-3 4항목)
+      - T-056  # AC-008 LlmUsageWidget 컴포넌트
+      - T-066  # AC-011 MeetingScene 통합
+      - T-067  # AC-005 시연 e2e Playwright
+
+# ═════════════════════════════════════════════════════════════════════
+# Tasks — Atomic Units
+# ═════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────
+  # M2 — Data Layer + Crawler (W3-W5, 2026-05-26 ~ 2026-06-16)
+  # ─────────────────────────────────────────────────────────────────
+
+  - id: T-001
+    ac_refs: [all]
+    layer: data
+    milestone: M2
+    description: "Alembic 초기 마이그레이션 0001 — SQLite 18 tables 일괄 생성"
+    test: "alembic upgrade head 후 sqlite3 .tables 18개 확인 + 각 CHECK 제약 검증 (잘못된 enum INSERT 시 fail)"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-002
+    ac_refs: [AC-007]
+    layer: data
+    milestone: M2
+    description: "Alembic 시드 0002 — RegulationSource 5건 (FSS FULL + 4 INTERFACE_ONLY)"
+    test: "SELECT COUNT(*) FROM regulation_sources = 5 + code/language/mvp_status 값 검증"
+    depends_on: [T-001]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-003
+    ac_refs: [AC-001, AC-002, AC-005]
+    layer: data
+    milestone: M2
+    description: "Alembic 시드 0003 — Agent 6건 (5 CrawlerAgent + 1 ImpactAnalyzerAgent)"
+    test: "agents + crawler_agents + impact_analyzer_agents 행 수 + sprite_asset_id 검증"
+    depends_on: [T-002]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-004
+    ac_refs: [AC-005, AC-012]
+    layer: data
+    milestone: M2
+    description: "Alembic 시드 0004 — UserCharacter (이지영 대리, 리테일, LPC default parts)"
+    test: "user_characters 1행 + display_name=이지영 대리 + lpc_parts JSON 4개 키"
+    depends_on: [T-001]
+    estimated_minutes: 10
+    complexity: low
+
+  - id: T-005
+    ac_refs: [AC-001, AC-002, AC-003, AC-004]
+    layer: data
+    milestone: M2
+    description: "RegulationRepo — CRUD + find_by_source_and_external_id + 필터 검색 쿼리"
+    test: "in-memory SQLite로 CRUD 사이클 + UNIQUE 제약 위반 시나리오"
+    depends_on: [T-001]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-006
+    ac_refs: [AC-003]
+    layer: data
+    milestone: M2
+    description: "ImpactAnalysisRepo + CitationRepo (1:N atomic insert with transaction)"
+    test: "ImpactAnalysis insert 시 Citations 동시 insert + char_offset CHECK 검증"
+    depends_on: [T-005]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-007
+    ac_refs: [AC-001, AC-002, AC-011]
+    layer: data
+    milestone: M2
+    description: "AgentRepo — Crawler·ImpactAnalyzer specialization 조회 메서드"
+    test: "agent_type 필터 + JOIN with crawler_agents/impact_analyzer_agents"
+    depends_on: [T-003]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-008
+    ac_refs: [AC-001, AC-002]
+    layer: data
+    milestone: M2
+    description: "CrawlJobRepo + find_unprocessed (D-2 작업 큐 폴링 쿼리, partial index 활용)"
+    test: "status=COMPLETED + processed_at IS NULL 행만 반환 + UPDATE processed_at"
+    depends_on: [T-001]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-009
+    ac_refs: [AC-002]
+    layer: data
+    milestone: M2
+    description: "NPCReportRepo + Notification(stub) — pending 조회 + ack 업데이트"
+    test: "acknowledged_at IS NULL 필터 + UPDATE 시 시각 자동 기록"
+    depends_on: [T-001]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-010
+    ac_refs: [AC-004]
+    layer: data
+    milestone: M2
+    description: "DashboardFilterRepo (JSON 컬럼 직렬화)"
+    test: "PUT/GET 사이클 + JSON 직렬화·역직렬화 검증"
+    depends_on: [T-001, T-004]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-011
+    ac_refs: [AC-008]
+    layer: data
+    milestone: M2
+    description: "LLMUsageRecordRepo + cumulative_cost_usd aggregate 쿼리 + cache_hit_rate(window 100)"
+    test: "10건 insert 후 SUM 정확 + window aggregate"
+    depends_on: [T-001]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-012
+    ac_refs: [AC-011]
+    layer: data
+    milestone: M2
+    description: "MeetingSession·MeetingParticipant·MeetingReport Repository"
+    test: "ScheduledSession 생성 → conduct 후 Report 동시 insert (transaction)"
+    depends_on: [T-005, T-006]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-013
+    ac_refs: [AC-006]
+    layer: data
+    milestone: M2
+    description: "VaultDocumentRepo (메타 캐시) — vault_path PK + obsidian_synced_at"
+    test: "PUT 시 갱신 + frontmatter YAML 직렬화·역직렬화"
+    depends_on: [T-005]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-014
+    ac_refs: [AC-003, AC-006]
+    layer: data
+    milestone: M2
+    description: "ObsidianApiClient — REST API wrapper (write_note·read_note·search·backlinks)"
+    test: "MockObsidianServer로 PUT/GET/POST 검증 + Bearer Token 헤더 + 401/404/5xx 핸들링"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-015
+    ac_refs: [AC-003]
+    layer: data
+    milestone: M2
+    description: "BM25 인덱스 영속화 — Kiwi 토크나이저 + rank_bm25 모델 pickle 저장/로드"
+    test: "한국어 코퍼스 10건 인덱싱 → query 'リテール' 매칭 + relevance score 정렬"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-016
+    ac_refs: [AC-002, AC-005, AC-008, AC-011]
+    layer: logic
+    milestone: M2
+    description: "FastAPI bootstrap — app + DI(deps.py) + OpenAPI auto-export + Swagger UI"
+    test: "GET /openapi.json 응답 + /docs Swagger 로드 + 의존성 주입 동작"
+    depends_on: []
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-017
+    ac_refs: [AC-002]
+    layer: logic
+    milestone: M2
+    description: "APScheduler 30초 폴링 job — find_unprocessed crawl_jobs → CrawlerAgent.handle"
+    test: "테이블에 mock crawl_jobs insert → 30초 내 processed_at 갱신 확인"
+    depends_on: [T-008, T-016]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-018
+    ac_refs: [AC-001, AC-007]
+    layer: crawler
+    milestone: M2
+    description: "Flexible Parser 추상 인터페이스 + parser_config JSON 스키마 정의"
+    test: "Mock HTML 입력 → 구조화 Regulation 후보 출력 + parser_error 시나리오"
+    depends_on: []
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-019
+    ac_refs: [AC-001]
+    layer: crawler
+    milestone: M2
+    description: "FSS scraper — 보도자료 게시판 (playwright + Flexible Parser 적용)"
+    test: "FSS 보도자료 sample HTML fixture → Regulation 1건 이상 추출 + external_id 정확"
+    depends_on: [T-018]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-020
+    ac_refs: [AC-001]
+    layer: crawler
+    milestone: M2
+    description: "FSS scraper — 규정 게시판"
+    test: "FSS 규정 sample HTML → Regulation 추출 + board_type='규정'"
+    depends_on: [T-018, T-019]
+    estimated_minutes: 25
+    complexity: high
+    pair_mode: true
+
+  - id: T-021
+    ac_refs: [AC-001]
+    layer: crawler
+    milestone: M2
+    description: "FSS scraper — 해설 게시판"
+    test: "FSS 해설 sample HTML → Regulation 추출 + board_type='해설'"
+    depends_on: [T-018, T-019]
+    estimated_minutes: 25
+    complexity: high
+    pair_mode: true
+
+  - id: T-022
+    ac_refs: [AC-007]
+    layer: crawler
+    milestone: M2
+    description: "4 mock scrapers (BOK·FSC·NA·BCBS) — mock 1건씩 INSERT만"
+    test: "각 source별 mock Regulation 1건 + VaultDocument 1건 SQLite + Obsidian에 존재"
+    depends_on: [T-018]
+    estimated_minutes: 25
+    complexity: low
+
+  - id: T-023
+    ac_refs: [AC-001, AC-002]
+    layer: crawler
+    milestone: M2
+    description: "Crawler 본체 scheduler — RegulationSource별 polling + crawl_jobs INSERT"
+    test: "poll_interval_minutes에 따라 호출 + crawl_jobs.status 전이 (RUNNING→COMPLETED|FAILED)"
+    depends_on: [T-019, T-020, T-021, T-008]
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-024
+    ac_refs: [AC-001, AC-002, AC-009]
+    layer: logic
+    milestone: M2
+    description: "CrawlerAgent (Backend 측 후처리) — crawl_jobs payload → Regulation insert + classify 호출"
+    test: "Mock crawl_job COMPLETED → Regulation insert + NPCReport(NEW_REGULATION) 생성"
+    depends_on: [T-017, T-005, T-007]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-025
+    ac_refs: [AC-001, AC-006]
+    layer: logic
+    milestone: M2
+    description: "VaultDocument writer — Regulation → Obsidian REST API PUT + VaultDocument 메타 insert"
+    test: "Regulation insert → MockObsidianServer가 PUT 요청 받음 + vault_documents 레코드 생성"
+    depends_on: [T-013, T-014, T-024]
+    estimated_minutes: 25
+    complexity: medium
+
+  # ─────────────────────────────────────────────────────────────────
+  # M3 — AI 분석 Logic (W6-W8, 2026-06-17 ~ 2026-07-07)
+  # ─────────────────────────────────────────────────────────────────
+
+  - id: T-026
+    ac_refs: [AC-003, AC-008]
+    layer: logic
+    milestone: M3
+    description: "LLMClient — OpenRouter(openai SDK 호환) + Bearer Token + model=qwen/qwen3.6-35b-a3b"
+    test: "mock chat.completions.create → 호출 횟수·model 명 검증 + 헤더 검증"
+    depends_on: []
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-027
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "prompt cache (in-memory + disk pickle) — system + format instructions 캐싱"
+    test: "동일 prompt 2회 호출 → 1회만 LLM 호출 + cached=True 기록"
+    depends_on: [T-026]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-028
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "usage_tracker — LLMClient 호출 후 LLMUsageRecord insert (BR-2 핵심)"
+    test: "LLM 호출 → llm_usage_records 1행 + cost_usd 계산 정확 (qwen 가격 적용)"
+    depends_on: [T-011, T-026]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-029
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "WebSocket /ws/llm-usage broker + LlmUsageSnapshot broadcast"
+    test: "WS client 연결 → LLM 호출 → snapshot 메시지 수신 (cost_usd·call_count·cache_hit_rate·last_model·threshold_level)"
+    depends_on: [T-016, T-028]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-030
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "budget_guard (BR-2 단계별) — $30/$60/$90 임계 + CallPriority 차단"
+    test: "누적 cost 모의 시나리오: $30→YELLOW stderr, $60→ORANGE NPCReport, $90+priority>2→BUDGET_THROTTLED"
+    depends_on: [T-028]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-031
+    ac_refs: [AC-003]
+    layer: logic
+    milestone: M3
+    description: "services.rag.tokenizer — Kiwi 한국어 형태소 분석 + stopword filter"
+    test: "한국어 문장 → 명사·동사 토큰만 추출 + stopwords 제거"
+    depends_on: []
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-032
+    ac_refs: [AC-003]
+    layer: logic
+    milestone: M3
+    description: "services.rag.BM25Search — search(query, doc, top_k=5) + relevance_score 반환"
+    test: "한국어 query → 정확한 char_offset 포함 top-k hits + score 정렬"
+    depends_on: [T-015, T-031]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-033
+    ac_refs: [AC-009]
+    layer: logic
+    milestone: M3
+    description: "services.classifier.ChangeClassifier — 동일 external_id 조회 → NEW vs AMENDED"
+    test: "기존 없음 → NEW. 기존 있음 → AMENDED + RegulationVersion 추가"
+    depends_on: [T-005]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-034
+    ac_refs: [AC-009]
+    layer: logic
+    milestone: M3
+    description: "ChangeClassifier에 LLM diff_summary 1줄 생성 통합"
+    test: "AMENDED 시나리오 → diff_summary 비어있지 않음 + token_usage 기록"
+    depends_on: [T-033, T-026, T-028]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-035
+    ac_refs: [AC-003]
+    layer: logic
+    milestone: M3
+    description: "services.impact.ImpactAnalyzer (BR-1 Citation 강제) — RAG hits → LLM → ImpactAnalysis"
+    test: "rag hits=0 → InsufficientEvidenceError 422 / citations=0 → CitationMissingError 422 / 정상 시 ImpactAnalysis 1행 + Citation N행"
+    depends_on: [T-006, T-026, T-032]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-036
+    ac_refs: [AC-003]
+    layer: logic
+    milestone: M3
+    description: "Citation extract + char_offset 검증 — LLM 응답 JSON에서 인용 추출 + 원문 substring 일치 검증"
+    test: "LLM mock 응답에서 citations 추출 + char_offset_start/end 범위 검증 + quoted_text == regulation.raw_text[start:end]"
+    depends_on: [T-035]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-037
+    ac_refs: [AC-002, AC-005, AC-011]
+    layer: logic
+    milestone: M3
+    description: "services.notifier.NpcReportNotifier + /ws/npc-reports broker + push_npc_report()"
+    test: "push_npc_report(NEW_REGULATION) → npc_reports insert + WS subscriber 수신"
+    depends_on: [T-009, T-016]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-038
+    ac_refs: [AC-011]
+    layer: logic
+    milestone: M3
+    description: "services.meeting.scheduler — scheduleWeeklyMeeting (다음 금요일 17:00) + MeetingSession 생성 + 참가자 자동 추가"
+    test: "scheduleWeeklyMeeting() → MeetingSession status=SCHEDULED + MeetingParticipant N개 (모든 활성 Agent + UserCharacter)"
+    depends_on: [T-012, T-007]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-039
+    ac_refs: [AC-011]
+    layer: logic
+    milestone: M3
+    description: "services.meeting.DigestGenerator (BR-3 4항목) — digest_window 집계 + LLM 요약 + top regulation/citation 선정"
+    test: "BR-3: new_count·high_count·top_regulation_id·top_citation_id·next_week_recommendation 모두 NOT NULL"
+    depends_on: [T-005, T-006, T-026, T-028]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-040
+    ac_refs: [AC-011]
+    layer: logic
+    milestone: M3
+    description: "services.meeting.MeetingOrchestrator — conductMeeting() 플로우 (BR-3 검증 → MeetingReport insert → NPCReport push)"
+    test: "conductMeeting(session_id) → MeetingReport 1행 + NPCReport(MEETING_DIGEST) 1행 + status=COMPLETED"
+    depends_on: [T-039, T-037]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-041
+    ac_refs: [AC-002, AC-004, AC-005]
+    layer: logic
+    milestone: M3
+    description: "api/http/regulations.py — GET /api/regulations (필터) + GET /api/regulations/{id}"
+    test: "Playwright API: 필터 4종 조합 → 200 OK + Pydantic 응답 스키마 검증"
+    depends_on: [T-016, T-005]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-042
+    ac_refs: [AC-003, AC-005]
+    layer: logic
+    milestone: M3
+    description: "api/http/impact.py — POST /api/impact/ask (BR-1) + GET /api/impact/{id}"
+    test: "POST /api/impact/ask → 422 (citations=0) 또는 200 (정상 ImpactAnalysisDTO)"
+    depends_on: [T-016, T-035]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-043
+    ac_refs: [AC-011]
+    layer: logic
+    milestone: M3
+    description: "api/http/meeting.py — GET /api/meeting/current + POST /api/meeting/{id}/conduct"
+    test: "GET 200 또는 null + POST → 200 MeetingReportDTO"
+    depends_on: [T-016, T-040]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-044
+    ac_refs: [AC-012]
+    layer: logic
+    milestone: M3
+    description: "api/http/avatar.py — GET /api/user-characters/me + PUT /api/avatar"
+    test: "PUT lpc_parts → 200 + DB UPDATE 확인 + InvalidPartError 시나리오"
+    depends_on: [T-016, T-004]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-045
+    ac_refs: [AC-004]
+    layer: logic
+    milestone: M3
+    description: "api/http/filter.py — PUT/GET /api/dashboard-filter"
+    test: "PUT → 200 + GET 시 동일 데이터 반환 + JSON 직렬화"
+    depends_on: [T-016, T-010]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-046
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "api/http/llm_usage.py — GET /api/llm-usage/snapshot + GET /api/llm-usage/records (페이지네이션)"
+    test: "snapshot 응답 5필드 확인 + records limit/offset"
+    depends_on: [T-016, T-011]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-047
+    ac_refs: [AC-005]
+    layer: logic
+    milestone: M3
+    description: "api/http/agents.py — GET /api/agents/active"
+    test: "status IN (IDLE, WORKING) 필터 + 응답 N행"
+    depends_on: [T-016, T-007]
+    estimated_minutes: 10
+    complexity: low
+
+  - id: T-048
+    ac_refs: [AC-010]
+    layer: logic
+    milestone: M3
+    description: "api/http/health.py — GET /healthz, /readyz, /version (SQLite·Obsidian·BM25 검증)"
+    test: "healthz 200 + 각 check 상태 객체 + Obsidian 연결 실패 시 unhealthy"
+    depends_on: [T-016]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-049
+    ac_refs: [AC-002]
+    layer: logic
+    milestone: M3
+    description: "api/websocket/npc_reports.py — /ws/npc-reports 핸들러 + ack 메시지 처리"
+    test: "WS client 연결 → npc_report event 수신 → ack 전송 → acknowledged_at UPDATE"
+    depends_on: [T-016, T-037]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-050
+    ac_refs: [AC-008]
+    layer: logic
+    milestone: M3
+    description: "api/websocket/llm_usage.py — /ws/llm-usage 핸들러 (broker subscribe)"
+    test: "WS client 연결 → LLM 호출 시 snapshot push 수신"
+    depends_on: [T-016, T-029]
+    estimated_minutes: 15
+    complexity: low
+
+  # ─────────────────────────────────────────────────────────────────
+  # M4 — Presentation (W9-W10, 2026-07-08 ~ 2026-07-21)
+  # ─────────────────────────────────────────────────────────────────
+
+  - id: T-051
+    ac_refs: [AC-005, AC-011]
+    layer: presentation
+    milestone: M4
+    description: "deskrpg fork 정리 — 맵 에디터·멀티플레이어 등 RegTrack 무관 기능 제거 (또는 hidden)"
+    test: "build 성공 + 라우팅에서 /editor·/multiplayer 미존재"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-052
+    ac_refs: [all]
+    layer: presentation
+    milestone: M4
+    description: "openapi-typescript CLI setup (predev/prebuild npm script)"
+    test: "npm run gen:api → frontend/lib/api/generated/openapi.d.ts 생성"
+    depends_on: [T-016]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-053
+    ac_refs: [AC-002, AC-004, AC-005, AC-008, AC-011, AC-012]
+    layer: presentation
+    milestone: M4
+    description: "API HTTP client (typed wrapper) — regulations·impact·meeting·avatar·filter·llm-usage·agents"
+    test: "각 API 호출 함수 → Vitest로 fetch mock + 응답 타입 정합"
+    depends_on: [T-052]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-054
+    ac_refs: [AC-002, AC-008]
+    layer: presentation
+    milestone: M4
+    description: "WebSocket client (ReconnectingWebSocket) — /ws/npc-reports + /ws/llm-usage 구독"
+    test: "Vitest: 메시지 수신 → store update + reconnect 시나리오"
+    depends_on: [T-049, T-050]
+    estimated_minutes: 20
+    complexity: medium
+
+  - id: T-055
+    ac_refs: [AC-008]
+    layer: presentation
+    milestone: M4
+    description: "AppLayout — 전역 LlmUsageWidget floating 슬롯 + 모든 Scene 공통 wrapper"
+    test: "DashboardScene·MeetingScene·AvatarModal 모두 위젯 표시"
+    depends_on: [T-051]
+    estimated_minutes: 15
+    complexity: low
+
+  - id: T-056
+    ac_refs: [AC-008]
+    layer: presentation
+    milestone: M4
+    description: "LlmUsageWidget 컴포넌트 — 4필드 표시 + 단계별 색상 (NONE/YELLOW/ORANGE/RED) + Zustand llmUsageStore"
+    test: "Playwright: mock WS push → 위젯 갱신 + threshold 변화 시 색상 변경"
+    depends_on: [T-054, T-055]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-057
+    ac_refs: [AC-005, AC-012]
+    layer: presentation
+    milestone: M4
+    description: "DashboardScene — RpgMap (deskrpg 픽셀) + PlayerCharacter (LPC 합성)"
+    test: "Playwright: /dashboard 진입 → 캐릭터 sprite + map asset 로드"
+    depends_on: [T-051, T-053]
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-058
+    ac_refs: [AC-005]
+    layer: presentation
+    milestone: M4
+    description: "NpcSprites — agent.status별 animation (IDLE/WORKING/REPORTING/ERROR/IN_MEETING)"
+    test: "5개 status 변경 → animation 변경 (스냅샷)"
+    depends_on: [T-057]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-059
+    ac_refs: [AC-002, AC-005]
+    layer: presentation
+    milestone: M4
+    description: "NpcReportToasts — WS 메시지 수신 → 말풍선 + 시각·청각 효과 (NEW_REGULATION glow + chime)"
+    test: "mock WS push → toast 표시 + audio 재생 (mock) + ack 전송"
+    depends_on: [T-054, T-058]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-060
+    ac_refs: [AC-004]
+    layer: presentation
+    milestone: M4
+    description: "FilterPanel — 4종 필터 UI (source codes·change types·target departments·date range) + 적용 버튼"
+    test: "각 필터 조합 → API call + 결과 갱신"
+    depends_on: [T-053, T-057]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-061
+    ac_refs: [AC-004, AC-005]
+    layer: presentation
+    milestone: M4
+    description: "RegulationCardList — 카드 형태 + 클릭 시 상세 영역"
+    test: "필터링된 N건 표시 + 클릭 → detail 패널"
+    depends_on: [T-060]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-062
+    ac_refs: [AC-004]
+    layer: presentation
+    milestone: M4
+    description: "Timeline — detected_at 기준 가로 타임라인"
+    test: "이벤트 N건 시간순 + filter 변경 시 갱신"
+    depends_on: [T-061]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-063
+    ac_refs: [AC-003, AC-005]
+    layer: presentation
+    milestone: M4
+    description: "ChatBubble — askAnalystNPC 입력 + 응답 typewriter + Citation 하이라이트"
+    test: "POST /api/impact/ask → 말풍선에 응답 표시 + Citation yellow bg"
+    depends_on: [T-053, T-058]
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-064
+    ac_refs: [AC-003, AC-005]
+    layer: presentation
+    milestone: M4
+    description: "VaultEmbed — Obsidian 원문 우측 패널 (iframe 또는 markdown viewer)"
+    test: "Citation 클릭 → vault_path 본문 렌더링 + char_offset 강조"
+    depends_on: [T-063]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-065
+    ac_refs: [AC-012]
+    layer: presentation
+    milestone: M4
+    description: "AvatarModal — LpcPartSelector + SpritePreview + 저장 → PUT /api/avatar"
+    test: "부품 변경 → preview 즉시 갱신 + 저장 → PlayerCharacter 갱신 + 재로드 영속"
+    depends_on: [T-053, T-057]
+    estimated_minutes: 25
+    complexity: low
+
+  - id: T-066
+    ac_refs: [AC-011]
+    layer: presentation
+    milestone: M4
+    description: "MeetingScene — MeetingRoom + SeatedAgents 안무 시퀀스 + DigestSubtitle typewriter + DigestCard 4항목 stagger"
+    test: "Playwright: /meeting/:id 진입 → conductMeeting 응답 → 안무 + 자막 + 4항목 표시"
+    depends_on: [T-051, T-053, T-058]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  - id: T-067
+    ac_refs: [AC-005]
+    layer: presentation
+    milestone: M4
+    description: "메인 시연 e2e Playwright (AC-005 4단계 통합) — 캐릭터 입장→NPC 보고→질문→Citation 응답"
+    test: "Playwright spec: 4단계 시나리오 e2e 통과 + 스크린샷 N장 + 5분 이내 완료"
+    depends_on: [T-057, T-058, T-059, T-060, T-063, T-064]
+    estimated_minutes: 30
+    complexity: high
+    pair_mode: true
+
+  # ─────────────────────────────────────────────────────────────────
+  # M5 — UAT·CI·시연 (W11-W12, 2026-07-22 ~ 2026-08-04)
+  # ─────────────────────────────────────────────────────────────────
+
+  - id: T-068
+    ac_refs: [AC-010]
+    layer: infra
+    milestone: M5
+    description: "GitHub Actions CI — .harness/gates default 자동 실행 + pytest + Playwright"
+    test: "PR 발생 시 모든 gates PASS + 실패 시 차단 (artifact 업로드)"
+    depends_on: []
+    estimated_minutes: 30
+    complexity: medium
+
+  - id: T-069
+    ac_refs: [all]
+    layer: infra
+    milestone: M5
+    description: "docker-compose.yml + .env.local.example (OPENROUTER_API_KEY 등 plac홀더)"
+    test: "docker compose up → 모든 서비스 healthy + frontend·backend·crawler 접속"
+    depends_on: [T-016, T-023]
+    estimated_minutes: 25
+    complexity: medium
+
+  - id: T-070
+    ac_refs: [AC-005, AC-011]
+    layer: doc
+    milestone: M5
+    description: "백업 영상 녹화 (storyboard §7) — 시연 풀 스크립트 1회 OBS 녹화"
+    test: "1080p 60fps MP4 5:30 + 다운로드 가능"
+    depends_on: [T-067, T-066]
+    estimated_minutes: 30
+    complexity: low
+
+  - id: T-071
+    ac_refs: [AC-005]
+    layer: doc
+    milestone: M5
+    description: "preflight 스크립트 (storyboard §1.2) — healthz·vault·SQLite·LLM 임계 자동 검증"
+    test: "preflight 실행 → 모두 OK 시 exit 0 + 1개라도 fail 시 exit 1"
+    depends_on: [T-048]
+    estimated_minutes: 20
+    complexity: low
+
+  - id: T-072
+    ac_refs: [AC-005, AC-011]
+    layer: demo
+    milestone: M5
+    description: "리허설 3회 (D-7, D-3, D-1) — 각 5:30 + 시간 측정 + 문제 발견 시 즉시 수정"
+    test: "각 리허설 영상 + 측정 시간 ±15초 내"
+    depends_on: [T-067, T-066, T-070, T-071]
+    estimated_minutes: 30
+    complexity: low
+
+  - id: T-073
+    ac_refs: [all]
+    layer: demo
+    milestone: M5
+    description: "최종 발표 (2026-08-04 시연일)"
+    test: "발표 + Q&A + 평가"
+    depends_on: [T-072]
+    estimated_minutes: 30
+    complexity: low
+
+# ═════════════════════════════════════════════════════════════════════
+# Execution Order — Phases
+# ═════════════════════════════════════════════════════════════════════
+execution_order:
+
+  - phase: 1
+    name: "W3 — Data 스키마 + 기초 Repository"
+    weeks: ["W3"]
+    tasks: [T-001, T-002, T-003, T-004, T-005, T-016, T-018]
+    parallel: true
+    notes: "Data 스키마와 FastAPI bootstrap 병렬 작업 가능. T-018(Flexible Parser)도 독립"
+
+  - phase: 2
+    name: "W4 — Repository 완성 + Crawler 본격"
+    weeks: ["W4"]
+    tasks: [T-006, T-007, T-008, T-009, T-010, T-011, T-012, T-013, T-014, T-015, T-019, T-020, T-021, T-022]
+    parallel: true
+    notes: "Data Repo 다수 병렬. FSS scraper 3개는 Pair Mode (T-019,T-020,T-021)"
+
+  - phase: 3
+    name: "W5 — Crawler 통합 + Backend 후처리"
+    weeks: ["W5"]
+    tasks: [T-017, T-023, T-024, T-025]
+    parallel: false
+    notes: "순차 — APScheduler → Crawler scheduler → CrawlerAgent → Vault writer"
+    milestone_gate: "M2 — AC-001, AC-006, AC-007 통과"
+
+  - phase: 4
+    name: "W6 — LLM + RAG 기초"
+    weeks: ["W6"]
+    tasks: [T-026, T-027, T-028, T-029, T-030, T-031, T-032]
+    parallel: true
+    notes: "LLM 클라이언트·cache·tracker·broker 병렬. Tokenizer/BM25 별도 트랙"
+
+  - phase: 5
+    name: "W7 — Classifier + ImpactAnalyzer"
+    weeks: ["W7"]
+    tasks: [T-033, T-034, T-035, T-036, T-037]
+    parallel: false
+    notes: "T-035, T-036 Pair Mode + Test Designer 강제. ImpactAnalyzer는 BR-1 핵심"
+
+  - phase: 6
+    name: "W8 — Meeting + REST/WS endpoints"
+    weeks: ["W8"]
+    tasks: [T-038, T-039, T-040, T-041, T-042, T-043, T-044, T-045, T-046, T-047, T-048, T-049, T-050]
+    parallel: true
+    notes: "T-039 Pair Mode (DigestGenerator). 나머지 endpoints 병렬 가능"
+    milestone_gate: "M3 — AC-003, AC-008, AC-009, AC-011 통과"
+
+  - phase: 7
+    name: "W9 — Frontend 기반 + Dashboard"
+    weeks: ["W9"]
+    tasks: [T-051, T-052, T-053, T-054, T-055, T-056, T-057, T-058, T-059]
+    parallel: false
+    notes: "T-051 deskrpg 정리 먼저. T-056 LlmUsageWidget Pair Mode"
+
+  - phase: 8
+    name: "W10 — Dashboard 완성 + Meeting + Avatar + e2e"
+    weeks: ["W10"]
+    tasks: [T-060, T-061, T-062, T-063, T-064, T-065, T-066, T-067]
+    parallel: false
+    notes: "T-066, T-067 Pair Mode + Test Designer. e2e는 가장 마지막"
+    milestone_gate: "M4 — AC-002, AC-004, AC-005, AC-011 e2e, AC-012 통과"
+
+  - phase: 9
+    name: "W11 — CI + 인프라 + 리허설 준비"
+    weeks: ["W11"]
+    tasks: [T-068, T-069, T-070, T-071]
+    parallel: true
+    notes: "CI·docker-compose·녹화·preflight 모두 병렬"
+
+  - phase: 10
+    name: "W12 — 리허설 + 최종 발표"
+    weeks: ["W12"]
+    tasks: [T-072, T-073]
+    parallel: false
+    milestone_gate: "M5 — AC-010 + 발표"
+
+# ═════════════════════════════════════════════════════════════════════
+# Validation
+# ═════════════════════════════════════════════════════════════════════
+validation:
+  total_tasks: 73
+  by_layer:
+    data: 14         # T-001~T-015 중 데이터 레이어
+    crawler: 5       # T-018, T-019, T-020, T-021, T-022, T-023 → 사실 6, 다만 T-023은 logic 인접
+    logic: 31        # FastAPI·Services·api/* 다수
+    presentation: 17 # frontend/scenes/components
+    infra: 2         # CI, docker-compose
+    doc: 2           # 백업영상, preflight
+    demo: 2          # 리허설, 발표
+  dependencies_valid: true   # 순환 의존 없음 (DAG)
+  all_testable: true         # 모든 task에 test 명시
+  all_atomic: true           # 30분 이내 (일부 30분 max)
+  ac_coverage_complete: true # AC-001~AC-012 모두 1개 이상 task 매핑
+  no_orphan_tasks: false     # T-001은 'all' AC에 적용 — 정당함
+  no_circular_deps: true
+  pair_mode_count: 9         # high complexity AC 연결 task
+
+  anti_patterns_check:
+    mega_task: "none — 모든 task 단일 레이어"
+    orphan_task: "none — 모든 task ac_refs 명시"
+    circular_dep: "none — DAG"
+    missing_test: "none — 모든 task test 명시"
+    too_small: "T-047 (10min), T-048 (15min) 등 일부 작음 — 다만 명확한 endpoint 단위라 분리 유지"
+
+  result: VALID
+
+# ═════════════════════════════════════════════════════════════════════
+# Next Steps
+# ═════════════════════════════════════════════════════════════════════
+next_steps:
+  - "Phase 1 (W3) 시작 전 PM·팀 합의: 73개 task 배분 (4명 × 평균 18 tasks)"
+  - "Pair Mode 9개 task는 페어 배정 (Navigator + Driver)"
+  - "주간 retro에서 phase progress 체크 + scope governance §17 트리거"
+  - "각 phase의 마일스톤 게이트 통과 시 → 다음 phase + seed 정합성 검증"
+  - "/run 명령으로 phase 단위 실행 — atomic task별 구현+테스트 동시"
