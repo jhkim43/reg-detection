@@ -8,6 +8,7 @@ export type ChatMessage = {
 export type ChatOptions = {
   model?: string;
   signal?: AbortSignal;
+  sessionId?: string;
 };
 
 function buildEndpoint() {
@@ -24,6 +25,35 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+// nanobot OpenAI-compat accepts only a single user message; multi-turn history
+// is managed server-side per session_id. Fold [system, ...history, user] into
+// one user payload (system as prefix), and surface sessionId via body.session_id.
+function buildRequestBody(
+  messages: ChatMessage[],
+  opts: ChatOptions,
+  stream: boolean,
+): Record<string, unknown> {
+  let systemText = "";
+  let userText = "";
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemText += (systemText ? "\n\n" : "") + (m.content || "");
+    } else if (m.role === "user") {
+      userText = m.content || "";
+    }
+  }
+  const text = systemText
+    ? `[System]\n${systemText}\n\n[User]\n${userText}`
+    : userText;
+  const body: Record<string, unknown> = {
+    model: opts.model || env.NANOBOT_MODEL,
+    messages: [{ role: "user", content: text }],
+    stream,
+  };
+  if (opts.sessionId) body.session_id = opts.sessionId;
+  return body;
+}
+
 export async function nanobotChat(
   messages: ChatMessage[],
   opts: ChatOptions = {},
@@ -31,11 +61,7 @@ export async function nanobotChat(
   const res = await fetch(buildEndpoint(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: opts.model || env.NANOBOT_MODEL,
-      messages,
-      stream: false,
-    }),
+    body: JSON.stringify(buildRequestBody(messages, opts, false)),
     signal: opts.signal,
   });
   if (!res.ok) {
@@ -55,11 +81,7 @@ export async function nanobotChatStream(
   const res = await fetch(buildEndpoint(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: opts.model || env.NANOBOT_MODEL,
-      messages,
-      stream: true,
-    }),
+    body: JSON.stringify(buildRequestBody(messages, opts, true)),
     signal: opts.signal,
   });
   if (!res.ok) {

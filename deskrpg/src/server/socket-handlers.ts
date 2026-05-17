@@ -374,6 +374,7 @@ async function runProgressNudgeForTask(
         npcName: npcConfig._name,
         message: prompt,
         history: npcChatHistory.get(`${task.channelId}:${task.npcId}`),
+        sessionId: sessionKey,
       });
     } else {
       const gateway = await getOrConnectGateway(task.channelId);
@@ -483,7 +484,7 @@ function buildNanobotGatewayAdapter() {
     disconnect: () => {},
     chatSend: async (
       agentId: string,
-      _sessionKey: string,
+      sessionKey: string,
       message: string,
       onDelta?: (delta: string) => void,
     ) => {
@@ -493,6 +494,7 @@ function buildNanobotGatewayAdapter() {
         npcName: agentId,
         message,
         onDelta,
+        sessionId: sessionKey,
       });
     },
     chatAbort: async () => {},
@@ -648,6 +650,7 @@ async function streamNpcResponse(
         message,
         history: npcChatHistory.get(`${_channelId}:${npcId}`),
         attachments,
+        sessionId: sessionKey,
         onDelta: (delta: string) => {
           socket.emit(responseEvent, { npcId, chunk: delta, done: false });
         },
@@ -746,6 +749,7 @@ async function streamMeetingNpcResponse(
         npcName: _name,
         message: prompt,
         history: meetingHistory,
+        sessionId: sessionKey,
         onDelta,
       });
     } else {

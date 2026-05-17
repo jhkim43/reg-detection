@@ -9,6 +9,10 @@ const {
   buildGatewayErrorPayload,
   getGatewayErrorStatus,
 } = require("./src/lib/openclaw-gateway.js");
+const {
+  isNanobotProvider,
+  createNanobotAdapter,
+} = require("./src/lib/nanobot-client.js");
 const { parseNpcResponse, isValidTaskAction } = require("./src/lib/task-parser.js");
 const { TaskManager } = require("./src/lib/task-manager.js");
 const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");
@@ -439,6 +443,10 @@ async function main() {
       const r = rows[0];
       const openclawConfig = parseJson(r.openclawConfig);
       const config = { ...openclawConfig, _channelId: r.channelId, _name: r.name };
+      // nanobot mode: NPC id doubles as agent id (no OpenClaw agents.create step).
+      if (isNanobotProvider()) {
+        config.agentId = npcId;
+      }
       npcConfigCache.set(npcId, config);
       return config;
     } catch (err) {
@@ -462,6 +470,11 @@ async function main() {
   }
 
   async function getOrConnectGateway(channelId) {
+    if (isNanobotProvider()) {
+      // nanobot adapter is stateless — no need to cache per channel.
+      return createNanobotAdapter({ db, schema, eq });
+    }
+
     if (channelGateways.has(channelId)) {
       const gw = channelGateways.get(channelId);
       if (gw.isConnected()) return gw;
@@ -570,12 +583,14 @@ ${transcript}
         name: schema.npcs.name,
         openclawConfig: schema.npcs.openclawConfig,
       }).from(schema.npcs).where(eq(schema.npcs.channelId, channelId));
+      const nanobotMode = isNanobotProvider();
       return rows.map(r => {
         const config = parseJson(r.openclawConfig) || {};
         return {
           id: r.id,
           name: r.name,
-          agentId: config.agentId || config.agent_id || null,
+          // nanobot mode: NPC id doubles as agent id.
+          agentId: nanobotMode ? r.id : (config.agentId || config.agent_id || null),
           sessionKeyPrefix: config.sessionKeyPrefix || config.session_key_prefix || "",
           role: "Participant",
           passPolicy: config.passPolicy || null,
