@@ -598,6 +598,7 @@ def serve(
             "openrouter": runtime_config.providers.openrouter,
             "aihubmix": runtime_config.providers.aihubmix,
         },
+        hooks=_build_default_hooks(runtime_config.workspace_path),
     )
 
     model_name = runtime_config.agents.defaults.model

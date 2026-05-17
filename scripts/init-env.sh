@@ -32,7 +32,9 @@ JWT_SECRET=change-me-to-a-random-64-char-string
 COOKIE_SECURE=false
 
 # ── deskrpg 이미지 ──
-DESKRPG_IMAGE=dandacompany/deskrpg:latest
+# 기본: docker-compose가 ./deskrpg를 빌드(우리 fork). nanobot 통합 분기 패치 자동 포함.
+# 외부 이미지를 강제하고 싶을 때만 아래 줄 uncomment (CI 캐시·임시 디버깅용).
+# DESKRPG_IMAGE=dandacompany/deskrpg:latest
 
 # ── nanobot 모델 ──
 # ~/.nanobot/config.json 에서 설정하는 것이 일반적입니다.
