@@ -161,6 +161,10 @@ check_content() {
       -not -path '*/*.min.js' \
       -not -path '*/*.min.css' \
       -not -path '*/.harness/*' \
+      -not -path '*/nanobot/*' \
+      -not -path '*/deskrpg/*' \
+      -not -path '*/vendor/*' \
+      -not -path '*/third_party/*' \
       -not -name '*.png' -not -name '*.jpg' -not -name '*.gif' \
       -not -name '*.ico' -not -name '*.woff*' -not -name '*.ttf' \
       -not -name '*.mp4' -not -name '*.mp3' \
@@ -170,6 +174,13 @@ check_content() {
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     [ ! -f "$PROJECT_ROOT/$file" ] && continue
+
+    # Skip external fork code (deskrpg, nanobot, vendor, third_party)
+    # 외부 fork 코드는 우리 RegTrack 규칙 적용 부적합 (upstream 코드).
+    # CHECK_STAGED 모드에서도 적용. seed-v8 D-13 (deskrpg 라이센스) + harness 정책.
+    if [[ "$file" =~ (^|/)(nanobot|deskrpg|vendor|third_party)/ ]]; then
+      continue
+    fi
 
     local full_path="$PROJECT_ROOT/$file"
 
