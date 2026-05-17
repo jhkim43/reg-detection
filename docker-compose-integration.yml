@@ -1,0 +1,147 @@
+# =============================================================================
+# reg-detection — 통합 Docker Compose
+# =============================================================================
+# nanobot + deskrpg + PostgreSQL를 단일 Docker 네트워크로 통합 관리
+#
+# 사용법:
+#   ./scripts/start.sh          # 전체 시작
+#   ./scripts/stop.sh           # 전체 중지
+#   ./scripts/status.sh         # 컨테이너 상태 확인
+#   ./scripts/init-env.sh       # .env.integration 생성 가이드
+#
+# 또는 직접:
+#   docker compose -f docker-compose-integration.yml up -d --build
+# =============================================================================
+
+networks:
+  reg-detection-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.32.0.0/16
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL (deskrpg 전용)
+  # ─────────────────────────────────────────────
+  deskrpg-db:
+    image: postgres:16-alpine
+    container_name: reg-detection-db
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    environment:
+      POSTGRES_DB: deskrpg
+      POSTGRES_USER: deskrpg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - deskrpg-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deskrpg -d deskrpg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  # ─────────────────────────────────────────────
+  # nanobot-gateway (Telegram, Discord, etc.)
+  # ─────────────────────────────────────────────
+  nanobot-gateway:
+    build:
+      context: ./nanobot
+      dockerfile: Dockerfile
+    container_name: reg-detection-nanobot-gw
+    command: ["gateway"]
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "18790:18790"
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
+      - ./nanobot/nanobot:/app/nanobot
+    environment:
+      - DEV_MODE=1
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ─────────────────────────────────────────────
+  # nanobot-api (OpenAI-compatible, deskrpg용)
+  # ─────────────────────────────────────────────
+  nanobot-api:
+    build:
+      context: ./nanobot
+      dockerfile: Dockerfile
+    container_name: reg-detection-nanobot-api
+    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "8900:8900"
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
+      - ./nanobot/nanobot:/app/nanobot
+    environment:
+      - DEV_MODE=1
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ─────────────────────────────────────────────
+  # deskrpg-app (OpenClaw → nanobot API로 교체)
+  # ─────────────────────────────────────────────
+  deskrpg-app:
+    image: ${DESKRPG_IMAGE:-dandacompany/deskrpg:latest}
+    container_name: reg-detection-deskrpg
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "3102:3000"
+    volumes:
+      - ./deskrpg/public/assets:/app/public/assets
+    environment:
+      DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # OpenClaw 대체: nanobot OpenAI-compatible API
+      AI_PROVIDER: nanobot
+      NANOBOT_API_URL: http://nanobot-api:8900/v1
+    depends_on:
+      deskrpg-db:
+        condition: service_healthy
+      nanobot-api:
+        condition: service_started
+
+volumes:
+  deskrpg-pgdata:
