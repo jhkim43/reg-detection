@@ -34,6 +34,14 @@ const YELLOW_USD = 30;
 const ORANGE_USD = 60;
 const RED_USD = 90;
 
+function shortModel(model: string | null): string {
+  if (!model) return "—";
+  // "qwen/qwen3.6-35b-a3b" → "qwen3.6-35b"
+  const parts = model.split("/");
+  const tail = parts[parts.length - 1] || model;
+  return tail.length > 18 ? tail.slice(0, 18) + "…" : tail;
+}
+
 function levelColor(cost: number): { bg: string; border: string; label: string } {
   if (cost >= RED_USD) return { bg: "bg-red-900/80", border: "border-red-500", label: "RED" };
   if (cost >= ORANGE_USD) return { bg: "bg-orange-900/80", border: "border-orange-500", label: "ORANGE" };
@@ -95,7 +103,7 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
   return (
     <div
       className={`fixed top-3 right-3 z-[9999] rounded-lg border ${color.border} ${color.bg} px-3 py-2 text-xs font-mono text-white shadow-lg backdrop-blur min-w-[240px]`}
-      title={`Budget: $${BUDGET_USD} / threshold: ${color.label}`}
+      title={`Budget: $${BUDGET_USD} / threshold: ${color.label}\n캐시 적중률: ${Math.round(state.cache_hit_rate * 100)}%`}
     >
       <div className="flex items-center gap-2 mb-1">
         <span>💰</span>
@@ -113,10 +121,8 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
           style={{ width: `${progressPct}%` }}
         />
       </div>
-      <div className="flex items-center justify-between text-[10px] text-white/80">
-        <span>📞 {state.call_count}</span>
-        <span>⚡ {Math.round(state.cache_hit_rate * 100)}%</span>
-        <span>🤖 {state.last_model ?? "—"}</span>
+      <div className="text-[10px] text-white/80 truncate">
+        호출 {state.call_count} · {shortModel(state.last_model)}
       </div>
     </div>
   );

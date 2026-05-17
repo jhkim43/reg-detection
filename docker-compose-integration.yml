@@ -105,6 +105,8 @@ services:
       # 설정되지 않으면 hook이 등록되지 않고 token-tracker.json만 기록됨.
       - REGTRACK_INTERNAL_URL=http://deskrpg-app:3000
       - INTERNAL_RPC_SECRET=${JWT_SECRET}
+      # LLMResponse에 model 필드가 없을 때 hook이 위 모델명을 fallback으로 기록.
+      - NANOBOT_MODEL=${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
     cap_drop:
       - ALL
     cap_add:

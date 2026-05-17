@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -283,11 +284,14 @@ class LLMUsageRecordHook(AgentHook):
         if input_tokens == 0 and output_tokens == 0:
             return
 
+        # LLMResponse에는 model 필드가 없음. NANOBOT_MODEL env fallback (서버가 사용 중인 모델).
         model = ""
         provider = "openrouter"
         if context.response is not None:
             model = getattr(context.response, "model", None) or ""
             provider = getattr(context.response, "provider", None) or provider
+        if not model:
+            model = os.getenv("NANOBOT_MODEL", "")
 
         phase = "llm_response"
         if context.tool_results:
