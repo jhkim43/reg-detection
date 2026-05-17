@@ -66,7 +66,14 @@ done < <(find "$PROJECT_ROOT" -name "*.sql" -type f \
   -not -path "*/migrations/*" \
   -not -path "*/alembic/*" \
   -not -path "*/prisma/*" \
+  -not -path "*/drizzle/*" \
+  -not -path "*/.venv/*" \
+  -not -path "*/venv/*" \
   -not -path "*/.harness/*" \
+  -not -path "*/nanobot/*" \
+  -not -path "*/deskrpg/*" \
+  -not -path "*/vendor/*" \
+  -not -path "*/third_party/*" \
   2>/dev/null)
 
 # ─── Check: No test files in production directories ───────────────
