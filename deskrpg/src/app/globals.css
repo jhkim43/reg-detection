@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+@import "../styles/theme-web.css";
+@import "../styles/theme-game.css";
+
+@theme inline {
+  /* Surface tokens → Tailwind utilities */
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+
+  /* Semantic color tokens */
+  --color-primary: var(--color-primary);
+  --color-primary-light: var(--color-primary-light);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-muted: var(--color-primary-muted);
+  --color-npc: var(--color-npc);
+  --color-npc-dark: var(--color-npc-dark);
+  --color-danger: var(--color-danger);
+  --color-danger-hover: var(--color-danger-hover);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-info: var(--color-info);
+  --color-success: var(--color-success);
+  --color-meeting: var(--color-meeting);
+
+  /* Text tokens */
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+
+  /* Fonts */
+  --font-sans: "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", "Consolas", monospace;
+}
+
+/* Typography utilities */
+@utility text-heading {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+@utility text-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+@utility text-body {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+@utility text-caption {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+@utility text-micro {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
