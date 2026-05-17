@@ -15,6 +15,13 @@
       "when": 1775705194647,
       "tag": "0001_furry_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779016800000,
+      "tag": "0002_llm_usage_records",
+      "breakpoints": true
     }
   ]
 }
