@@ -24,6 +24,7 @@ import type { Task } from "@/components/TaskCard";
 import { getLocalizedErrorMessage, getLocalizedMessage } from "@/lib/i18n/error-codes";
 import { resolveNpcResponseChunk, type NpcResponsePayload } from "@/lib/npc-response-messages";
 import { sanitizeNpcResponseText } from "@/lib/task-block-utils.js";
+import { LlmUsageWidget } from "@/components/LlmUsageWidget";
 
 const APP_VERSION = "2026.4.9-3";
 const BUG_REPORT_BASE_URL = "https://github.com/dandacompany/deskrpg/issues/new";
@@ -1575,6 +1576,7 @@ function GamePageInner() {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-gray-900 text-white">
+      <LlmUsageWidget socket={socket} />
       {/* Game canvas — full screen background (hidden when in meeting mode) */}
       <div style={{ visibility: mode === "office" ? "visible" : "hidden", position: mode === "office" ? "relative" : "absolute", pointerEvents: mode === "office" ? "auto" : "none" }}>
         {spritesheetDataUrl && character && gameChannelData && (
