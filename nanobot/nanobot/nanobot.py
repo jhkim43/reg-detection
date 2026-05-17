@@ -2,13 +2,30 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.hook import AgentHook, SDKCaptureHook, TokenTrackingHook
+from nanobot.agent.hook import (
+    AgentHook,
+    LLMUsageRecordHook,
+    SDKCaptureHook,
+    TokenTrackingHook,
+)
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.queue import MessageBus
+
+
+def _build_default_hooks(workspace_path: Path) -> list[AgentHook]:
+    # RegTrack AC-008 — REGTRACK_INTERNAL_URL 환경변수가 있을 때만 deskrpg로 usage POST.
+    hooks: list[AgentHook] = [TokenTrackingHook(workspace_path)]
+    regtrack_url = os.getenv("REGTRACK_INTERNAL_URL")
+    if regtrack_url:
+        hooks.append(
+            LLMUsageRecordHook(regtrack_url, os.getenv("INTERNAL_RPC_SECRET", ""))
+        )
+    return hooks
 
 
 @dataclass(slots=True)
@@ -91,7 +108,7 @@ class Nanobot:
                 "openrouter": config.providers.openrouter,
                 "aihubmix": config.providers.aihubmix,
             },
-            hooks=[TokenTrackingHook(config.workspace_path)],
+            hooks=_build_default_hooks(config.workspace_path),
         )
         return cls(loop)
 

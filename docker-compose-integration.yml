@@ -101,6 +101,10 @@ services:
       - ./nanobot/nanobot:/app/nanobot
     environment:
       - DEV_MODE=1
+      # RegTrack AC-008 — LLMUsageRecordHook가 deskrpg로 usage POST.
+      # 설정되지 않으면 hook이 등록되지 않고 token-tracker.json만 기록됨.
+      - REGTRACK_INTERNAL_URL=http://deskrpg-app:3000
+      - INTERNAL_RPC_SECRET=${JWT_SECRET}
     cap_drop:
       - ALL
     cap_add:
