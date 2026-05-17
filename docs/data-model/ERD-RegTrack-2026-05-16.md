@@ -489,6 +489,40 @@ CREATE INDEX idx_usage_created ON llm_usage_records(created_at);
 CREATE INDEX idx_usage_agent ON llm_usage_records(agent_id);
 ```
 
+#### PR 2a 실 구현 (2026-05-17) — deskrpg PostgreSQL 통합
+
+ERD 원안은 standalone SQLite + `agents` 추상화를 가정. 실제 deskrpg fork 통합에서는 PostgreSQL + `npcs` FK로 정렬:
+
+```sql
+-- deskrpg/drizzle/0002_llm_usage_records.sql
+CREATE TABLE llm_usage_records (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_key     VARCHAR(200) NOT NULL,            -- nanobot sessionKey (api:<npcId>-dm-<userId>)
+    npc_id          UUID REFERENCES npcs(id) ON DELETE SET NULL,  -- agents 대신 npcs (deskrpg domain)
+    provider        VARCHAR(20)  NOT NULL,            -- enum 제약은 응용 레벨로
+    model           VARCHAR(100) NOT NULL,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    cached_tokens   INTEGER NOT NULL DEFAULT 0,       -- 신규: prompt cache hit 분리 추적
+    cost_usd        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    phase           VARCHAR(30),                      -- 신규: llm_response/tool_request/tool_execution/final_response
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_llm_usage_created ON llm_usage_records(created_at);
+CREATE INDEX idx_llm_usage_npc     ON llm_usage_records(npc_id);
+```
+
+| 차이점 | 원안 (SQLite) | PR 2a (PG) | 사유 |
+|------|------|------|------|
+| FK | `agent_id → agents` | `npc_id → npcs (ON DELETE SET NULL)` | deskrpg domain. nanobot agent_id ≡ npc.id (PR 1 결정) |
+| `cached` | bool 0/1 | (제거) | bool은 정보 손실 — `cached_tokens` integer로 대체 |
+| `cached_tokens` | (없음) | INTEGER NOT NULL DEFAULT 0 | OpenRouter prompt cache 토큰 수 직접 추적 |
+| `phase` | (없음) | VARCHAR(30) nullable | TokenTrackingHook 패턴 정렬 — debug/cost-attribution용 |
+| `session_key` | (없음) | VARCHAR(200) NOT NULL | nanobot session 격리 키 (UI 필터링·디버깅용) |
+| provider enum | CHECK 제약 | 응용 레벨 | OpenRouter 외 향후 provider 추가 시 schema migration 회피 |
+
+UI는 `cost_usd` 누적 합으로 AC-008 임계 ($30/60/90) 판정. nanobot fire-and-forget hook(side-channel)이 매 iteration 결과를 POST → DB insert → socket broadcast `llm-usage:update` → 위젯 증분 갱신.
+
 ### 2.16 `meeting_sessions` (v2)
 
 ```sql
