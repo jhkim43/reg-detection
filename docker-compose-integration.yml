@@ -133,6 +133,7 @@ services:
       - reg-detection-net
     ports:
       - "3102:3000"
+      - "3103:3001"
     volumes:
       - ./deskrpg/public/assets:/app/public/assets
     environment:

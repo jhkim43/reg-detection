@@ -10,8 +10,9 @@ import {
   nanobotChatStream,
 } from "./nanobot-client";
 
-const MAX_HISTORY_TURNS = 16;
-
+// History is retained on the nanobot session (session_id) — client no longer
+// forwards prior turns. The HistoryEntry shape is kept so callers can keep
+// passing `history` without breaking, but it is ignored by the chat path.
 export type HistoryEntry = {
   role: "player" | "npc";
   content: string;
@@ -26,6 +27,7 @@ export type NanobotChatInput = {
   attachments?: OpenClawAttachment[];
   systemPromptOverride?: string;
   onDelta?: (delta: string) => void;
+  sessionId?: string;
 };
 
 function loadPersonaFromNpc(openclawConfig: Record<string, unknown> | null): {
@@ -82,32 +84,23 @@ function attachmentsToText(attachments: OpenClawAttachment[] | undefined): strin
   return sections.length > 0 ? `\n\n[Attached files]${sections.join("")}` : "";
 }
 
-function historyToMessages(history: HistoryEntry[] | undefined): ChatMessage[] {
-  if (!history || history.length === 0) return [];
-  const recent = history.slice(-MAX_HISTORY_TURNS * 2);
-  return recent.map((entry) => ({
-    role: entry.role === "player" ? "user" : "assistant",
-    content: entry.content,
-  }));
-}
-
 async function buildMessages(input: NanobotChatInput): Promise<ChatMessage[]> {
   const system = input.systemPromptOverride
     || (await getNpcPersona(input.npcId, input.npcName));
   const augmentedMessage = input.message + attachmentsToText(input.attachments);
   return [
     { role: "system", content: system },
-    ...historyToMessages(input.history),
     { role: "user", content: augmentedMessage },
   ];
 }
 
 export async function nanobotChatSend(input: NanobotChatInput): Promise<string> {
   const messages = await buildMessages(input);
+  const opts = input.sessionId ? { sessionId: input.sessionId } : {};
   if (input.onDelta) {
-    return nanobotChatStream(messages, input.onDelta);
+    return nanobotChatStream(messages, input.onDelta, opts);
   }
-  return nanobotChat(messages);
+  return nanobotChat(messages, opts);
 }
 
 export async function nanobotChatPlain(
