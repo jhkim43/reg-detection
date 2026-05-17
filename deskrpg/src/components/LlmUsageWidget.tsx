@@ -22,6 +22,12 @@ type UsageUpdatePayload = {
   model?: string;
 };
 
+type TeamBalance = {
+  usage: number;
+  limit: number | null;
+  remaining: number | null;
+};
+
 const INITIAL: UsageState = {
   cost_usd: 0,
   call_count: 0,
@@ -51,6 +57,7 @@ function levelColor(cost: number): { bg: string; border: string; label: string }
 
 export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
   const [state, setState] = useState<UsageState>(INITIAL);
+  const [team, setTeam] = useState<TeamBalance | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +75,14 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
       .catch(() => {
         /* leave INITIAL */
       });
+    // OpenRouter 계정 잔여(팀 공유 예산) — server-side 5분 캐시. error/no_key면 hide.
+    fetch("/api/llm-usage/account-balance", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || data.error || typeof data.usage !== "number") return;
+        setTeam({ usage: data.usage, limit: data.limit, remaining: data.remaining });
+      })
+      .catch(() => { /* hide on failure */ });
     return () => {
       cancelled = true;
     };
@@ -124,6 +139,12 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
       <div className="text-[10px] text-white/80 truncate">
         호출 {state.call_count} · {shortModel(state.last_model)}
       </div>
+      {team && (
+        <div className="text-[10px] text-white/60 truncate mt-0.5">
+          팀 잔여 ${(team.remaining ?? 0).toFixed(2)}
+          {team.limit !== null && <span> / ${team.limit.toFixed(0)}</span>}
+        </div>
+      )}
     </div>
   );
 }

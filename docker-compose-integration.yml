@@ -146,6 +146,9 @@ services:
       DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # PR 2a — /api/llm-usage/account-balance가 OpenRouter 잔여 fetch에 사용.
+      # 미설정 시 위젯의 '팀 잔여' 줄이 hide. 메타데이터 endpoint라 과금 0.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # OpenClaw 대체: nanobot OpenAI-compatible API
       AI_PROVIDER: nanobot
       NANOBOT_API_URL: http://nanobot-api:8900/v1
