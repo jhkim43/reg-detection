@@ -32,6 +32,7 @@ COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/src/lib/meeting-broker.js ./src/lib/meeting-broker.js
 COPY --from=builder /app/src/lib/meeting-formatter.js ./src/lib/meeting-formatter.js
 COPY --from=builder /app/src/lib/openclaw-gateway.js ./src/lib/openclaw-gateway.js
+COPY --from=builder /app/src/lib/nanobot-client.js ./src/lib/nanobot-client.js
 COPY --from=builder /app/src/lib/runtime-paths.js ./src/lib/runtime-paths.js
 COPY --from=builder /app/src/lib/task-parser.js ./src/lib/task-parser.js
 COPY --from=builder /app/src/lib/task-block-utils.js ./src/lib/task-block-utils.js

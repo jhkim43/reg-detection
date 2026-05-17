@@ -21,6 +21,8 @@ function chatLog(...args: unknown[]) { if (DEBUG_CHAT) console.log("[npc:chat]",
 
 import { parseDbObject } from "../lib/db-json";
 import { getGatewayRuntimeConfigForChannel } from "../lib/gateway-resources";
+import { isNanobotProvider } from "../lib/nanobot-client";
+import { nanobotChatSend, nanobotChatPlain } from "../lib/nanobot-chat";
 import {
   buildChannelAccessDeniedPayload,
   type ChannelAccessDeniedReason,
@@ -361,17 +363,29 @@ async function runProgressNudgeForTask(
     const targetUserId = await getAssignerUserId(task.assignerId);
     if (!targetUserId) return;
 
-    const gateway = await getOrConnectGateway(task.channelId);
-    if (!gateway) return;
-
     const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-dm-${targetUserId}`;
     await taskManager.markTaskNudged(task.id, task.channelId);
-    const response = await gateway.chatSend(
-      npcConfig.agentId,
-      sessionKey,
-      withTaskReminder(promptOverride ?? buildAutoExecutionPrompt(task)),
-      () => {},
-    );
+
+    const prompt = withTaskReminder(promptOverride ?? buildAutoExecutionPrompt(task));
+    let response: string;
+    if (isNanobotProvider()) {
+      response = await nanobotChatSend({
+        npcId: task.npcId,
+        npcName: npcConfig._name,
+        message: prompt,
+        history: npcChatHistory.get(`${task.channelId}:${task.npcId}`),
+        sessionId: sessionKey,
+      });
+    } else {
+      const gateway = await getOrConnectGateway(task.channelId);
+      if (!gateway) return;
+      response = await gateway.chatSend(
+        npcConfig.agentId,
+        sessionKey,
+        prompt,
+        () => {},
+      );
+    }
     const parsed = parseNpcResponse(response);
 
     await processNpcTaskActions(io, parsed, {
@@ -462,8 +476,37 @@ async function scanProgressNudges(io: Server) {
 // OpenClaw gateway helper
 // ---------------------------------------------------------------------------
 
+// nanobot adapter: same chatSend signature as OpenClawGateway so meeting-broker
+// and other consumers can call it without knowing the difference.
+function buildNanobotGatewayAdapter() {
+  return {
+    isConnected: () => true,
+    disconnect: () => {},
+    chatSend: async (
+      agentId: string,
+      sessionKey: string,
+      message: string,
+      onDelta?: (delta: string) => void,
+    ) => {
+      // agentId in nanobot mode is the NPC id (set in getNpcConfig).
+      return nanobotChatSend({
+        npcId: agentId,
+        npcName: agentId,
+        message,
+        onDelta,
+        sessionId: sessionKey,
+      });
+    },
+    chatAbort: async () => {},
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getOrConnectGateway(channelId: string): Promise<any | null> {
+  if (isNanobotProvider()) {
+    return buildNanobotGatewayAdapter();
+  }
+
   const gatewayConfig = await getGatewayRuntimeConfigForChannel(channelId);
   if (!gatewayConfig) {
     return null;
@@ -525,10 +568,15 @@ async function getNpcConfig(npcId: string): Promise<NpcConfig | null> {
     const npc = rows[0];
     const oc = parseDbObject(npc.openclawConfig) || {};
 
+    // nanobot mode: NPC id doubles as agent id (no OpenClaw agents.create step).
+    const agentId = isNanobotProvider()
+      ? npc.id
+      : ((oc.agentId as string) || null);
+
     return {
       id: npc.id,
       name: npc.name,
-      agentId: (oc.agentId as string) || null,
+      agentId,
       sessionKeyPrefix: (oc.sessionKeyPrefix as string) || npcId,
       _channelId: npc.channelId as string,
       _name: npc.name,
@@ -550,10 +598,13 @@ async function getNpcConfigsForChannel(channelId: string): Promise<NpcConfig[]> 
 
     return rows.map((npc) => {
       const oc = parseDbObject(npc.openclawConfig) || {};
+      const agentId = isNanobotProvider()
+        ? npc.id
+        : ((oc.agentId as string) || null);
       return {
         id: npc.id,
         name: npc.name,
-        agentId: (oc.agentId as string) || null,
+        agentId,
         sessionKeyPrefix: (oc.sessionKeyPrefix as string) || npc.id,
         _channelId: channelId,
         _name: npc.name,
@@ -589,13 +640,36 @@ async function streamNpcResponse(
     return "";
   }
 
+  const sessionKey = sessionKeyOverride || `${sessionKeyPrefix || npcId}-dm-${userId}`;
+
+  if (isNanobotProvider()) {
+    try {
+      const response = await nanobotChatSend({
+        npcId,
+        npcName: npcConfig._name,
+        message,
+        history: npcChatHistory.get(`${_channelId}:${npcId}`),
+        attachments,
+        sessionId: sessionKey,
+        onDelta: (delta: string) => {
+          socket.emit(responseEvent, { npcId, chunk: delta, done: false });
+        },
+      });
+      socket.emit(responseEvent, { npcId, chunk: "", done: true });
+      return response || "";
+    } catch (err) {
+      console.error(`[npc] nanobot chat error for ${npcId}:`, err);
+      emitNpcSystemResponse(socket, npcId, "gateway_error");
+      return "";
+    }
+  }
+
   const gateway = await getOrConnectGateway(_channelId);
   if (!gateway) {
     emitNpcSystemResponse(socket, npcId, "gateway_not_connected");
     return "";
   }
 
-  const sessionKey = sessionKeyOverride || `${sessionKeyPrefix || npcId}-dm-${userId}`;
   try {
     const response = await gateway.chatSend(
       agentId,
@@ -632,9 +706,6 @@ async function streamMeetingNpcResponse(
   // Skip NPCs without an assigned agent in meeting rooms
   if (!agentId) return;
 
-  const gateway = await getOrConnectGateway(channelId);
-  if (!gateway) return;
-
   const sessionKey = `${sessionKeyPrefix || _name}-meeting-${channelId}`;
   const prompt = `${senderName}: ${userMessage}`;
 
@@ -650,18 +721,45 @@ async function streamMeetingNpcResponse(
   room.messages.push(npcMessage);
   if (room.messages.length > 100) room.messages.splice(0, room.messages.length - 100);
 
+  // Build short meeting history from recent room messages (excluding the in-flight npc msg)
+  const meetingHistory = room.messages
+    .filter((m) => m.id !== npcMessage.id && m.content.trim().length > 0)
+    .slice(-16)
+    .map((m) => ({
+      role: m.senderType === "npc" ? ("npc" as const) : ("player" as const),
+      content: `${m.sender}: ${m.content}`,
+      timestamp: m.timestamp,
+    }));
+
   let fullText = "";
-  try {
-    await gateway.chatSend(agentId, sessionKey, prompt, (delta: string) => {
-      fullText += delta;
-      npcMessage.content = fullText;
-      emitMeetingNpcStream(io, channelId, {
-        messageId: npcMessage.id,
-        sender: _name,
-        chunk: delta,
-        done: false,
-      });
+  const onDelta = (delta: string) => {
+    fullText += delta;
+    npcMessage.content = fullText;
+    emitMeetingNpcStream(io, channelId, {
+      messageId: npcMessage.id,
+      sender: _name,
+      chunk: delta,
+      done: false,
     });
+  };
+  try {
+    if (isNanobotProvider()) {
+      await nanobotChatSend({
+        npcId: agentId,
+        npcName: _name,
+        message: prompt,
+        history: meetingHistory,
+        sessionId: sessionKey,
+        onDelta,
+      });
+    } else {
+      const gateway = await getOrConnectGateway(channelId);
+      if (!gateway) {
+        room.messages.pop();
+        return;
+      }
+      await gateway.chatSend(agentId, sessionKey, prompt, onDelta);
+    }
     npcMessage.content = fullText;
     emitMeetingNpcStream(io, channelId, {
       messageId: npcMessage.id,
@@ -705,8 +803,14 @@ ${transcript}
 
   try {
     const sessionKey = `${sessionKeyPrefix}-summary-${meetingId}`;
+    const summaryCall = isNanobotProvider()
+      ? nanobotChatPlain(
+          "당신은 회의록 요약 전문가입니다. 반드시 요청된 JSON 형식으로만 응답하세요.",
+          summaryPrompt,
+        )
+      : gateway.chatSend(agentId, sessionKey, summaryPrompt, () => {});
     const response = await Promise.race([
-      gateway.chatSend(agentId, sessionKey, summaryPrompt, () => {}),
+      summaryCall,
       new Promise<string>((_, reject) => {
         setTimeout(() => reject(new Error("Summary timeout")), 60_000);
       }),

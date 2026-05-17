@@ -14,15 +14,18 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { getGatewayRuntimeStateForChannel } from "@/lib/gateway-resources";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 
 export async function GET(req: NextRequest) {
   try {
     const channelId = req.nextUrl.searchParams.get("channelId");
     let rows;
     if (channelId) {
-      const gatewayState = await getGatewayRuntimeStateForChannel(channelId, { forceRefresh: true });
-      if (gatewayState.status !== "valid") {
-        return NextResponse.json({ npcs: [] });
+      if (!isNanobotProvider()) {
+        const gatewayState = await getGatewayRuntimeStateForChannel(channelId, { forceRefresh: true });
+        if (gatewayState.status !== "valid") {
+          return NextResponse.json({ npcs: [] });
+        }
       }
       rows = await db.select().from(npcs).where(eq(npcs.channelId, channelId));
     } else {

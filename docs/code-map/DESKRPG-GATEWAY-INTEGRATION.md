@@ -304,3 +304,125 @@ lsof -ti:8765 -ti:3000 -ti:18790 2>/dev/null | xargs -r kill && echo "✓ all st
 - [ ] OpenClaw 옵션 유지 vs 제거 결정 (PRD scope)
 - [ ] 게이트 통과 + PR
 - [ ] retro 안건: 본 문서 §5.2의 작업 분량(1-2주) 일정 위치 결정
+
+---
+
+## 11. v3 업데이트 — 3-PR 점진적 전체 통합 로드맵 (2026-05-17)
+
+> §5에서 "M3-M4 in-place 교체 1-2주"라고 추정했으나, 팀장 PR #8(docker-compose-integration.yml) 채택과 nanobot OpenAI-compat `serve` 검증으로 **전략 갱신**.
+
+### 11.1 전략 변경 — OpenAI-compat 1차 채택
+
+| 기존 (v2 §5.2) | v3 |
+|----------|------|
+| nanobot WS gateway protocol과 OpenClaw 프로토콜 매핑 adapter | **`nanobot serve` (port 8900) OpenAI-compat HTTP API 사용** — adapter 불필요 |
+| WebSocket Ed25519 pairing 호환 레이어 필요 | HTTP `/v1/chat/completions` 직접 호출 — pairing 무관 |
+| 1-2주 추정 | PR 1: 1~2일 / PR 2: 3~5일 / PR 3: 1주 |
+
+**검증 결과 (2026-05-17)**:
+- `nanobot serve --host 0.0.0.0 --port 8900` → `/v1/models`, `/v1/chat/completions` (non-streaming + SSE) 모두 OpenAI 표준 응답 ✓
+- Qwen `qwen/qwen3.6-35b-a3b` 응답 한국어 정상
+- SSE: `data: {chunk}` + `data: [DONE]` 표준 포맷 → 기존 streaming UI 변경 무 ✓
+- ⚠ `usage` 필드 0 (nanobot 한계) → 토큰 추적은 `~/.nanobot/workspace/sessions/*.token.json` (TokenTrackingHook) 사용
+
+### 11.2 핵심 의사결정 — 왜 "전체 통합" 방향이 맞는가
+
+| 근거 | 영향 |
+|------|------|
+| 팀장 docker-compose-integration.yml에 `openclaw-gateway` 서비스 없음 | 팀 합의 = OpenClaw 폐기 방향 |
+| nanobot 하나로 LLM + workspace + TokenTracking 일원화 가능 | 운영 복잡도 ↓, AC-008 토큰 예산 추적 자동화 |
+| Ed25519 pairing/디바이스 신원 등 OpenClaw 고유 복잡도 제거 | 신규 팀원 셋업 시간 ↓ |
+| Mismatch: OpenClaw는 stateful agent RPC, nanobot OpenAI는 stateless | 영속화는 deskrpg DB 측에서 처리 (단방향 dependency) |
+
+### 11.3 3-PR 분할 로드맵
+
+```
+PR 1 (현재, feat/integration-deskrpg-nanobot)
+├─ env.ts: AI_PROVIDER, NANOBOT_API_URL, NANOBOT_MODEL
+├─ lib/nanobot-client.ts: OpenAI-compat HTTP 클라이언트 (streaming + non-streaming)
+├─ lib/nanobot-chat.ts: persona 로드 + history → messages 빌드 + 호출
+├─ socket-handlers.ts:
+│   ├─ getOrConnectGateway: nanobot 모드면 facade 반환 (channelGatewayBindings 조회 skip)
+│   ├─ getNpcConfig/ForChannel: nanobot 모드면 agentId=npc.id
+│   ├─ streamNpcResponse: nanobot 분기 → nanobotChatSend (history는 in-memory npcChatHistory)
+│   ├─ streamMeetingNpcResponse: nanobot 분기 → nanobotChatSend (meeting 룸 메시지에서 history 빌드)
+│   └─ generateMeetingSummary: nanobot 분기 → nanobotChatPlain
+├─ api/npcs/route.ts (GET): nanobot 모드면 gateway state 검증 skip
+├─ api/npcs/create-agent/route.ts: nanobot 모드면 agents.create/files.set 호출 skip
+├─ api/npcs/[id]/route.ts: 동일 (agents.* RPCs no-op)
+└─ docker-compose-integration.yml: deskrpg-app에 build context: ./deskrpg
+
+PR 2 (다음 sprint)
+├─ Task automation (progress nudge, auto-execution) — runProgressNudgeForTask 이미 PR1에 분기 포함
+├─ NPC files 첨부 (regulation 문서 → NPC persona context)
+└─ chat_messages DB 영속화 (현재 in-memory map → reload 시에도 보존)
+
+PR 3 (마지막)
+├─ Meeting minutes 영속화 정밀화 (meetingMinutes 테이블 활용)
+├─ openclaw-gateway.js 코드 제거 + env.ts에서 OPENCLAW_* 삭제
+└─ gateway_resources / gatewayShares / channelGatewayBindings 테이블 deprecate
+```
+
+### 11.4 R-19 신규 위험 — deskrpg fork sync
+
+| 항목 | 상세 |
+|------|------|
+| **위험** | deskrpg upstream (dandacompany/deskrpg) commit 진행 시 nanobot 분기 코드와 충돌 |
+| **확률 / 영향** | Medium / Medium |
+| **완화** | 본 PR 1~3 모두 분기 패턴(`if (isNanobotProvider())`) 유지 → upstream 머지 시 충돌 면적 최소화 |
+| **모니터링** | 분기 wrapping을 함수 추출(예: `chatSendUnified`)로 점진 격리 — PR 3에서 |
+
+### 11.5 PR 1 변경 파일 목록 (확정)
+
+| 파일 | 변경 | 비고 |
+|------|------|------|
+| `deskrpg/src/lib/env.ts` | 3개 env getter 추가 | AI_PROVIDER, NANOBOT_API_URL, NANOBOT_MODEL |
+| `deskrpg/src/lib/nanobot-client.ts` | **신규** | OpenAI HTTP 클라이언트 (streaming + 일반) |
+| `deskrpg/src/lib/nanobot-chat.ts` | **신규** | persona+history+attachments → messages 빌드 |
+| `deskrpg/src/server/socket-handlers.ts` | 6곳 분기 + adapter | nanobot 라우팅 |
+| `deskrpg/src/app/api/npcs/route.ts` | gateway state 검증 분기 | GET에서 빈 배열 회피 |
+| `deskrpg/src/app/api/npcs/create-agent/route.ts` | agents.* RPC 분기 | nanobot 모드 no-op |
+| `deskrpg/src/app/api/npcs/[id]/route.ts` | agents.* RPC 분기 (5곳) | 동일 |
+| `docker-compose-integration.yml` | build context + NANOBOT_MODEL env | 우리 fork 빌드 |
+| `docs/code-map/DESKRPG-GATEWAY-INTEGRATION.md` | §11 추가 | 본 문서
+
+### 11.6 PR 1 마무리 + PR 1.5 — 실 동작 정착 (2026-05-17)
+
+§11.5는 *계획 시점* 변경 목록. PR 1(`773e51de`) 코드/빌드만으로는 Docker production에서 실 채팅이 두 곳에서 막혀, 두 차례 follow-up으로 봉합.
+
+#### 추가 변경 — 채널 gateway pairing UI 우회 (`f642a781`)
+PR 1이 `api/npcs/*` 3개만 다루고 채널 gateway pairing 쪽 3개 route는 누락. nanobot 모드 첫 진입 시 "OpenClaw 게이트웨이를 먼저 저장하세요"에서 막혀 NPC 고용 자체 불가.
+
+| 파일 | 변경 |
+|------|------|
+| `api/channels/[id]/route.ts` | nanobot 모드면 `hasGateway=true` 강제 |
+| `api/channels/[id]/gateway/agents/route.ts` | 빈 agents 배열 |
+| `api/channels/[id]/gateway/test/route.ts` | 항상 ok=true |
+
+#### Docker production runtime + nanobot 단일-user 모델 정렬 (`8b5df1e1`)
+
+| 파일 | 변경 |
+|------|------|
+| `docker-compose-integration.yml` | `3103:3001` publish — socket.io를 host에 노출. `GamePageClient.tsx:189`가 production에서 `currentPort+1`로 붙는 컨벤션 만족 |
+| `deskrpg/Dockerfile` | `nanobot-client.js` standalone COPY (Next.js trace 미포함 CommonJS) |
+| `deskrpg/server.js` | production CommonJS adapter require + `isNanobotProvider()` 분기 |
+| `deskrpg/src/lib/nanobot-client.js` **(신규)** | production runtime. `buildNanobotRequestBody`가 single-user fold + `session_id` |
+| `deskrpg/src/lib/nanobot-client.ts` | 동일 패턴을 dev path(TS)에 정렬. `ChatOptions.sessionId` 추가 |
+| `deskrpg/src/lib/nanobot-chat.ts` | client-side history 위임 폐기 (caller 호환 위해 필드만 유지). `sessionId` 전달 |
+| `deskrpg/src/server/socket-handlers.ts` | `nanobotChatSend` 4 호출 지점에 `sessionId` 추가 (DM / progress nudge / gateway adapter / meeting) |
+
+#### 발견된 contract — nanobot OpenAI-compat의 single-user 제약
+- **`nanobot/api/server.py:115`** — `if not isinstance(messages, list) or len(messages) != 1: raise ValueError("Only a single user message is supported")`
+- 즉 OpenClaw 패턴 `[system, ...history, user]` 다중 메시지는 항상 **HTTP 400** 응답
+- **우회 전략**: client가 `system` 메시지와 마지막 `user` 메시지를 단일 user content로 fold(`[System]\n…\n\n[User]\n…` 형식), body에 `session_id` 필드 추가 → nanobot이 세션별로 history를 server-side 보존
+- **영향**: deskrpg는 사용자 메시지마다 history를 재구성·전송할 필요가 없음. `npcChatHistory` in-memory map은 UI 표시(반복 채팅창 렌더링) 용도로만 유지
+
+이 contract는 **PR 2/3 작업 시 회귀 위험**. nanobot upstream을 따라잡을 때 single-user 제약이 풀려도 양립 가능하도록 client 측 fold는 그대로 유지하는 것이 안전.
+
+#### 검증 (수동, 2026-05-17)
+- Docker stack 4개 컨테이너 정상 기동: db(healthy) / nanobot-gw / nanobot-api / deskrpg
+- 브라우저 http://localhost:3102 — NPC 고용 → 채팅 → Qwen `qwen/qwen3.6-35b-a3b` streaming 응답 ✓
+- nanobot API logs: `session_key=api:<sessionKey>`가 NPC별로 격리되어 기록 ✓
+
+#### 부수 발견 (별도 PR 후보)
+- `scripts/start.sh`가 `--env-file .env.integration` 미지정. Compose는 같은 디렉토리의 `.env`만 자동 로드하므로 `${POSTGRES_PASSWORD}` 등이 빈 값으로 컨테이너에 주입돼 DB 인증 실패. 팀원 셋업 시 명시적 `--env-file` 사용 가이드 필요. **권장**: `start.sh`에 옵션 추가하는 한 줄 PR.
