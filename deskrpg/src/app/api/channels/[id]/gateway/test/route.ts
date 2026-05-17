@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { internalRpc, getUserId } from "@/lib/internal-rpc";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 
 function normalizeGatewayAgents(result: unknown) {
   if (Array.isArray(result)) return result;
@@ -33,6 +34,10 @@ export async function POST(
   if (channel.ownerId !== userId) return NextResponse.json({ errorCode: "forbidden", error: "forbidden" }, { status: 403 });
 
   try {
+    // nanobot 모드: 환경변수 기반 전역 연결이므로 항상 OK.
+    if (isNanobotProvider()) {
+      return NextResponse.json({ ok: true, agents: [] });
+    }
     const result = await internalRpc(id, "agents.list");
     return NextResponse.json({
       ok: true,
