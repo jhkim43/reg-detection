@@ -74,7 +74,24 @@ git check-ignore -v vault/ .env.local .DS_Store "Project Charter_4팀_0514.docx"
 # 각 파일에 대해 어느 패턴이 매치하는지 표시되면 OK
 ```
 
-### 1.5 harness gates — PR 전 로컬 검증 (권장)
+### 1.5 코드 변경 시 관련 문서 sync (2026-05-17 보강)
+
+코드 변경이 있는 PR은 push 전에 **관련 문서가 갱신됐는지 반드시 확인**합니다. drift를 막기 위함.
+
+| 변경 영역 | 동시 업데이트 문서 |
+|----------|-------------------|
+| 통합·아키텍처 결정 (provider/protocol 등) | `docs/code-map/<관련>.md` 새 섹션 또는 §N.N 보강 |
+| 새 결정 (제3 선택지를 채택) | `docs/adr.yaml`에 ADR 등록 후보 검토 |
+| 새 invariant 생김 | `ARCHITECTURE_INVARIANTS.md` Part 1 갱신 (드뭄) |
+| AC·acceptance 흐름 변경 | `seed-vN.yaml` 새 버전 발행 (대형 변경 시) |
+| 시연 스토리보드 영향 | `docs/demo-scenario/STORYBOARD-*.md` 갱신 |
+| 셋업 흐름 변경 (env, 컨테이너, 포트) | `docs/local-setup/SPIKE-SETUP.md` 또는 `scripts/` 가이드 |
+
+**원칙**: 코드 변경의 reason과 effect가 문서에 적혀있지 않으면 6개월 뒤 본인도 못 읽음. 그래서 commit 전에 동기화.
+
+> 이미 동기화돼 있으면 추가 작업 X. 단 누락 의심 시 reviewer가 PR에서 지적 가능.
+
+### 1.6 harness gates — PR 전 로컬 검증 (권장)
 
 **목적**: CI(GitHub Actions `.github/workflows/harness-gates.yaml`)가 PR마다 자동 실행하지만, **로컬에서 미리 돌리면 CI fail로 인한 재push 사이클을 줄일 수 있음**.
 
@@ -213,9 +230,12 @@ git checkout dev
 git pull origin dev
 git checkout -b feat/내작업이름
 
-# 2. 작업·커밋 (§17.2 분류 prefix 필수)
+# 2. 작업·커밋 (§17.2 분류 명시 — 아래 옵션 중 택1)
 git add ...
-git commit -m "[small] 또는 [medium] 또는 [large]: 사유 1줄"
+git commit -m "[medium] feat(integration): 사유 1줄"
+# 또는 prefix 없이 conventional commit + PR 라벨로 분류 표시 (2026-05-17 정책 보강):
+git commit -m "feat(integration): 사유 1줄"
+# → 이 경우 PR 생성 시 GitHub UI에서 'medium' 라벨을 반드시 붙임
 
 # 3. feat 브랜치 push
 git push -u origin feat/내작업이름
@@ -229,6 +249,23 @@ git pull origin dev
 git branch -d feat/내작업이름                # 로컬 정리
 git push origin --delete feat/내작업이름     # 원격 정리
 ```
+
+#### 3.0.1.1 이미 있는 feat 브랜치에서 새 작업 시작 시 (2026-05-17 보강)
+
+매번 새 작업 단위 직전, dev에 다른 팀원 커밋이 들어왔는지 확인하고 본인 task와 영향이 있으면 반드시 반영:
+
+```bash
+git fetch origin
+git log --oneline HEAD..origin/dev   # dev에 새로 들어온 커밋
+git diff --stat HEAD..origin/dev     # 변경 파일 목록
+
+# 본인 작업 영역과 겹치면 머지:
+git merge origin/dev                 # merge commit 방식 (안전)
+# 또는 history 깔끔 원하면 (published 커밋이면 force-push 필요해 주의):
+git rebase origin/dev
+```
+
+겹침 없으면 그대로 진행. 매번 챙기지 않으면 PR 시점에 충돌이 누적돼 비용 폭발.
 
 #### 3.0.2 dev 브랜치 protection 확인하는 법 (참고)
 
