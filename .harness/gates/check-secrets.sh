@@ -152,8 +152,14 @@ check_content() {
     files_to_check=$(cd "$PROJECT_ROOT" && find . -type f \
       -not -path '*/.git/*' \
       -not -path '*/node_modules/*' \
+      -not -path '*/.venv/*' \
+      -not -path '*/venv/*' \
+      -not -path '*/env/*' \
+      -not -path '*/.tox/*' \
+      -not -path '*/site-packages/*' \
       -not -path '*/__pycache__/*' \
       -not -path '*/.next/*' \
+      -not -path '*/.turbo/*' \
       -not -path '*/dist/*' \
       -not -path '*/build/*' \
       -not -path '*/*.lock' \
@@ -194,9 +200,15 @@ check_content() {
       [ -z "$matches" ] && continue
       while IFS= read -r match; do
         local line_num=$(echo "$match" | cut -d: -f1)
+        local line_content=$(echo "$match" | cut -d: -f2-)
+        # Skip lines that only contain env var placeholders (e.g. ${VAR}, $VAR, ${env.X})
+        # — these are public templates, not real leaks (docker-compose, k8s manifests).
+        if echo "$line_content" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Z_]{3,}'; then
+          continue
+        fi
         error "SECRET DETECTED: $file:$line_num"
         echo "  Pattern: $pattern"
-        echo "  Line: $(echo "$match" | cut -d: -f2- | head -c 100)..."
+        echo "  Line: $(echo "$line_content" | head -c 100)..."
         echo ""
         VIOLATIONS=$((VIOLATIONS + 1))
       done <<< "$matches"
@@ -211,9 +223,14 @@ check_content() {
         [ -z "$matches" ] && continue
         while IFS= read -r match; do
           local line_num=$(echo "$match" | cut -d: -f1)
+          local line_content=$(echo "$match" | cut -d: -f2-)
+          # Same placeholder skip applies to generic patterns.
+          if echo "$line_content" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Z_]{3,}'; then
+            continue
+          fi
           warn "POTENTIAL SECRET: $file:$line_num"
           echo "  Pattern: $pattern (generic — verify manually)"
-          echo "  Line: $(echo "$match" | cut -d: -f2- | head -c 100)..."
+          echo "  Line: $(echo "$line_content" | head -c 100)..."
           echo ""
           VIOLATIONS=$((VIOLATIONS + 1))
         done <<< "$matches"
