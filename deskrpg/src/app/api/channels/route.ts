@@ -1,0 +1,444 @@
+import { db, jsonForDb } from "@/db";
+import {
+  channels,
+  channelMembers,
+  groupMembers,
+  groupPermissions,
+  groups,
+  mapTemplates,
+  npcs,
+  userPermissionOverrides,
+  users,
+} from "@/db";
+import { NextRequest, NextResponse } from "next/server";
+import { eq, and } from "drizzle-orm";
+import { hashPassword } from "@/lib/password";
+import { internalRpc, getUserId } from "@/lib/internal-rpc";
+import { parseDbArray, parseDbJson } from "@/lib/db-json";
+import {
+  bindGatewayToChannel,
+  getAccessibleGatewayResource,
+  upsertOwnedGatewayResource,
+} from "@/lib/gateway-resources";
+import { getDefaultMeetingProtocol } from "@/lib/npc-agent-defaults";
+import { normalizeLocale } from "@/lib/i18n/server";
+import { resolvePermission, type PermissionEffect } from "@/lib/rbac/permissions";
+import type { GroupMemberRole, SystemRole } from "@/lib/rbac/constants";
+import { generateChannelInviteCode, isChannelPasswordValid } from "@/lib/security-policy";
+import {
+  summarizeChannelCreateAccess,
+  summarizeChannelDetailAccess,
+  summarizeChannelJoinAccess,
+} from "@/lib/rbac/channel-access";
+
+async function canCreateChannel(userId: string, groupId: string) {
+  const [user] = await db
+    .select({ systemRole: users.systemRole })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    return { allowed: false, reason: "default_deny" as const };
+  }
+
+  const [membership] = await db
+    .select({ role: groupMembers.role })
+    .from(groupMembers)
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
+    .limit(1);
+
+  const groupEffectRows = await db
+    .select({ effect: groupPermissions.effect })
+    .from(groupPermissions)
+    .where(
+      and(
+        eq(groupPermissions.groupId, groupId),
+        eq(groupPermissions.permissionKey, "create_channel"),
+      ),
+    );
+
+  const userEffectRows = await db
+    .select({ effect: userPermissionOverrides.effect })
+    .from(userPermissionOverrides)
+    .where(
+      and(
+        eq(userPermissionOverrides.groupId, groupId),
+        eq(userPermissionOverrides.userId, userId),
+        eq(userPermissionOverrides.permissionKey, "create_channel"),
+      ),
+    );
+
+  const permissionDecision = resolvePermission({
+    systemRole: user.systemRole as SystemRole,
+    groupRole: (membership?.role as GroupMemberRole | undefined) ?? null,
+    permissionKey: "create_channel",
+    groupEffects: groupEffectRows.map((row) => row.effect as PermissionEffect),
+    userEffects: userEffectRows.map((row) => row.effect as PermissionEffect),
+  });
+
+  return summarizeChannelCreateAccess({
+    hasActiveGroupMembership: !!membership?.role,
+    permissionAllowed: permissionDecision.allowed,
+  });
+}
+
+// GET /api/channels — list all channels (public + private) with membership info
+export async function GET(req: NextRequest) {
+  const userId = getUserId(req);
+  if (!userId) {
+    return NextResponse.json({ errorCode: "unauthorized", error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const rows = await db
+      .select({
+        id: channels.id,
+        name: channels.name,
+        description: channels.description,
+        ownerId: channels.ownerId,
+        isPublic: channels.isPublic,
+        inviteCode: channels.inviteCode,
+        maxPlayers: channels.maxPlayers,
+        createdAt: channels.createdAt,
+        groupId: channels.groupId,
+        groupName: groups.name,
+        ownerNickname: users.nickname,
+        memberRole: channelMembers.role,
+        groupMemberRole: groupMembers.role,
+      })
+      .from(channels)
+      .leftJoin(users, eq(channels.ownerId, users.id))
+      .leftJoin(groups, eq(channels.groupId, groups.id))
+      .leftJoin(
+        channelMembers,
+        and(eq(channelMembers.channelId, channels.id), eq(channelMembers.userId, userId)),
+      )
+      .leftJoin(
+        groupMembers,
+        and(eq(groupMembers.groupId, channels.groupId), eq(groupMembers.userId, userId)),
+      )
+      .orderBy(channels.createdAt);
+
+    const result = rows
+      .map((r) => {
+        const isOwner = r.ownerId === userId;
+        const isChannelMember = isOwner || !!r.memberRole;
+        const hasActiveGroupMembership = !!r.groupMemberRole;
+        const canView = r.isPublic || isChannelMember || hasActiveGroupMembership;
+        const detailAccess = summarizeChannelDetailAccess({
+          groupId: r.groupId,
+          isPublic: r.isPublic ?? true,
+          hasActiveGroupMembership,
+          isChannelMember,
+        });
+
+        if (!canView || !detailAccess.allowed) return null;
+
+        const joinAccess = summarizeChannelJoinAccess({
+          groupId: r.groupId,
+          isPublic: r.isPublic ?? true,
+          hasActiveGroupMembership,
+        });
+
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          ownerId: r.ownerId,
+          isPublic: r.isPublic,
+          isLocked: !r.isPublic,
+          inviteCode: r.inviteCode,
+          maxPlayers: r.maxPlayers,
+          createdAt: r.createdAt,
+          ownerNickname: r.ownerNickname,
+          isMember: isChannelMember,
+          canView: true,
+          canJoin: joinAccess.allowed,
+          requiresGroupMembership: !joinAccess.allowed,
+          joinAccessReason: joinAccess.reason,
+          requiresPassword: detailAccess.requiresPassword,
+          groupId: r.groupId,
+          groupName: r.groupName,
+          playerCount: 0, // TODO: query from socket.io state
+        };
+      })
+      .filter((channel): channel is NonNullable<typeof channel> => channel !== null);
+
+    return NextResponse.json({ channels: result, currentUserId: userId });
+  } catch (err) {
+    console.error("Failed to fetch channels:", err);
+    return NextResponse.json(
+      { errorCode: "failed_to_fetch_channels", error: "Failed to fetch channels" },
+      { status: 500 },
+    );
+  }
+}
+
+// POST /api/channels — create new channel
+export async function POST(req: NextRequest) {
+  const userId = getUserId(req);
+  if (!userId) {
+    return NextResponse.json({ errorCode: "unauthorized", error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const {
+      name,
+      description,
+      isPublic,
+      mapTemplateId,
+      password,
+      gatewayConfig,
+      defaultNpc,
+      groupId,
+    } = body;
+
+    if (!name || typeof name !== "string" || name.length < 1 || name.length > 100) {
+      return NextResponse.json(
+        { errorCode: "channel_name_required", error: "name is required (1-100 chars)" },
+        { status: 400 },
+      );
+    }
+
+    if (!mapTemplateId) {
+      return NextResponse.json(
+        { errorCode: "map_template_required", error: "mapTemplateId is required" },
+        { status: 400 },
+      );
+    }
+
+    if (!groupId || typeof groupId !== "string") {
+      return NextResponse.json(
+        { errorCode: "group_id_required", error: "groupId is required" },
+        { status: 400 },
+      );
+    }
+
+    const [group] = await db
+      .select({ id: groups.id })
+      .from(groups)
+      .where(eq(groups.id, groupId))
+      .limit(1);
+
+    if (!group) {
+      return NextResponse.json(
+        { errorCode: "channel_creation_forbidden", error: "channel creation forbidden" },
+        { status: 403 },
+      );
+    }
+
+    const access = await canCreateChannel(userId, groupId);
+    if (!access.allowed) {
+      if (access.reason === "group_membership_required") {
+        return NextResponse.json(
+          { errorCode: "group_membership_required", error: "group membership required" },
+          { status: 403 },
+        );
+      }
+
+      return NextResponse.json(
+        { errorCode: "channel_creation_forbidden", error: "channel creation forbidden" },
+        { status: 403 },
+      );
+    }
+
+    const [template] = await db
+      .select()
+      .from(mapTemplates)
+      .where(eq(mapTemplates.id, mapTemplateId))
+      .limit(1);
+
+    if (!template) {
+      return NextResponse.json(
+        { errorCode: "map_template_not_found", error: "Map template not found" },
+        { status: 404 },
+      );
+    }
+
+    // Parse layers/objects if stored as JSON string (SQLite)
+    const templateLayers = parseDbJson(template.layers) ?? template.layers;
+    const templateObjects = parseDbArray(template.objects);
+
+    // If template has tiledJson, store it directly as channel mapData
+    const templateTiledJson = parseDbJson(template.tiledJson);
+
+    const channelIsPublic = isPublic !== false;
+
+    // Private channels require a password
+    let passwordHash: string | null = null;
+    if (!channelIsPublic) {
+      if (!password || typeof password !== "string") {
+        return NextResponse.json(
+          {
+            errorCode: "private_channel_password_required",
+            error: "Private channels require a password",
+          },
+          { status: 400 },
+        );
+      }
+      if (!isChannelPasswordValid(password)) {
+        return NextResponse.json(
+          {
+            errorCode: "channel_password_length_invalid",
+            error: "Password must be at least 8 characters",
+          },
+          { status: 400 },
+        );
+      }
+      passwordHash = await hashPassword(password);
+    }
+
+    const inviteCode = generateChannelInviteCode();
+
+    const [channel] = await db
+      .insert(channels)
+      .values({
+        name: name.trim(),
+        description: description?.trim() || null,
+        ownerId: userId,
+        groupId,
+        isPublic: channelIsPublic,
+        inviteCode,
+        maxPlayers: 50,
+        mapData: jsonForDb(templateTiledJson || { layers: templateLayers, objects: templateObjects }),
+        mapConfig: jsonForDb({ cols: template.cols, rows: template.rows, spawnCol: template.spawnCol, spawnRow: template.spawnRow }),
+        password: passwordHash,
+        gatewayConfig: jsonForDb(gatewayConfig ? { taskAutomation: gatewayConfig.taskAutomation || null } : null),
+      })
+      .returning();
+
+    if (gatewayConfig?.gatewayId || gatewayConfig?.url) {
+      try {
+        const resource = typeof gatewayConfig.gatewayId === "string" && gatewayConfig.gatewayId
+          ? (await getAccessibleGatewayResource(userId, gatewayConfig.gatewayId))?.resource ?? null
+          : gatewayConfig?.url
+            ? await upsertOwnedGatewayResource({
+              ownerUserId: userId,
+              baseUrl: gatewayConfig.url,
+              token: typeof gatewayConfig.token === "string" ? gatewayConfig.token : "",
+              displayName: typeof gatewayConfig.displayName === "string" ? gatewayConfig.displayName : undefined,
+            })
+            : null;
+
+        if (!resource) {
+          return NextResponse.json(
+            { errorCode: "gateway_access_denied", error: "Gateway access denied" },
+            { status: 403 },
+          );
+        }
+
+        await bindGatewayToChannel({
+          channelId: channel.id,
+          gatewayId: resource.id,
+          boundByUserId: userId,
+        });
+      } catch (gatewayErr) {
+        console.error("Failed to bind gateway resource during channel creation:", gatewayErr);
+      }
+    }
+
+    // Auto-insert owner as member with role=owner
+    await db.insert(channelMembers).values({
+      channelId: channel.id,
+      userId,
+      role: "owner",
+    });
+
+    // --- Default NPC creation ---
+    if (defaultNpc && (gatewayConfig?.gatewayId || gatewayConfig?.url)) {
+      try {
+        const agentId = defaultNpc.agentId || "main";
+        const isMainAgent = agentId === "main";
+        const defaultNpcLocale = normalizeLocale(defaultNpc.locale);
+        const meetingProtocol = defaultNpc.meetingProtocol || getDefaultMeetingProtocol(defaultNpcLocale);
+
+        // Setup agent on gateway via RPC (non-blocking on failure)
+        try {
+          if (!isMainAgent) {
+            await internalRpc(channel.id, "agents.create", {
+              name: agentId,
+              workspace: `~/.openclaw/workspace-${agentId}`,
+            });
+          }
+
+          // Write persona files
+          if (defaultNpc.identity) {
+            await internalRpc(channel.id, "agents.files.set", {
+              agentId,
+              name: "IDENTITY.md",
+              content: defaultNpc.identity,
+            });
+          }
+          if (defaultNpc.soul) {
+            await internalRpc(channel.id, "agents.files.set", {
+              agentId,
+              name: "SOUL.md",
+              content: defaultNpc.soul,
+            });
+          }
+          await internalRpc(channel.id, "agents.files.set", {
+            agentId,
+            name: "AGENTS.md",
+            content: meetingProtocol,
+          });
+          await internalRpc(channel.id, "agents.files.set", {
+            agentId,
+            name: "USER.md",
+            content: `# User\n- Name: Channel Owner\n`,
+          });
+        } catch (agentErr) {
+          console.warn("Agent setup failed (NPC will still be created):", agentErr instanceof Error ? agentErr.message : agentErr);
+        }
+
+        // Insert NPC into database (always, even if agent setup failed)
+        const npcPositionX = template.spawnCol + 2;
+        const npcPositionY = template.spawnRow;
+
+        await db.insert(npcs).values({
+          channelId: channel.id,
+          name: defaultNpc.name || "AI Assistant",
+          positionX: npcPositionX,
+          positionY: npcPositionY,
+          direction: "down",
+          appearance: jsonForDb(defaultNpc.appearance || {
+            bodyType: "female",
+            layers: {
+              body: { itemKey: "body", variant: "light" },
+              eyes: { itemKey: "eye_color", variant: "blue" },
+              hair: { itemKey: "hair_pixie", variant: "blonde" },
+              torso: { itemKey: "torso_clothes_longsleeve2_buttoned", variant: "white" },
+              legs: { itemKey: "legs_formal", variant: "teal" },
+              feet: { itemKey: "feet_shoes_basic", variant: "brown" },
+            },
+          }),
+          openclawConfig: jsonForDb({
+            agentId,
+            sessionKeyPrefix: `ot-${channel.id.slice(0, 8)}-${agentId}`,
+            locale: defaultNpcLocale,
+            meetingProtocol,
+            personaConfig: {
+              identity: defaultNpc.identity || "",
+              soul: defaultNpc.soul || "",
+            },
+          }),
+        });
+      } catch (npcErr) {
+        console.error("Failed to create default NPC:", npcErr);
+      }
+    }
+
+    // Return channel without password hash
+    const { password: channelPassword, ...channelWithoutPassword } = channel;
+    void channelPassword;
+
+    return NextResponse.json({ channel: channelWithoutPassword }, { status: 201 });
+  } catch (err) {
+    console.error("Failed to create channel:", err);
+    return NextResponse.json(
+      { errorCode: "failed_to_create_channel", error: "Failed to create channel" },
+      { status: 500 },
+    );
+  }
+}
