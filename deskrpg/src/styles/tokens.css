@@ -1,0 +1,32 @@
+/* src/styles/tokens.css — DeskRPG Design Tokens */
+
+:root {
+  /* Primary — Emerald */
+  --color-primary: #059669;
+  --color-primary-light: #10b981;
+  --color-primary-hover: #047857;
+  --color-primary-muted: rgba(5, 150, 105, 0.15);
+
+  /* NPC — Amber */
+  --color-npc: #f59e0b;
+  --color-npc-dark: #92400e;
+
+  /* Semantic */
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-danger-bg: #991b1b;
+  --color-info: #3b82f6;
+  --color-success: #22c55e;
+  --color-meeting: #8b5cf6;
+
+  /* Text */
+  --text: #ffffff;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  /* Spacing aliases */
+  --gap-tight: 4px;
+  --gap-normal: 8px;
+  --gap-loose: 16px;
+}

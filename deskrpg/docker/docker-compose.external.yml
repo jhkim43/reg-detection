@@ -1,0 +1,39 @@
+# docker/docker-compose.external.yml — DeskRPG + PostgreSQL
+services:
+  deskrpg-db:
+    image: postgres:16-alpine
+    container_name: deskrpg-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: deskrpg
+      POSTGRES_USER: deskrpg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deskrpg_dev_pw}
+    ports:
+      - "5437:5432"
+    volumes:
+      - deskrpg-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deskrpg -d deskrpg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  deskrpg-app:
+    image: ${DESKRPG_IMAGE:-dandacompany/deskrpg:latest}
+    container_name: deskrpg-app
+    restart: unless-stopped
+    ports:
+      - "3102:3000"
+      - "3103:3001"
+    volumes:
+      - ../public/assets:/app/public/assets
+    environment:
+      DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD:-deskrpg_dev_pw}@deskrpg-db:5432/deskrpg
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      deskrpg-db:
+        condition: service_healthy
+
+volumes:
+  deskrpg-pgdata:
