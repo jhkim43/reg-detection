@@ -14,7 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python distutils 'lib/' — restricted to repo root so it does not eat deskrpg/src/lib/.
+/lib/
 lib64/
 parts/
 sdist/

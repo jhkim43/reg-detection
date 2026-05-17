@@ -304,3 +304,84 @@ lsof -ti:8765 -ti:3000 -ti:18790 2>/dev/null | xargs -r kill && echo "✓ all st
 - [ ] OpenClaw 옵션 유지 vs 제거 결정 (PRD scope)
 - [ ] 게이트 통과 + PR
 - [ ] retro 안건: 본 문서 §5.2의 작업 분량(1-2주) 일정 위치 결정
+
+---
+
+## 11. v3 업데이트 — 3-PR 점진적 전체 통합 로드맵 (2026-05-17)
+
+> §5에서 "M3-M4 in-place 교체 1-2주"라고 추정했으나, 팀장 PR #8(docker-compose-integration.yml) 채택과 nanobot OpenAI-compat `serve` 검증으로 **전략 갱신**.
+
+### 11.1 전략 변경 — OpenAI-compat 1차 채택
+
+| 기존 (v2 §5.2) | v3 |
+|----------|------|
+| nanobot WS gateway protocol과 OpenClaw 프로토콜 매핑 adapter | **`nanobot serve` (port 8900) OpenAI-compat HTTP API 사용** — adapter 불필요 |
+| WebSocket Ed25519 pairing 호환 레이어 필요 | HTTP `/v1/chat/completions` 직접 호출 — pairing 무관 |
+| 1-2주 추정 | PR 1: 1~2일 / PR 2: 3~5일 / PR 3: 1주 |
+
+**검증 결과 (2026-05-17)**:
+- `nanobot serve --host 0.0.0.0 --port 8900` → `/v1/models`, `/v1/chat/completions` (non-streaming + SSE) 모두 OpenAI 표준 응답 ✓
+- Qwen `qwen/qwen3.6-35b-a3b` 응답 한국어 정상
+- SSE: `data: {chunk}` + `data: [DONE]` 표준 포맷 → 기존 streaming UI 변경 무 ✓
+- ⚠ `usage` 필드 0 (nanobot 한계) → 토큰 추적은 `~/.nanobot/workspace/sessions/*.token.json` (TokenTrackingHook) 사용
+
+### 11.2 핵심 의사결정 — 왜 "전체 통합" 방향이 맞는가
+
+| 근거 | 영향 |
+|------|------|
+| 팀장 docker-compose-integration.yml에 `openclaw-gateway` 서비스 없음 | 팀 합의 = OpenClaw 폐기 방향 |
+| nanobot 하나로 LLM + workspace + TokenTracking 일원화 가능 | 운영 복잡도 ↓, AC-008 토큰 예산 추적 자동화 |
+| Ed25519 pairing/디바이스 신원 등 OpenClaw 고유 복잡도 제거 | 신규 팀원 셋업 시간 ↓ |
+| Mismatch: OpenClaw는 stateful agent RPC, nanobot OpenAI는 stateless | 영속화는 deskrpg DB 측에서 처리 (단방향 dependency) |
+
+### 11.3 3-PR 분할 로드맵
+
+```
+PR 1 (현재, feat/integration-deskrpg-nanobot)
+├─ env.ts: AI_PROVIDER, NANOBOT_API_URL, NANOBOT_MODEL
+├─ lib/nanobot-client.ts: OpenAI-compat HTTP 클라이언트 (streaming + non-streaming)
+├─ lib/nanobot-chat.ts: persona 로드 + history → messages 빌드 + 호출
+├─ socket-handlers.ts:
+│   ├─ getOrConnectGateway: nanobot 모드면 facade 반환 (channelGatewayBindings 조회 skip)
+│   ├─ getNpcConfig/ForChannel: nanobot 모드면 agentId=npc.id
+│   ├─ streamNpcResponse: nanobot 분기 → nanobotChatSend (history는 in-memory npcChatHistory)
+│   ├─ streamMeetingNpcResponse: nanobot 분기 → nanobotChatSend (meeting 룸 메시지에서 history 빌드)
+│   └─ generateMeetingSummary: nanobot 분기 → nanobotChatPlain
+├─ api/npcs/route.ts (GET): nanobot 모드면 gateway state 검증 skip
+├─ api/npcs/create-agent/route.ts: nanobot 모드면 agents.create/files.set 호출 skip
+├─ api/npcs/[id]/route.ts: 동일 (agents.* RPCs no-op)
+└─ docker-compose-integration.yml: deskrpg-app에 build context: ./deskrpg
+
+PR 2 (다음 sprint)
+├─ Task automation (progress nudge, auto-execution) — runProgressNudgeForTask 이미 PR1에 분기 포함
+├─ NPC files 첨부 (regulation 문서 → NPC persona context)
+└─ chat_messages DB 영속화 (현재 in-memory map → reload 시에도 보존)
+
+PR 3 (마지막)
+├─ Meeting minutes 영속화 정밀화 (meetingMinutes 테이블 활용)
+├─ openclaw-gateway.js 코드 제거 + env.ts에서 OPENCLAW_* 삭제
+└─ gateway_resources / gatewayShares / channelGatewayBindings 테이블 deprecate
+```
+
+### 11.4 R-19 신규 위험 — deskrpg fork sync
+
+| 항목 | 상세 |
+|------|------|
+| **위험** | deskrpg upstream (dandacompany/deskrpg) commit 진행 시 nanobot 분기 코드와 충돌 |
+| **확률 / 영향** | Medium / Medium |
+| **완화** | 본 PR 1~3 모두 분기 패턴(`if (isNanobotProvider())`) 유지 → upstream 머지 시 충돌 면적 최소화 |
+| **모니터링** | 분기 wrapping을 함수 추출(예: `chatSendUnified`)로 점진 격리 — PR 3에서 |
+
+### 11.5 PR 1 변경 파일 목록 (확정)
+
+| 파일 | 변경 | 비고 |
+|------|------|------|
+| `deskrpg/src/lib/env.ts` | 3개 env getter 추가 | AI_PROVIDER, NANOBOT_API_URL, NANOBOT_MODEL |
+| `deskrpg/src/lib/nanobot-client.ts` | **신규** | OpenAI HTTP 클라이언트 (streaming + 일반) |
+| `deskrpg/src/lib/nanobot-chat.ts` | **신규** | persona+history+attachments → messages 빌드 |
+| `deskrpg/src/server/socket-handlers.ts` | 6곳 분기 + adapter | nanobot 라우팅 |
+| `deskrpg/src/app/api/npcs/route.ts` | gateway state 검증 분기 | GET에서 빈 배열 회피 |
+| `deskrpg/src/app/api/npcs/create-agent/route.ts` | agents.* RPC 분기 | nanobot 모드 no-op |
+| `deskrpg/src/app/api/npcs/[id]/route.ts` | agents.* RPC 분기 (5곳) | 동일 |
+| `docker-compose-integration.yml` | build context + NANOBOT_MODEL env | 우리 fork 빌드 |
+| `docs/code-map/DESKRPG-GATEWAY-INTEGRATION.md` | §11 추가 | 본 문서

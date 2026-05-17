@@ -120,8 +120,13 @@ services:
   # ─────────────────────────────────────────────
   # deskrpg-app (OpenClaw → nanobot API로 교체)
   # ─────────────────────────────────────────────
+  # 우리 fork(./deskrpg)를 빌드해야 nanobot 분기 패치가 적용됨.
+  # DESKRPG_IMAGE 환경변수로 외부 이미지 override 가능 (CI 캐시용).
   deskrpg-app:
-    image: ${DESKRPG_IMAGE:-dandacompany/deskrpg:latest}
+    build:
+      context: ./deskrpg
+      dockerfile: Dockerfile
+    image: ${DESKRPG_IMAGE:-regtrack/deskrpg:nanobot}
     container_name: reg-detection-deskrpg
     restart: unless-stopped
     networks:
@@ -137,6 +142,7 @@ services:
       # OpenClaw 대체: nanobot OpenAI-compatible API
       AI_PROVIDER: nanobot
       NANOBOT_API_URL: http://nanobot-api:8900/v1
+      NANOBOT_MODEL: ${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
     depends_on:
       deskrpg-db:
         condition: service_healthy
