@@ -201,7 +201,9 @@ async function main() {
   const channelOwners = new Map(); // channelId → ownerId
   const channelGateways = new Map(); // channelId → OpenClawGateway instance
   const channelChatHistory = new Map(); // channelId -> message[] (all messages kept for session lifetime)
-  const npcChatHistory = new Map(); // `${channelId}:${npcId}` -> message[] (all messages kept for session lifetime)
+  // PR 2a — NPC chat history는 chat_messages 테이블로 영속화 (in-memory map 제거).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const chatHistory = require("./src/lib/chat-history.js");
   const CHAT_COOLDOWN_MS = 2000;
   const PROGRESS_NUDGE_SCAN_MS = 60_000;
   const progressNudgeInFlight = new Set();
@@ -220,18 +222,17 @@ async function main() {
       .filter(Boolean);
   }
 
-  function appendNpcHistoryMessage(channelId, npcId, content) {
+  async function appendNpcHistoryMessage(characterId, npcId, content) {
     const sanitizedContent = require("./src/lib/task-block-utils.js").sanitizeNpcResponseText(content);
     if (!sanitizedContent.trim()) return null;
-    const historyKey = `${channelId}:${npcId}`;
-    const history = npcChatHistory.get(historyKey) || [];
-    history.push({ role: "npc", content: sanitizedContent, timestamp: Date.now() });
-    npcChatHistory.set(historyKey, history);
+    if (characterId) {
+      await chatHistory.appendMessage(characterId, npcId, "npc", sanitizedContent);
+    }
     return sanitizedContent;
   }
 
-  function appendNpcHistoryMessageForUser(userId, channelId, npcId, content) {
-    const sanitizedContent = appendNpcHistoryMessage(channelId, npcId, content);
+  async function appendNpcHistoryMessageForUser(userId, characterId, channelId, npcId, content) {
+    const sanitizedContent = await appendNpcHistoryMessage(characterId, npcId, content);
     if (!sanitizedContent) return;
 
     const joinedSockets = getJoinedSocketsForUserAndChannel(userId, channelId);
@@ -292,7 +293,7 @@ async function main() {
         io.to(input.channelId).emit("task:updated", { task, action: taskAction.action });
 
         if (shouldDeliverCompletionReport(taskAction)) {
-          appendNpcHistoryMessage(input.channelId, input.npcId, parsed.message);
+          await appendNpcHistoryMessage(input.assignerCharacterId, input.npcId, parsed.message);
           const report = await enqueueCompletionReport(
             db,
             reportSchema,
@@ -356,7 +357,7 @@ async function main() {
       });
 
       const preview = (parsed.message || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
-      appendNpcHistoryMessage(task.channelId, task.npcId, preview);
+      await appendNpcHistoryMessage(task.assignerId, task.npcId, preview);
 
       const report = await enqueueQueuedReport(
         db,
@@ -662,9 +663,9 @@ ${transcript}
       const mapPlayers = Array.from(players.values()).filter(p => p.mapId === data.mapId && p.id !== socket.id);
       socket.emit("players:state", { players: mapPlayers });
       // Send channel chat history to the joining player
-      const chatHistory = channelChatHistory.get(data.mapId);
-      if (chatHistory && chatHistory.length > 0) {
-        socket.emit("chat:history", { messages: chatHistory });
+      const channelHistory = channelChatHistory.get(data.mapId);
+      if (channelHistory && channelHistory.length > 0) {
+        socket.emit("chat:history", { messages: channelHistory });
       }
       // Send pending NPC reports
       await deliverPendingReportsToSocket(socket, user.userId, data.mapId);
@@ -692,14 +693,18 @@ ${transcript}
       const npcConfig = await getNpcConfig(npcId);
       if (!npcConfig) { socket.emit("npc:response", { npcId, chunk: "[NPC not found]", done: true }); return; }
       const player = players.get(socket.id);
-      const historyKey = player ? `${player.mapId}:${npcId}` : npcId;
-      const npcHistory = npcChatHistory.get(historyKey) || [];
-      npcHistory.push({ role: "player", content: trimmed, timestamp: Date.now() });
+      const characterId = player?.characterId || null;
+      // PR 2a — 유저 메시지는 chat_messages에 즉시 영속화. characterId 없으면 (미인증) skip.
+      if (characterId) {
+        await chatHistory.appendMessage(characterId, npcId, "player", trimmed);
+      }
       // 매 메시지에 태스크 프로토콜 리마인더 주입 (LLM 프로토콜 준수 강화)
       const messageToSend = withTaskReminder(trimmed, getSocketLocale(socket));
       const response = await streamNpcResponse(socket, npcId, npcConfig, user.userId, messageToSend);
       if (response) {
-        npcHistory.push({ role: "npc", content: response, timestamp: Date.now() });
+        if (characterId) {
+          await chatHistory.appendMessage(characterId, npcId, "npc", response);
+        }
 
         // Task Parser: 응답에서 태스크 메타데이터 추출
         const parsed = parseNpcResponse(response);
@@ -720,7 +725,6 @@ ${transcript}
         // Notify client that NPC has a completed response — client will check distance and move NPC if needed
         socket.emit("npc:response-complete", { npcId, npcName: npcConfig._name || npcId });
       }
-      npcChatHistory.set(historyKey, npcHistory);
     });
 
     socket.on("task:list", async ({ channelId, npcId }) => {
@@ -858,8 +862,9 @@ ${transcript}
           runnableTask = resumedTask;
         }
 
-        appendNpcHistoryMessageForUser(
+        await appendNpcHistoryMessageForUser(
           player.userId,
+          player.characterId,
           player.mapId,
           runnableTask.npcId,
           buildTaskActionStartMessage({ title: runnableTask.title }, "request-report"),
@@ -885,8 +890,9 @@ ${transcript}
         if (resumedTask) {
           io.to(player.mapId).emit("task:updated", { task: resumedTask, action: "resume" });
 
-          appendNpcHistoryMessageForUser(
+          await appendNpcHistoryMessageForUser(
             player.userId,
+            player.characterId,
             player.mapId,
             resumedTask.npcId,
             buildTaskActionStartMessage({ title: resumedTask.title }, "resume"),
@@ -917,19 +923,20 @@ ${transcript}
       }
     });
 
-    socket.on("npc:history", ({ npcId }) => {
+    socket.on("npc:history", async ({ npcId }) => {
       const player = players.get(socket.id);
-      if (!player || !npcId) return;
-      const historyKey = `${player.mapId}:${npcId}`;
-      const history = npcChatHistory.get(historyKey) || [];
+      if (!player || !npcId || !player.characterId) {
+        socket.emit("npc:history", { npcId, messages: [] });
+        return;
+      }
+      const history = await chatHistory.loadHistory(player.characterId, npcId);
       socket.emit("npc:history", { npcId, messages: history });
     });
 
-    socket.on("npc:reset-chat", ({ npcId }) => {
+    socket.on("npc:reset-chat", async ({ npcId }) => {
       const player = players.get(socket.id);
-      if (!player || !npcId) return;
-      const historyKey = `${player.mapId}:${npcId}`;
-      npcChatHistory.delete(historyKey);
+      if (!player || !npcId || !player.characterId) return;
+      await chatHistory.resetHistory(player.characterId, npcId);
     });
 
     socket.on("npc:report-consumed", async ({ reportId }) => {
