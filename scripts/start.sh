@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "=== reg-detection: 시작 중 ==="
-docker compose -f docker-compose-integration.yml up -d --build
+docker compose --env-file .env.integration -f docker-compose-integration.yml up -d --build
 echo ""
 echo "=== 기동 완료 ==="
 echo "  deskrpg : http://localhost:3102"
