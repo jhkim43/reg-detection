@@ -162,7 +162,7 @@ nanobot/agent/hook.py 에 LLMUsageRecordHook 클래스 추가
 | 항목 | 결과 |
 |------|------|
 | `nanobot/agent/hook.py` | `LLMUsageRecordHook(AgentHook)` 신규. `after_iteration`에서 `aiohttp` 비동기 POST. **fire-and-forget** (`asyncio.create_task`) — 실패 시 logger.warning만, agent 응답 차단 없음 |
-| Destination | deskrpg `POST /api/_internal/llm-usage` (DB는 PostgreSQL의 `llm_usage_records` 테이블) — ERD §2.15와 컬럼 매핑 다름은 ERD note 참고 |
+| Destination | deskrpg `POST /api/internal/llm-usage` (DB는 PostgreSQL의 `llm_usage_records` 테이블) — ERD §2.15와 컬럼 매핑 다름은 ERD note 참고 |
 | 등록 | `nanobot.py`·`cli/commands.py`에 `_build_default_hooks(workspace_path)` helper 도입. `REGTRACK_INTERNAL_URL` env가 설정될 때만 hook 등록 → standalone nanobot 사용 시 영향 zero |
 | Cost 계산 | `_PROVIDER_RATES` 표(OpenRouter Qwen 가격, seed-v7 D-12 / LLM-COST §1.2 근거). 미지정 모델은 default rate(Qwen 동일) |
 | Side-channel | TokenTrackingHook(JSON 파일)이 source-of-truth로 유지. HTTP 실패해도 토큰 기록 손실 없음 |

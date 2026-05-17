@@ -260,7 +260,7 @@ def _extract_npc_id(session_key: str | None) -> str | None:
 
 
 class LLMUsageRecordHook(AgentHook):
-    """POST per-iteration LLM usage to deskrpg /api/_internal/llm-usage.
+    """POST per-iteration LLM usage to deskrpg /api/internal/llm-usage.
 
     Fire-and-forget — failures are logged but never raised; the JSON
     side-channel (TokenTrackingHook) remains the source of truth in case
@@ -269,9 +269,9 @@ class LLMUsageRecordHook(AgentHook):
 
     def __init__(self, regtrack_url: str, internal_secret: str = "") -> None:
         super().__init__(reraise=False)
-        # POST endpoint: <regtrack_url>/api/_internal/llm-usage
+        # POST endpoint: <regtrack_url>/api/internal/llm-usage
         # regtrack_url은 trailing slash 없는 base (예: http://deskrpg-app:3000).
-        self.endpoint = regtrack_url.rstrip("/") + "/api/_internal/llm-usage"
+        self.endpoint = regtrack_url.rstrip("/") + "/api/internal/llm-usage"
         self.internal_secret = internal_secret
         logger.info("LLMUsageRecordHook initialized: endpoint={}", self.endpoint)
 
@@ -281,7 +281,6 @@ class LLMUsageRecordHook(AgentHook):
         output_tokens = int(usage.get("completion_tokens", 0) or 0)
         cached_tokens = int(usage.get("cached_tokens", 0) or 0)
         if input_tokens == 0 and output_tokens == 0:
-            # nothing to record (tool execution iteration without LLM call)
             return
 
         model = ""
@@ -314,10 +313,7 @@ class LLMUsageRecordHook(AgentHook):
         asyncio.create_task(self._post(payload))
 
     async def _post(self, payload: dict[str, Any]) -> None:
-        # aiohttp는 nanobot의 다른 곳(예: openai_compat_provider)에서도 사용되므로
-        # 환경에 항상 존재한다고 가정.
         try:
-            # eslint-disable-next-line — Python에선 lazy import로 import time 절감.
             import aiohttp  # type: ignore[import-not-found]
 
             headers = {"Content-Type": "application/json"}

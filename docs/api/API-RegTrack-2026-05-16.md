@@ -366,8 +366,8 @@ LLMUsageRecord 목록 (감사·디버깅용). pagination 지원.
 |------|------|------|
 | `GET /api/llm-usage/snapshot` | ✅ 구현 | 응답: `{cost_usd, call_count, cache_hit_rate, last_model}`. `threshold_level`/`updated_at`은 미구현 — 위젯이 client-side 임계 계산 |
 | `GET /api/llm-usage/records` | 🟡 미구현 | PR 후속. 현재는 widget이 socket broadcast로 증분 수신하므로 폴링용 records 목록 불필요 |
-| `POST /api/_internal/llm-usage` **(신규)** | ✅ 구현 | nanobot `LLMUsageRecordHook`이 매 LLM iteration 후 POST. `x-deskrpg-internal-secret` 인증. 외부 비공개 |
-| Socket `llm-usage:update` | ✅ 구현 | `/api/_internal/llm-usage` insert 후 server.js의 `/_internal/emit` (room=null) 글로벌 broadcast |
+| `POST /api/internal/llm-usage` **(신규)** | ✅ 구현 | nanobot `LLMUsageRecordHook`이 매 LLM iteration 후 POST. `x-deskrpg-internal-secret` 인증. 외부 비공개 |
+| Socket `llm-usage:update` | ✅ 구현 | `/api/internal/llm-usage` insert 후 server.js의 `/_internal/emit` (room=null) 글로벌 broadcast |
 
 ---
 

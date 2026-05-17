@@ -438,7 +438,7 @@ PR 1이 `api/npcs/*` 3개만 다루고 채널 gateway pairing 쪽 3개 route는 
 | Data | `deskrpg/src/db/schema.ts` | `llmUsageRecords` 테이블 추가 (`doublePrecision` cost_usd) |
 | Data | `deskrpg/drizzle/0002_llm_usage_records.sql` | 신규 migration (FK→npcs, 2 idx) |
 | Data | `deskrpg/src/db/index.ts` | `llmUsageRecords` re-export |
-| Logic | `deskrpg/src/app/api/_internal/llm-usage/route.ts` **(신규)** | nanobot hook의 POST 수신 → DB insert → socket broadcast forward |
+| Logic | `deskrpg/src/app/api/internal/llm-usage/route.ts` **(신규)** | nanobot hook의 POST 수신 → DB insert → socket broadcast forward |
 | Logic | `deskrpg/src/app/api/llm-usage/snapshot/route.ts` **(신규)** | 위젯 mount 시 누적 cost/call_count/cache_hit_rate/last_model fetch |
 | Logic | `deskrpg/server.js` | `/_internal/emit`에 `room=null` 글로벌 broadcast 분기 추가 (`llm-usage:update` forward용) |
 | Presentation | `deskrpg/src/components/LlmUsageWidget.tsx` **(신규)** | 우상단 floating, $30 yellow / $60 orange / $90 red 임계 표시 |
@@ -468,7 +468,7 @@ docker logs reg-detection-deskrpg | grep -i "migrate\|drizzle"
 
 # 5. nanobot 측 hook 로그 확인
 docker logs reg-detection-nanobot-api | grep -i "LLMUsageRecordHook"
-# → "LLMUsageRecordHook initialized: endpoint=http://deskrpg-app:3000/api/_internal/llm-usage"
+# → "LLMUsageRecordHook initialized: endpoint=http://deskrpg-app:3000/api/internal/llm-usage"
 
 # 6. DB 직접 확인 (optional)
 docker exec -it reg-detection-db psql -U deskrpg -d deskrpg \

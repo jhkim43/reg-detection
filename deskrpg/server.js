@@ -1202,7 +1202,7 @@ ${transcript}
           } else if (room) {
             io.to(room).emit(event, payload);
           } else {
-            // Global broadcast — used by /api/_internal/llm-usage forward
+            // Global broadcast — used by /api/internal/llm-usage forward
             // (LlmUsageWidget는 모든 active socket에 공통 표시).
             io.emit(event, payload);
           }

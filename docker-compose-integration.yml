@@ -90,7 +90,7 @@ services:
       context: ./nanobot
       dockerfile: Dockerfile
     container_name: reg-detection-nanobot-api
-    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace", "--verbose"]
     restart: unless-stopped
     networks:
       - reg-detection-net
