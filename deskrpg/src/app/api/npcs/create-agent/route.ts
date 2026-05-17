@@ -12,6 +12,7 @@ import {
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,12 +47,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create agent via RPC
-    await internalRpc(channelId, "agents.create", {
-      name: agentId.trim(),
-      workspace: `~/.openclaw/workspace-${agentId.trim()}`,
-    });
-
     const files = hasNpcPresetDefaults(presetId)
       ? buildGatewayAgentFiles({
           presetId,
@@ -75,12 +70,22 @@ export async function POST(req: NextRequest) {
           },
         ];
 
-    for (const file of files) {
-      await internalRpc(channelId, "agents.files.set", {
-        agentId: agentId.trim(),
-        name: file.name,
-        content: file.content,
+    // nanobot mode: persona is stored in npcs.openclawConfig (set by POST /api/npcs).
+    // OpenClaw RPCs (agents.create / agents.files.set) are no-ops because nanobot's
+    // OpenAI-compatible API is stateless — system prompt is rebuilt per call from DB.
+    if (!isNanobotProvider()) {
+      await internalRpc(channelId, "agents.create", {
+        name: agentId.trim(),
+        workspace: `~/.openclaw/workspace-${agentId.trim()}`,
       });
+
+      for (const file of files) {
+        await internalRpc(channelId, "agents.files.set", {
+          agentId: agentId.trim(),
+          name: file.name,
+          content: file.content,
+        });
+      }
     }
 
     return NextResponse.json({ success: true, agentId: agentId.trim(), files: files.map((file) => file.name) });

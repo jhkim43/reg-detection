@@ -14,6 +14,7 @@ import {
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 
 async function verifyNpcOwnership(req: NextRequest, npcId: string) {
   const userId = getUserId(req);
@@ -70,11 +71,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         sessionKeyPrefix: `ot-${id.slice(0, 8)}-${body.agentId}`,
       };
     } else if (body.agentAction === "create" && body.agentId) {
-      // Create agent via RPC
-      await internalRpc(npc.channelId, "agents.create", {
-        name: body.agentId,
-        workspace: `~/.openclaw/workspace-${body.agentId}`,
-      });
+      // nanobot mode skips OpenClaw agent CRUD — persona stays in npcs.openclawConfig only.
+      if (!isNanobotProvider()) {
+        await internalRpc(npc.channelId, "agents.create", {
+          name: body.agentId,
+          workspace: `~/.openclaw/workspace-${body.agentId}`,
+        });
+      }
 
       const files = hasNpcPresetDefaults(body.presetId)
         ? buildGatewayAgentFiles({
@@ -100,12 +103,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             },
           ];
 
-      for (const file of files) {
-        await internalRpc(npc.channelId, "agents.files.set", {
-          agentId: body.agentId,
-          name: file.name,
-          content: file.content,
-        });
+      if (!isNanobotProvider()) {
+        for (const file of files) {
+          await internalRpc(npc.channelId, "agents.files.set", {
+            agentId: body.agentId,
+            name: file.name,
+            content: file.content,
+          });
+        }
       }
 
       const personaConfig = hasNpcPresetDefaults(body.presetId)
@@ -139,8 +144,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         locale: normalizedLocale,
       };
 
-      // Also write to IDENTITY.md if agent exists
-      if (existingAgentId && body.passPolicy?.trim()) {
+      // Also write to IDENTITY.md if agent exists (OpenClaw only — nanobot rebuilds prompt per call).
+      if (!isNanobotProvider() && existingAgentId && body.passPolicy?.trim()) {
         try {
           let identityContent = "";
           try {
@@ -188,8 +193,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             soul: localizeNpcPromptDocument(newSoul, normalizedLocale, "soul"),
           };
 
-      // If NPC has an agent and identity/soul changed, update on gateway via RPC
-      if (existingAgentId) {
+      // If NPC has an agent and identity/soul changed, update on gateway via RPC.
+      // nanobot mode: persona is re-read from DB on each chat call; gateway update is a no-op.
+      if (!isNanobotProvider() && existingAgentId) {
         try {
           if (personaConfig.identity) {
             await internalRpc(npc.channelId, "agents.files.set", {
@@ -269,7 +275,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const openclawConfig = parseDbObject(npc.openclawConfig);
     const agentId = openclawConfig?.agentId as string | null;
 
-    if (agentId) {
+    if (agentId && !isNanobotProvider()) {
       try {
         await internalRpc(npc.channelId, "agents.delete", { agentId, deleteFiles: true });
       } catch (err) {
