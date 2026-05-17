@@ -13,6 +13,7 @@ import {
   getGatewayErrorStatus,
   testGatewayConnection,
 } from "@/lib/openclaw-gateway.js";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 
 function normalizeGatewayAgents(
   result: unknown,
@@ -45,6 +46,11 @@ export async function GET(
   if (channel.ownerId !== userId) return NextResponse.json({ errorCode: "forbidden", error: "forbidden" }, { status: 403 });
 
   try {
+    // nanobot 모드: gateway pairing 없음, 기존 에이전트 목록도 없음 (선택 모드 미지원, "new" 모드만).
+    if (isNanobotProvider()) {
+      return NextResponse.json({ agents: [] });
+    }
+
     const binding = await getChannelGatewayBinding(id);
     if (!binding) {
       return NextResponse.json(

@@ -7,6 +7,7 @@ import { getUserId } from "@/lib/internal-rpc";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
 import { getChannelGatewayBinding } from "@/lib/gateway-resources";
 import { getTaskAutomationConfig } from "@/lib/task-reporting";
+import { isNanobotProvider } from "@/lib/nanobot-client";
 import { summarizeChannelDetailAccess, summarizeChannelJoinAccess } from "@/lib/rbac/channel-access";
 import { isChannelPasswordValid } from "@/lib/security-policy";
 import internalTransport from "@/lib/internal-transport.js";
@@ -154,7 +155,8 @@ export async function GET(
         requiresPassword: detailAccess.requiresPassword,
         groupId: channel.groupId,
         groupName: channel.groupName,
-        hasGateway: !!gatewayBinding?.resource.id,
+        // nanobot 모드: gateway는 env로 전역 설정되므로 채널별 pairing 불필요 → 항상 true.
+        hasGateway: isNanobotProvider() ? true : !!gatewayBinding?.resource.id,
         gatewayConfig: {
           gatewayId: gatewayBinding?.resource.id ?? null,
           displayName: gatewayBinding?.resource.displayName ?? null,
