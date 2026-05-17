@@ -20,7 +20,8 @@ cat > "$ENV_FILE" << 'EOF'
 # 이 파일은 nanobot + deskrpg + PostgreSQL 공용 설정입니다.
 
 # ── PostgreSQL ──
-POSTGRES_PASSWORD=deskrpg_dev_pw
+# 반드시 실제 비밀번호로 변경하세요
+POSTGRES_PASSWORD=change-me
 
 # ── JWT (deskrpg) ──
 # 반드시 실제 랜덤 문자열로 변경하세요

@@ -33,7 +33,7 @@ services:
     environment:
       POSTGRES_DB: deskrpg
       POSTGRES_USER: deskrpg
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deskrpg_dev_pw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - deskrpg-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -131,8 +131,8 @@ services:
     volumes:
       - ./deskrpg/public/assets:/app/public/assets
     environment:
-      DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD:-deskrpg_dev_pw}@deskrpg-db:5432/deskrpg
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-random-64-char-string}
+      DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
+      JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # OpenClaw 대체: nanobot OpenAI-compatible API
       AI_PROVIDER: nanobot
