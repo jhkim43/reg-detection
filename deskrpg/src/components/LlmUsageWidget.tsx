@@ -58,6 +58,7 @@ function levelColor(cost: number): { bg: string; border: string; label: string }
 export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
   const [state, setState] = useState<UsageState>(INITIAL);
   const [team, setTeam] = useState<TeamBalance | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,11 +115,30 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
 
   const color = levelColor(state.cost_usd);
   const progressPct = Math.min(100, (state.cost_usd / BUDGET_USD) * 100);
+  const tooltipText = `Budget: $${BUDGET_USD} / threshold: ${color.label}\n캐시 적중률: ${Math.round(state.cache_hit_rate * 100)}%`;
+
+  // Collapsed: 작은 badge — 상단 버튼 가리지 않음. 클릭 시 전체 정보 펼침.
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className={`fixed bottom-3 right-3 z-[9999] rounded-md border ${color.border} ${color.bg} px-2 py-1 text-xs font-mono text-white shadow-md backdrop-blur hover:brightness-125 transition`}
+        title={tooltipText}
+        aria-label="LLM 사용량 위젯 펼치기"
+      >
+        💰 ${state.cost_usd.toFixed(3)}
+        {color.label !== "NONE" && (
+          <span className="ml-1.5 px-1 py-0.5 rounded bg-black/40 text-[10px]">{color.label}</span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <div
-      className={`fixed top-3 right-3 z-[9999] rounded-lg border ${color.border} ${color.bg} px-3 py-2 text-xs font-mono text-white shadow-lg backdrop-blur min-w-[240px]`}
-      title={`Budget: $${BUDGET_USD} / threshold: ${color.label}\n캐시 적중률: ${Math.round(state.cache_hit_rate * 100)}%`}
+      className={`fixed bottom-3 right-3 z-[9999] rounded-lg border ${color.border} ${color.bg} px-3 py-2 text-xs font-mono text-white shadow-lg backdrop-blur min-w-[240px]`}
+      title={tooltipText}
     >
       <div className="flex items-center gap-2 mb-1">
         <span>💰</span>
@@ -129,6 +149,15 @@ export function LlmUsageWidget({ socket }: { socket: Socket | null }) {
             {color.label}
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="ml-1 px-1 text-white/70 hover:text-white"
+          aria-label="LLM 사용량 위젯 접기"
+          title="접기"
+        >
+          ×
+        </button>
       </div>
       <div className="h-1 w-full rounded bg-black/40 overflow-hidden mb-1.5">
         <div
