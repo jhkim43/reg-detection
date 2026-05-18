@@ -480,3 +480,28 @@ docker exec -it reg-detection-db psql -U deskrpg -d deskrpg \
 - PR 2b — chat_messages DB 영속화 (in-memory `npcChatHistory` → DB)
 - PR 2c — spawn 통합 (NPC 고용 → nanobot agent 자동 생성·위임·결과 알림). NANOBOT-CODEMAP §5의 deskrpg-webhook channel 옵션 Y
 - PR 3 — OpenClaw code / UI / gateway_resources 제거. socket-handlers.ts(dev path)도 이 단계에서 deprecate.
+
+### 11.8 PR 2b — chat_messages DB 영속화 (2026-05-18)
+
+§11.3 PR 2 로드맵 중 **in-memory `npcChatHistory` Map → DB 영속화**. PR 2a(LLM 위젯)와 독립 vertical이라 별도 PR로 분리.
+
+#### 변경 파일
+
+| Layer | 파일 | 변경 |
+|------|------|------|
+| Data | `deskrpg/src/db/server-db.js` | schema에 `chatMessages` 등록 (PG+SQLite 양쪽). 테이블은 기존 `0000_big_karnak.sql`에 이미 존재 — 신규 migration 없음 |
+| Data | `deskrpg/src/lib/chat-history.js` **(신규, CJS)** | `loadHistory / appendMessage / resetHistory` 세 함수. role 매핑(in-memory `player`/`npc` ↔ DB `user`/`assistant`)을 라이브러리 안에서 처리 |
+| Logic | `deskrpg/server.js` | in-memory `npcChatHistory` Map 제거 + 7 call site DB 호출로 위임 (`npc:chat`/`npc:history`/`npc:reset-chat`/task action/progress nudge) |
+| Infra | `deskrpg/Dockerfile` | `chat-history.js` COPY 추가 (Next.js standalone trace 미포함 CJS) |
+
+#### 설계 원칙
+
+- **production server.js만 영속화** — `socket-handlers.ts`(dev path)는 PR3 deprecate 예정이라 손대지 않음 (외과적 변경 원칙)
+- **role 매핑은 라이브러리 안에서 처리** — server.js는 in-memory shape(`player`/`npc`) 그대로 두고, `chat-history.js`가 DB 매핑 처리
+- **characterId 없는 socket은 silent skip** — 미인증 트래픽 영향 zero
+
+#### 회귀 검증
+
+- 채팅 후 브라우저 새로고침 → 동일 NPC 다시 열면 이전 대화 복원 ✓
+- 다른 NPC 열면 자기 대화만 ✓
+- DB: `SELECT character_id, npc_id, role, LEFT(content, 40) FROM chat_messages ORDER BY created_at DESC LIMIT 5;`
