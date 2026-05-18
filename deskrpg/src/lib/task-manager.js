@@ -5,9 +5,11 @@
 "use strict";
 
 const { eq, and, or, desc, sql, getTableColumns, isNull, isNotNull, lte } = require("drizzle-orm");
+const { isPostgres } = require("../db/server-db.js");
 
-function nowIso() {
-  return new Date().toISOString();
+// Postgres timestamp columns expect Date, SQLite text columns expect ISO string.
+function dbNow() {
+  return isPostgres ? new Date() : new Date().toISOString();
 }
 
 function normalizeTimestamp(value) {
@@ -88,8 +90,8 @@ class TaskManager {
   async _upsertTask(channelId, npcId, assignerId, npcTaskId, title, summary, status, options = {}) {
     const { db, schema } = this;
     const autoNudgeMax = options.autoNudgeMax ?? 5;
-    const completedAt = (status === "complete" || status === "cancelled") ? nowIso() : null;
-    const updatedAt = nowIso();
+    const completedAt = (status === "complete" || status === "cancelled") ? dbNow() : null;
+    const updatedAt = dbNow();
     const lastReportedAt = options.markReported ? updatedAt : null;
 
     const [row] = await db
@@ -129,8 +131,8 @@ class TaskManager {
   async _updateOrCreate(channelId, npcId, assignerId, npcTaskId, title, summary, status, options = {}) {
     const { db, schema } = this;
     const autoNudgeMax = options.autoNudgeMax ?? 5;
-    const completedAt = (status === "complete" || status === "cancelled") ? nowIso() : null;
-    const updatedAt = nowIso();
+    const completedAt = (status === "complete" || status === "cancelled") ? dbNow() : null;
+    const updatedAt = dbNow();
     const lastReportedAt = options.markReported ? updatedAt : null;
 
     const rows = await db
@@ -255,8 +257,8 @@ class TaskManager {
       .update(schema.tasks)
       .set({
         autoNudgeCount: (current.autoNudgeCount ?? 0) + 1,
-        lastNudgedAt: nowIso(),
-        updatedAt: nowIso(),
+        lastNudgedAt: dbNow(),
+        updatedAt: dbNow(),
       })
       .where(
         and(
@@ -275,9 +277,9 @@ class TaskManager {
       .update(schema.tasks)
       .set({
         status: "stalled",
-        stalledAt: nowIso(),
+        stalledAt: dbNow(),
         stalledReason: reason,
-        updatedAt: nowIso(),
+        updatedAt: dbNow(),
       })
       .where(
         and(
@@ -300,7 +302,7 @@ class TaskManager {
         lastNudgedAt: null,
         stalledAt: null,
         stalledReason: null,
-        updatedAt: nowIso(),
+        updatedAt: dbNow(),
       })
       .where(
         and(
@@ -342,7 +344,7 @@ class TaskManager {
       throw new Error("npcId required for status: " + toStatus);
     }
 
-    const now = nowIso();
+    const now = dbNow();
     const completedAt = (toStatus === "complete" || toStatus === "cancelled") ? now : null;
 
     const updates = {
@@ -436,7 +438,7 @@ class TaskManager {
 
   async completeTask(taskId, channelId) {
     const { db, schema } = this;
-    const completedAt = nowIso();
+    const completedAt = dbNow();
     const [row] = await db
       .update(schema.tasks)
       .set({
