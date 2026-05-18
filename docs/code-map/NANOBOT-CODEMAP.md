@@ -157,6 +157,18 @@ nanobot/agent/hook.py 에 LLMUsageRecordHook 클래스 추가
 
 **M3 W6에서 검증 사항** (변경 없음): OpenRouter prompt cache 지원 여부, AC-008 단계별 임계치($30/60/90) 트리거 로직.
 
+#### PR 2a 구현 결과 (2026-05-17) — A안 채택
+
+| 항목 | 결과 |
+|------|------|
+| `nanobot/agent/hook.py` | `LLMUsageRecordHook(AgentHook)` 신규. `after_iteration`에서 `aiohttp` 비동기 POST. **fire-and-forget** (`asyncio.create_task`) — 실패 시 logger.warning만, agent 응답 차단 없음 |
+| Destination | deskrpg `POST /api/internal/llm-usage` (DB는 PostgreSQL의 `llm_usage_records` 테이블) — ERD §2.15와 컬럼 매핑 다름은 ERD note 참고 |
+| 등록 | `nanobot.py`·`cli/commands.py`에 `_build_default_hooks(workspace_path)` helper 도입. `REGTRACK_INTERNAL_URL` env가 설정될 때만 hook 등록 → standalone nanobot 사용 시 영향 zero |
+| Cost 계산 | `_PROVIDER_RATES` 표(OpenRouter Qwen 가격, seed-v7 D-12 / LLM-COST §1.2 근거). 미지정 모델은 default rate(Qwen 동일) |
+| Side-channel | TokenTrackingHook(JSON 파일)이 source-of-truth로 유지. HTTP 실패해도 토큰 기록 손실 없음 |
+
+검증: `docker-compose-integration.yml`에 `REGTRACK_INTERNAL_URL=http://deskrpg-app:3000` + `INTERNAL_RPC_SECRET=${JWT_SECRET}` 주입. nanobot-api 컨테이너에서 hook이 standalone 시 등록 안 됨/통합 시 등록됨 분기 동작 확인.
+
 ---
 
 ## 5. 확장 지점 ④ — channels/ (Frontend ↔ Backend WebSocket)
@@ -320,3 +332,4 @@ nanobot/channels/regtrack_dashboard.py
 |------|------|------|
 | v1 | 2026-05-16 16:36 | 최초 작성 (commit `5ac7115`) |
 | **v2** | **2026-05-16 21:** | **0bfbb55 `TokenTrackingHook` 반영 — §4/§6.1/§7 갱신. v1의 "wrapper provider 신규 vs hook 결정"이 오인이었음을 정정** |
+| **v3** | **2026-05-17** | **PR 2a — `LLMUsageRecordHook` 구현 결과를 §4에 기록 (A안 채택, fire-and-forget HTTP, `_build_default_hooks` env-gated 등록)** |

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyJWT } from "@/lib/jwt";
 
-const PUBLIC_PATHS = ["/", "/auth", "/api/auth", "/api/health"];
+// `/api/internal/*`은 nanobot hook 등 내부 RPC가 호출. JWT 대신
+// x-deskrpg-internal-secret 헤더로 자체 인증하므로 middleware 건너뜀.
+const PUBLIC_PATHS = ["/", "/auth", "/api/auth", "/api/health", "/api/internal"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));

@@ -1,5 +1,5 @@
 // src/db/schema.ts
-import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, boolean, index, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, boolean, doublePrecision, index, unique, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -356,4 +356,24 @@ export const projectStamps = pgTable("project_stamps", {
   addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   unique("uq_project_stamp").on(t.projectId, t.stampId),
+]);
+
+// RegTrack AC-008 — nanobot hook이 매 LLM iteration 후 fire-and-forget POST로 채워넣음.
+// session_key는 nanobot 채널/세션 식별자(예: api:<sessionKey>) 그대로 raw로 저장. npc_id는
+// session_key 안에 NPC id가 들어있을 때(api:<npcId>-dm-...) 별도 매핑이 끼어들면 채움.
+export const llmUsageRecords = pgTable("llm_usage_records", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionKey: varchar("session_key", { length: 200 }).notNull(),
+  npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+  provider: varchar("provider", { length: 20 }).notNull(),
+  model: varchar("model", { length: 100 }).notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cachedTokens: integer("cached_tokens").notNull().default(0),
+  costUsd: doublePrecision("cost_usd").notNull().default(0),
+  phase: varchar("phase", { length: 30 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_llm_usage_created").on(table.createdAt),
+  index("idx_llm_usage_npc").on(table.npcId),
 ]);

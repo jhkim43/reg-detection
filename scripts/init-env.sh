@@ -32,12 +32,20 @@ JWT_SECRET=change-me-to-a-random-64-char-string
 COOKIE_SECURE=false
 
 # ── deskrpg 이미지 ──
-DESKRPG_IMAGE=dandacompany/deskrpg:latest
+# 기본: docker-compose가 ./deskrpg를 빌드(우리 fork). nanobot 통합 분기 패치 자동 포함.
+# 외부 이미지를 강제하고 싶을 때만 아래 줄 uncomment (CI 캐시·임시 디버깅용).
+# DESKRPG_IMAGE=dandacompany/deskrpg:latest
 
 # ── nanobot 모델 ──
 # ~/.nanobot/config.json 에서 설정하는 것이 일반적입니다.
 # 여기서는 nanobot-api가 사용할 기본 모델 참조용
 NANOBOT_MODEL=
+
+# ── OpenRouter API key (PR 2a — 팀 잔여 위젯용) ──
+# 무료 메타데이터 endpoint(/auth/key) 호출에만 사용. inference 호출은 nanobot이 담당.
+# 미설정 시 위젯에서 '팀 잔여' 줄만 hide되고 다른 기능엔 영향 없음.
+# 값은 ~/.nanobot/config.json의 providers.openrouter.apiKey와 동일.
+OPENROUTER_API_KEY=
 
 EOF
 

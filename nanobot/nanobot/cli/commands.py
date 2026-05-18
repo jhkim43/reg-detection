@@ -48,7 +48,19 @@ from rich.table import Table
 from rich.text import Text
 
 from nanobot import __logo__, __version__
-from nanobot.agent.hook import TokenTrackingHook
+from nanobot.agent.hook import AgentHook, LLMUsageRecordHook, TokenTrackingHook
+
+
+def _build_default_hooks(workspace_path: Path) -> list[AgentHook]:
+    # RegTrack AC-008 — REGTRACK_INTERNAL_URL 환경변수가 있을 때만 deskrpg로 usage POST.
+    hooks: list[AgentHook] = [TokenTrackingHook(workspace_path)]
+    regtrack_url = os.getenv("REGTRACK_INTERNAL_URL")
+    if regtrack_url:
+        hooks.append(
+            LLMUsageRecordHook(regtrack_url, os.getenv("INTERNAL_RPC_SECRET", ""))
+        )
+    return hooks
+
 
 def _sanitize_surrogates(text: str) -> str:
     """Reconstruct surrogate pairs into real characters; replace lone surrogates.
@@ -586,6 +598,7 @@ def serve(
             "openrouter": runtime_config.providers.openrouter,
             "aihubmix": runtime_config.providers.aihubmix,
         },
+        hooks=_build_default_hooks(runtime_config.workspace_path),
     )
 
     model_name = runtime_config.agents.defaults.model
@@ -717,7 +730,7 @@ def _run_gateway(
         },
         provider_snapshot_loader=load_provider_snapshot,
         provider_signature=provider_snapshot.signature,
-        hooks=[TokenTrackingHook(config.workspace_path)],
+        hooks=_build_default_hooks(config.workspace_path),
     )
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY

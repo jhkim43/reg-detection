@@ -426,3 +426,57 @@ PR 1이 `api/npcs/*` 3개만 다루고 채널 gateway pairing 쪽 3개 route는 
 
 #### 부수 발견 (별도 PR 후보)
 - `scripts/start.sh`가 `--env-file .env.integration` 미지정. Compose는 같은 디렉토리의 `.env`만 자동 로드하므로 `${POSTGRES_PASSWORD}` 등이 빈 값으로 컨테이너에 주입돼 DB 인증 실패. 팀원 셋업 시 명시적 `--env-file` 사용 가이드 필요. **권장**: `start.sh`에 옵션 추가하는 한 줄 PR.
+
+### 11.7 PR 2a — AC-008 LLM usage widget (2026-05-17)
+
+§11.3 PR 2 로드맵 중 **AC-008 위젯 vertical**만 분리. chat_messages 영속화는 PR 2b, spawn 통합은 PR 2c로 후속.
+
+#### 변경 파일
+
+| Layer | 파일 | 변경 |
+|------|------|------|
+| Data | `deskrpg/src/db/schema.ts` | `llmUsageRecords` 테이블 추가 (`doublePrecision` cost_usd) |
+| Data | `deskrpg/drizzle/0002_llm_usage_records.sql` | 신규 migration (FK→npcs, 2 idx) |
+| Data | `deskrpg/src/db/index.ts` | `llmUsageRecords` re-export |
+| Logic | `deskrpg/src/app/api/internal/llm-usage/route.ts` **(신규)** | nanobot hook의 POST 수신 → DB insert → socket broadcast forward |
+| Logic | `deskrpg/src/app/api/llm-usage/snapshot/route.ts` **(신규)** | 위젯 mount 시 누적 cost/call_count/cache_hit_rate/last_model fetch |
+| Logic | `deskrpg/server.js` | `/_internal/emit`에 `room=null` 글로벌 broadcast 분기 추가 (`llm-usage:update` forward용) |
+| Presentation | `deskrpg/src/components/LlmUsageWidget.tsx` **(신규)** | 우상단 floating, $30 yellow / $60 orange / $90 red 임계 표시 |
+| Presentation | `deskrpg/src/app/game/GamePageClient.tsx` | `<LlmUsageWidget socket={socket} />` 마운트 |
+| Integration | `nanobot/nanobot/agent/hook.py` | `LLMUsageRecordHook` 클래스, `_estimate_cost_usd`, `_extract_npc_id` 추가 |
+| Integration | `nanobot/nanobot/nanobot.py` + `cli/commands.py` | `_build_default_hooks(workspace_path)` helper — `REGTRACK_INTERNAL_URL` env-gated 등록 |
+| Integration | `docker-compose-integration.yml` | nanobot-api에 `REGTRACK_INTERNAL_URL` + `INTERNAL_RPC_SECRET` env 추가 |
+
+#### 설계 원칙
+
+- **TokenTrackingHook(JSON)은 source-of-truth로 유지** — `LLMUsageRecordHook`은 fire-and-forget side-channel. 네트워크 실패해도 토큰 기록 손실 없음.
+- **nanobot standalone 영향 zero** — `REGTRACK_INTERNAL_URL`이 없으면 새 hook이 등록되지 않음. fork 충돌 면적 최소화.
+
+#### 로컬 통합 테스트 가이드
+
+```bash
+# 1. .env.integration 준비 (이미 있을 것 — POSTGRES_PASSWORD, JWT_SECRET 필요)
+# 2. docker stack 기동
+docker compose --env-file .env.integration -f docker-compose-integration.yml up -d --build
+
+# 3. DB 마이그레이션 (0002_llm_usage_records.sql) 자동 적용 확인
+docker logs reg-detection-deskrpg | grep -i "migrate\|drizzle"
+
+# 4. 브라우저: http://localhost:3102
+#    - 우상단에 💰 $0.000 / $100 위젯이 표시되는지 (NONE 임계)
+#    - NPC 채팅 1회 → 위젯의 call_count + cost 증가 (socket broadcast)
+
+# 5. nanobot 측 hook 로그 확인
+docker logs reg-detection-nanobot-api | grep -i "LLMUsageRecordHook"
+# → "LLMUsageRecordHook initialized: endpoint=http://deskrpg-app:3000/api/internal/llm-usage"
+
+# 6. DB 직접 확인 (optional)
+docker exec -it reg-detection-db psql -U deskrpg -d deskrpg \
+  -c "SELECT npc_id, model, input_tokens+output_tokens AS total, cost_usd, phase FROM llm_usage_records ORDER BY created_at DESC LIMIT 5;"
+```
+
+#### 후속
+
+- PR 2b — chat_messages DB 영속화 (in-memory `npcChatHistory` → DB)
+- PR 2c — spawn 통합 (NPC 고용 → nanobot agent 자동 생성·위임·결과 알림). NANOBOT-CODEMAP §5의 deskrpg-webhook channel 옵션 Y
+- PR 3 — OpenClaw code / UI / gateway_resources 제거. socket-handlers.ts(dev path)도 이 단계에서 deprecate.

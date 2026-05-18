@@ -90,7 +90,7 @@ services:
       context: ./nanobot
       dockerfile: Dockerfile
     container_name: reg-detection-nanobot-api
-    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace", "--verbose"]
     restart: unless-stopped
     networks:
       - reg-detection-net
@@ -101,6 +101,12 @@ services:
       - ./nanobot/nanobot:/app/nanobot
     environment:
       - DEV_MODE=1
+      # RegTrack AC-008 — LLMUsageRecordHook가 deskrpg로 usage POST.
+      # 설정되지 않으면 hook이 등록되지 않고 token-tracker.json만 기록됨.
+      - REGTRACK_INTERNAL_URL=http://deskrpg-app:3000
+      - INTERNAL_RPC_SECRET=${JWT_SECRET}
+      # LLMResponse에 model 필드가 없을 때 hook이 위 모델명을 fallback으로 기록.
+      - NANOBOT_MODEL=${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
     cap_drop:
       - ALL
     cap_add:
@@ -140,6 +146,9 @@ services:
       DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # PR 2a — /api/llm-usage/account-balance가 OpenRouter 잔여 fetch에 사용.
+      # 미설정 시 위젯의 '팀 잔여' 줄이 hide. 메타데이터 endpoint라 과금 0.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # OpenClaw 대체: nanobot OpenAI-compatible API
       AI_PROVIDER: nanobot
       NANOBOT_API_URL: http://nanobot-api:8900/v1
