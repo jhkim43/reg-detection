@@ -572,6 +572,18 @@ if (isPostgres) {
     index("idx_npc_reports_status").on(table.status),
   ]);
 
+  // PR 2a — chat history DB 영속화. role = "user" | "assistant" (LLM convention).
+  const chatMessages = pgTable("chat_messages", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    characterId: uuid("character_id").notNull().references(() => characters.id),
+    npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 10 }).notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  }, (table) => [
+    index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+  ]);
+
   schema = {
     users,
     characters,
@@ -590,6 +602,7 @@ if (isPostgres) {
     meetingMinutes,
     tasks,
     npcReports,
+    chatMessages,
   };
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -861,6 +874,18 @@ if (isPostgres) {
     index("idx_npc_reports_status").on(table.status),
   ]);
 
+  // PR 2a — chat history DB 영속화. role = "user" | "assistant" (LLM convention).
+  const chatMessages = sqliteTable("chat_messages", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    characterId: text("character_id").notNull().references(() => characters.id),
+    npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
+  }, (table) => [
+    index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+  ]);
+
   schema = {
     users,
     characters,
@@ -879,6 +904,7 @@ if (isPostgres) {
     meetingMinutes,
     tasks,
     npcReports,
+    chatMessages,
   };
 
   const sqlite = new Database(dbPath);
