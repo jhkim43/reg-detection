@@ -64,6 +64,7 @@ async function main() {
     enqueueQueuedReport,
     getProgressNudgeCutoff,
     getPendingReportsForUserAndChannel,
+    getReportsByTaskId,
     getTaskAutomationConfig,
     markReportConsumed,
     markReportDelivered,
@@ -878,6 +879,25 @@ ${transcript}
         }), "manual");
       } catch (err) {
         console.error("[TaskManager] Error requesting task report:", err);
+      }
+    });
+
+    socket.on("task:get-report", async ({ taskId }) => {
+      try {
+        const player = players.get(socket.id);
+        if (!player || !taskId) return;
+
+        const reports = await getReportsByTaskId(db, reportSchema, taskId);
+        const lastReport = reports.length > 0 ? reports[reports.length - 1] : null;
+        socket.emit("task:report", {
+          taskId,
+          message: lastReport?.message || null,
+          kind: lastReport?.kind || null,
+          createdAt: lastReport?.createdAt || null,
+        });
+      } catch (err) {
+        console.error("[TaskManager] Error getting task report:", err);
+        socket.emit("task:report", { taskId, message: null, kind: null, createdAt: null });
       }
     });
 
