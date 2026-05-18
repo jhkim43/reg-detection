@@ -505,3 +505,36 @@ docker exec -it reg-detection-db psql -U deskrpg -d deskrpg \
 - 채팅 후 브라우저 새로고침 → 동일 NPC 다시 열면 이전 대화 복원 ✓
 - 다른 NPC 열면 자기 대화만 ✓
 - DB: `SELECT character_id, npc_id, role, LEFT(content, 40) FROM chat_messages ORDER BY created_at DESC LIMIT 5;`
+
+### 11.9 hotfix/qa-blockers — 3종 봉합 (2026-05-18)
+
+PR 2a/2b 머지 직후 QA 세션에서 surface된 3종 blocker를 1 PR로 번들. 모두 사용자 동작 흐름을 막거나 silent fail로 오해를 유발하는 케이스.
+
+#### 변경 파일
+
+| Layer | 파일 | 변경 |
+|------|------|------|
+| Logic | `deskrpg/src/lib/task-manager.js` | `nowIso()` (ISO string return) → `dbNow()` (Postgres: Date / SQLite: string). 코드베이스 컨벤션 `isPostgres ? new Date() : new Date().toISOString()` 따름 |
+| Logic | `deskrpg/src/lib/task-reporting.ts` | 동일 패턴 `dbNow()` 추가 + write 경로 3곳(`buildQueuedReportRow.createdAt`, `markReportDelivered.deliveredAt`, `markReportConsumed.consumedAt`) 교체. `nowIso()`는 read normalize fallback용으로 유지 |
+| Logic | `deskrpg/server.js` | `task:get-report` socket 핸들러 신규 + `getReportsByTaskId` import. `socket-handlers.ts:1643`에만 존재하던 핸들러를 production server.js로 포팅 |
+| Presentation | `deskrpg/src/components/ChatPanel.tsx` | `TaskConfirmButtons` 통합 — NpcDialog.tsx와 동일 패턴(`isTaskConfirmPrompt` + 마지막 NPC 메시지 + 스트리밍 종료) |
+| Presentation | `deskrpg/src/components/LlmUsageWidget.tsx` | `top-3 right-3` → `bottom-3 right-3` + collapsed badge UI (펼치기/접기 토글) |
+
+#### 봉합 근거
+
+- **task-manager/task-reporting `dbNow()`**: 증상 `TypeError: value.toISOString is not a function` — SQLite 시절 `nowIso()`(ISO string) 코드가 Postgres timestamp 컬럼 INSERT 시 Drizzle PG 드라이버가 `value.toISOString()`을 호출하려다 string에서 폭발. PR 2a 머지 후 처음 노출됨. `task-reporting.ts`의 `@/db` alias import는 server.js 동적 import 환경에서 resolver 부재로 MODULE_NOT_FOUND → `../db/server-db.js` 상대경로로 교체.
+- **server.js `task:get-report` 누락**: PR 2b 봉합 패턴(dev↔production 핸들러 불일치)과 동일. socket-handlers.ts dev path에만 있어서 production Docker 환경에서 "보고서 조회 중..." 무한 로딩.
+- **ChatPanel TaskConfirmButtons**: 사이드바 chat 컴포넌트가 NpcDialog와 별개라 ✅ 등록 버튼이 사이드바에서만 빠져있었음. 사용자가 NPC 응답 후 "등록할까요?" 봐도 버튼이 안 떠서 텍스트로 "응" 입력 → task 미등록.
+- **LLM 위젯 위치**: 기존 `top-3 right-3`이 헤더(AI 연결/회의실/태스크 메뉴)와 겹쳐 클릭 방해. `bottom-3 right-3`로 이동 + collapsed badge UI로 화면 점유 면적 최소화.
+
+#### 회귀 검증
+
+- task 생성 flow: PM 작업 요청 → "등록할까요?" → ✅ 클릭 → `tasks` row INSERT 성공 ✓
+- 완료 task 카드 클릭 → 보고서 모달 본문 표시 (이전 무한 로딩) ✓
+- 위젯 우하단 표시, badge ↔ 펼침 토글 ✓
+- 사이드바 chat에서도 ✅ 버튼 표시 ✓
+
+#### 스코프 외 (별개 PR 후보)
+
+- **nanobot agentic loop**: 일반 지식 요청 시 LLM(qwen 35B)이 web_search tool 호출 시도 → no-tool 환경에서 120s timeout. system prompt 또는 tool config 튜닝 필요. context bloat(`HISTORY_LIMIT_DEFAULT = 200`)도 함께 검토.
+- **channel chat 영속화**: NPC chat은 PR 2b로 영속화 완료, channel chat은 아직 in-memory.
