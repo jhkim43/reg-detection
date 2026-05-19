@@ -67,6 +67,7 @@ async function nanobotChat(messages, opts) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...buildNanobotRequestBody(messages, opts), stream: false }),
+    signal: opts.signal,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -78,10 +79,12 @@ async function nanobotChat(messages, opts) {
 
 async function nanobotChatStream(messages, onDelta, opts) {
   opts = opts || {};
+  // seed-v9 AC-014 T-023/025 — opts.signal로 외부 abort 전파 (production wiring).
   const res = await fetch(getApiUrl() + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...buildNanobotRequestBody(messages, opts), stream: true }),
+    signal: opts.signal,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -127,8 +130,23 @@ async function nanobotChatStream(messages, onDelta, opts) {
  * Multi-turn history is delegated to nanobot session_id; we only send the
  * current user turn each call.
  *
+ * seed-v9 AC-014 T-023/024/025 production wiring:
+ *   - module-level abortControllers map: agentId::sessionKey → AbortController
+ *   - chatSend: 등록 + signal 전달 + 180s timeout watchdog
+ *   - chatAbort: lookup + ac.abort() (HTTP-level — nanobot 연결 종료)
+ *
+ * NOTE: DB row tracking (nanobotAgentSessions)은 server-db.js schema 동기화가
+ * 필요하므로 Phase 4 testcontainers 시점에 추가. 현재는 UI-level abort만.
+ *
  * @param {{ db: any, schema: any, eq: Function }} deps
  */
+
+const nanobotAbortControllers = new Map();
+const NANOBOT_DEFAULT_TIMEOUT_MS = 180_000;
+function nanobotAbortKey(agentId, sessionKey) {
+  return String(agentId) + "::" + String(sessionKey);
+}
+
 function createNanobotAdapter(deps) {
   const { db, schema, eq } = deps || {};
 
@@ -163,7 +181,15 @@ function createNanobotAdapter(deps) {
   return {
     isConnected() { return true; },
     disconnect() {},
-    async chatAbort() {},
+    async chatAbort(npcId, sessionKey) {
+      const key = nanobotAbortKey(npcId, sessionKey);
+      const ac = nanobotAbortControllers.get(key);
+      if (!ac) return;
+      try {
+        ac.abort();
+      } catch (_e) { /* idempotent */ }
+      nanobotAbortControllers.delete(key);
+    },
     async chatSend(npcId, sessionKey, message, onDelta) {
       const npc = await loadNpc(npcId);
       const system = buildSystemPrompt(npc.name, npc.persona);
@@ -171,15 +197,40 @@ function createNanobotAdapter(deps) {
         { role: "system", content: system },
         { role: "user", content: String(message || "") },
       ];
-      const opts = { sessionId: sessionKey };
+
+      const key = nanobotAbortKey(npcId, sessionKey);
+      const ac = new AbortController();
+      nanobotAbortControllers.set(key, ac);
+
+      // 180s timeout watchdog (seed-v9 AC-014 T-024).
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { ac.abort(); } catch (_e) {}
+      }, NANOBOT_DEFAULT_TIMEOUT_MS);
+
+      const opts = { sessionId: sessionKey, signal: ac.signal };
       try {
         if (typeof onDelta === "function") {
           return await nanobotChatStream(messages, onDelta, opts);
         }
         return await nanobotChat(messages, opts);
       } catch (err) {
+        if (timedOut) {
+          const timeoutErr = new Error("nanobot chatSend: timeout after " + NANOBOT_DEFAULT_TIMEOUT_MS + "ms");
+          timeoutErr.name = "TimeoutError";
+          throw timeoutErr;
+        }
+        if (err && (err.name === "AbortError" || /aborted/i.test(String(err.message || "")))) {
+          // External chatAbort — partial text lost in nanobotChatStream's local var;
+          // caller (streamNpcResponse) emits done:true regardless.
+          return "";
+        }
         console.error("[nanobot] chat error npcId=" + String(npcId).slice(0, 8) + ":", err && err.message);
         throw err;
+      } finally {
+        clearTimeout(timer);
+        nanobotAbortControllers.delete(key);
       }
     },
   };

@@ -153,6 +153,11 @@ services:
       AI_PROVIDER: nanobot
       NANOBOT_API_URL: http://nanobot-api:8900/v1
       NANOBOT_MODEL: ${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
+      # seed-v9 D-21 — nanobot mirror workspace 경로.
+      # 컨테이너 nextjs user(uid 1001)는 system user라 home이 /nonexistent.
+      # /tmp은 world-writable이라 EACCES 회피. 컨테이너 재시작 시 사라지므로
+      # production에서는 named volume + chown 필요 (Phase 4+ follow-up).
+      NANOBOT_HOME: /tmp/nanobot
     depends_on:
       deskrpg-db:
         condition: service_healthy

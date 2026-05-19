@@ -1,5 +1,13 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+# Corporate proxy/firewall이 deb.debian.org을 차단하는 환경 대응 (KAIST 미러로 swap).
+# bookworm-slim은 /etc/apt/sources.list.d/debian.sources (deb822) 또는 /etc/apt/sources.list
+# 둘 중 하나를 쓰므로 양쪽 모두 best-effort swap.
+RUN (sed -i 's|deb.debian.org|ftp.kr.debian.org|g; s|security.debian.org|ftp.kr.debian.org|g' \
+        /etc/apt/sources.list.d/debian.sources 2>/dev/null || true) && \
+    (sed -i 's|deb.debian.org|ftp.kr.debian.org|g; s|security.debian.org|ftp.kr.debian.org|g' \
+        /etc/apt/sources.list 2>/dev/null || true)
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends procps vim curl ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/* && \
