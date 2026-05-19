@@ -23,6 +23,12 @@ import { parseDbObject } from "../lib/db-json";
 import { getGatewayRuntimeConfigForChannel } from "../lib/gateway-resources";
 import { isNanobotProvider } from "../lib/nanobot-client";
 import { nanobotChatSend, nanobotChatPlain } from "../lib/nanobot-chat";
+import { chatSendStream, chatAbortStream } from "../lib/nanobot-chat-streaming";
+import {
+  defaultNanobotChatStreamRepo,
+  ensureNanobotAgentSession,
+} from "../lib/nanobot-chat-streaming-repo";
+import { env } from "../lib/env";
 import {
   buildChannelAccessDeniedPayload,
   type ChannelAccessDeniedReason,
@@ -478,6 +484,14 @@ async function scanProgressNudges(io: Server) {
 
 // nanobot adapter: same chatSend signature as OpenClawGateway so meeting-broker
 // and other consumers can call it without knowing the difference.
+//
+// seed-v9 AC-014 (T-023/024/025): chatSend는 180s timeout + SSE chunk onDelta +
+// nanobotAgentSessions row 추적. chatAbort는 in-flight abortController를 lookup해
+// 실제 cancel + DB aborted_at 기록.
+
+const nanobotAbortControllers = new Map<string, AbortController>();
+const nanobotSessionKey = (agentId: string, sessionKey: string) => `${agentId}::${sessionKey}`;
+
 function buildNanobotGatewayAdapter() {
   return {
     isConnected: () => true,
@@ -488,16 +502,43 @@ function buildNanobotGatewayAdapter() {
       message: string,
       onDelta?: (delta: string) => void,
     ) => {
-      // agentId in nanobot mode is the NPC id (set in getNpcConfig).
-      return nanobotChatSend({
-        npcId: agentId,
-        npcName: agentId,
-        message,
-        onDelta,
-        sessionId: sessionKey,
-      });
+      // nanobot 모드에서 agentId == npcId (AC-013 D-22 mirror).
+      const key = nanobotSessionKey(agentId, sessionKey);
+      const ac = new AbortController();
+      nanobotAbortControllers.set(key, ac);
+      try {
+        await ensureNanobotAgentSession({ npcId: agentId, agentId, sessionKey });
+      } catch (err) {
+        // FK 위반 등은 무시 — 세션 추적은 best-effort.
+        console.warn("[nanobot:chat] ensureSession failed:", err);
+      }
+      try {
+        const result = await chatSendStream({
+          agentId,
+          sessionKey,
+          message,
+          baseUrl: env.NANOBOT_API_URL,
+          onDelta: onDelta ?? (() => {}),
+          abortController: ac,
+          repo: defaultNanobotChatStreamRepo,
+        });
+        return result.fullText;
+      } finally {
+        nanobotAbortControllers.delete(key);
+      }
     },
-    chatAbort: async () => {},
+    chatAbort: async (agentId: string, sessionKey: string) => {
+      const key = nanobotSessionKey(agentId, sessionKey);
+      const ac = nanobotAbortControllers.get(key);
+      if (!ac) return;
+      await chatAbortStream({
+        agentId,
+        sessionKey,
+        abortController: ac,
+        repo: defaultNanobotChatStreamRepo,
+      });
+      nanobotAbortControllers.delete(key);
+    },
   };
 }
 
