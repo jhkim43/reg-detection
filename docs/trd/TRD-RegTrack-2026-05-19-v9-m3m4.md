@@ -181,10 +181,29 @@
 
 #### 2.3.a PostgreSQL 스키마 (drizzle ORM, deskrpg)
 
-v9 신규 + 갱신 테이블 (기존 v8 유지 부분은 생략):
+> **AMENDMENT 2026-05-19**: Phase 1 Discovery 결과 v9 초안의 신규 테이블 3개 중 1개(`gateway_channel_bindings`)는 **기존 스키마가 더 잘 설계됨**이 확인됨. 본 섹션은 amended 상태.
+
+**기존 활용** (신규 테이블 없이 그대로 사용):
+
+| 기능 | 기존 테이블·컬럼 | 출처 |
+|------|----------------|------|
+| 게이트웨이 토큰 암호화 저장 | `gatewayResources.tokenEncrypted` (text) | `deskrpg/src/db/schema.ts:59` |
+| 게이트웨이 base URL | `gatewayResources.baseUrl` (text) | `schema.ts:58` |
+| 페어링된 디바이스 식별자 | `gatewayResources.pairedDeviceId` (text, nullable) | `schema.ts:60` |
+| 검증 시각·상태·에러 | `gatewayResources.lastValidatedAt/lastValidationStatus/lastValidationError` | `schema.ts:61-63` |
+| Cipher key source 분기 | env var `INTERNAL_RPC_SECRET > JWT_SECRET > dev fallback` (DB 저장 X) | `gateway-resources.ts:43-49` |
+| 게이트웨이 rotation 시각 | `gatewayResources.updatedAt` (재해석) | `schema.ts:65` |
+| 채널↔게이트웨이 매핑 (다대다) | `channelGatewayBindings` (junction: channel_id + gateway_id) | `schema.ts:82-91` |
+| 사용자 간 게이트웨이 공유 | `gatewayShares` (gatewayId + userId + role) | `schema.ts:70-80` |
+| 토큰 암호화·복호화 함수 | `encryptGatewayToken/decryptGatewayToken` (AES-256-GCM v1:iv:tag:encrypted base64url) | `gateway-resources.ts:57,65` |
+| 내부 RPC + Bearer 인증 | `internalRpc` + `buildInternalAuthHeaders` (EBUSY retry, dev/prod dual-mode) | `internal-rpc.ts:31` |
+
+→ v9 추가 작업 (위 인프라 활용):
+- `gatewayResources.pairedDeviceId` 값을 Ed25519 keypair 파일과 cross-reference (파일 부재 시 페어링 재시도)
+- AI_PROVIDER=nanobot 모드에서 nanobot이 같은 gateway resource 패턴을 사용
 
 ```sql
--- v9 신규 (nanobot gateway 영역)
+-- v9 신규 (이번 amendment 후 남은 진짜 신규 테이블 2개)
 
 CREATE TABLE nanobot_agent_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -199,26 +218,26 @@ CREATE TABLE nanobot_agent_sessions (
   UNIQUE(agent_id, session_key)
 );
 
-CREATE TABLE gateway_device_identities (
+-- gateway_device_identities는 옵션 — 파일시스템(~/.nanobot-devices/{hash}.json)만으로
+-- 충분할 가능성 큼. Phase 2 (AC-016 PairingManager) 구현 시점에 "DB 필요?" 재평가.
+-- 우선은 파일시스템만 사용:
+--   ~/.nanobot-devices/${hash}.json {publicKey, privateKey, createdAt, connectedAt}
+-- DB 저장이 필요해지면 (예: multi-instance 동기화) 이 테이블 추가.
+-- gateway_resources.paired_device_id 컬럼은 이미 존재 → 그쪽이 cross-ref.
+
+CREATE TABLE IF NOT EXISTS gateway_device_identities (  -- 옵션, Phase 2에서 결정
   device_hash TEXT PRIMARY KEY,
   public_key TEXT NOT NULL,
-  private_key_path TEXT NOT NULL,  -- '~/.nanobot-devices/{hash}.json'
+  private_key_path TEXT NOT NULL,
   pairing_state TEXT NOT NULL CHECK (pairing_state IN ('idle','connecting','connected','reconnecting','pairing_required','error')),
-  paired_with_channel_id UUID REFERENCES channels(id),
   last_pairing_request_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   connected_at TIMESTAMPTZ
 );
 
-CREATE TABLE gateway_channel_bindings (
-  channel_id UUID PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
-  encrypted_token TEXT NOT NULL,  -- v1 format: iv:tag:encrypted base64url (AES-256-GCM)
-  cipher_key_source TEXT NOT NULL CHECK (cipher_key_source IN ('INTERNAL_RPC_SECRET','JWT_SECRET')),
-  gateway_url TEXT NOT NULL,
-  device_hash TEXT REFERENCES gateway_device_identities(device_hash),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  rotated_at TIMESTAMPTZ
-);
+-- gateway_channel_bindings (v9 초안 신규 제안) — 드롭
+-- 사유: 기존 gatewayResources(token+device) + channelGatewayBindings(junction) 조합으로 동일 목적 달성.
+-- 신규 테이블 추가 시 중복 + 마이그레이션 risk.
 
 -- v9 신규 (D3=a: Citation은 deskrpg drizzle 단일 source)
 -- 참고: 시드 ontology의 Citation을 deskrpg PG로 끌어옴 — nanobot은 POST API로만 기록
@@ -545,6 +564,8 @@ POST /api/_internal/regulations { regulation: RegulationCreatedEvent }
 
 ## 10. Architecture Section 갱신 안건 (seed-v10 후보)
 
+### 10.1 architecture.data 텍스트 carry-over (v8 → v9 누락)
+
 seed-v9의 `architecture.data` 섹션은 v8에서 carry-over되어 여전히 "SQLite + Obsidian Local REST API"로 기술됨. v9 결정(Postgres 채택)과 불일치. **seed-v10에서 architecture.data 텍스트 갱신** 필요 (TRD가 immutable seed를 수정할 수는 없음).
 
 | 갱신 항목 | 현재 (v9 inconsistency) | v10 권장 |
@@ -552,6 +573,21 @@ seed-v9의 `architecture.data` 섹션은 v8에서 carry-over되어 여전히 "SQ
 | `architecture.data.description` | "SQLite + Obsidian Local REST API (Obsidian이 vault 관리, v5)" | "PostgreSQL (로컬 docker-compose) + Obsidian Local REST API" |
 | `architecture.data.directories` | `backend/data/sqlite` | `backend/data/postgres` 또는 제거 |
 | `architecture.data.responsibilities` | "SQLite CRUD (...)" | "PostgreSQL CRUD via drizzle ORM (...)" |
+
+### 10.2 schema drift 학습 (2026-05-19 amendment 사후 기록)
+
+Phase 1 시작 전 Discovery에서 검출된 schema drift는 본 PR 내 amendment로 정정 완료 (seed-v9 `post_creation_amendments` + TRD §2.3.a 갱신 + decomposition T-004 드롭 + T-005/006/007 verify-only로 rescope). 학습:
+
+| 항목 | 발견 | 교훈 |
+|------|------|------|
+| `gatewayResources` 테이블 존재 | TRD 신규 `gateway_channel_bindings` 제안과 중복 (더 잘 설계됨) | TRD 작성 전 Explore agent로 기존 schema 전수 조사 필요 |
+| `encryptGatewayToken/decryptGatewayToken` 이미 완벽 | T-005 "정리" task가 불필요 | "정리" 같은 모호한 task description은 decomposition에서 금지 — 구체 동사("추가"/"제거"/"리네임") 사용 |
+| `gateway-resources.ts:305-373`의 binding 함수 이미 존재 | T-007 신규 repository 제안 중복 | TRD §2.3 작성 시 기존 lib 함수 grep 필수 |
+
+**향후 prevention rules** (CLAUDE.md AI Behavioral Baseline 보완 후보):
+1. TRD 신규 테이블/함수 제안 전 `grep`으로 기존 존재 여부 검증 (자동화 후보: `.harness/gates/check-trd-drift.sh`)
+2. decomposition의 "정리/cleanup" 동사 금지 — 구체 동작 명시
+3. Phase 1을 시작하기 전 "spec assumption sanity check" 단계 추가 (현재 Phase 0 audit 확장)
 
 ---
 

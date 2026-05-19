@@ -2,8 +2,46 @@
 # Generated: 2026-05-19
 # Supersedes: seed-v8.yaml
 # Source Interview: .harness/ouroboros/interviews/2026-05-19-10-04.yaml
-# WARNING: This file is IMMUTABLE. To change, create seed-v10.yaml.
+# WARNING: This file is IMMUTABLE once merged to dev. To change after merge, create seed-v10.yaml.
+#          (Pre-merge amendments are tracked in `post_creation_amendments` below.)
 # 작성 원칙: 한국어 주 + 영어 기술 용어 병기. TODO/TBD 금지.
+
+# ─────────────────────────────────────────────────────────────────────
+# Post-creation Amendments (PR 머지 전 정정 사항 — Phase 1 Discovery 결과)
+# ─────────────────────────────────────────────────────────────────────
+# 본 amendment는 seed-v9 PR이 dev에 머지되기 전(아직 작업 산출물 없음) 시점에
+# 발생한 정정. 머지 이후 정정 필요시는 반드시 seed-v10로 bump.
+post_creation_amendments:
+  - date: "2026-05-19T11:30:00"
+    trigger: |
+      Phase 1 Discovery에서 schema drift 검출:
+        (1) TRD §2.3.a가 제안한 신규 'gateway_channel_bindings' 테이블이
+            이미 'gatewayResources'(token_encrypted + paired_device_id) +
+            'channelGatewayBindings'(channel↔gateway junction) 조합으로 더 잘 설계됨.
+        (2) T-005/T-006의 "정리" 대상 함수들이 이미 production-ready
+            (encryptGatewayToken/decryptGatewayToken: AES-256-GCM v1 format;
+             internalRpc: EBUSY retry + dev/prod dual-mode + openclaw-호환 에러 shape).
+        (3) T-007의 "신규" gateway-channel-binding repository가 이미
+            gateway-resources.ts:305-373에 존재.
+
+    affected_sections:
+      - "ontology.entities.GatewayChannelBinding — 신규 entity로 새 테이블 함의했으나,
+         실제로는 기존 'channelGatewayBindings' (junction) + 'gatewayResources' (token)
+         조합의 alias로 의미 reinterpret. 신규 테이블 X."
+      - "ontology.entities.GatewayDeviceIdentity — 부분 매핑:
+         'gatewayResources.paired_device_id'(WHICH device WE pair with) +
+         '~/.nanobot-devices/${hash}.json'(OUR keypair 파일) 조합.
+         별도 DB 테이블 신설은 불필요, 파일시스템 + 기존 컬럼으로 충분."
+      - "tech_decisions D-19 (functional parity 9 categories) — Authentication tokens(7번),
+         Configuration storage(6번), Provider abstraction(9번)은 이미 90%+ 구현됨.
+         실제 작업량은 'parity 보장 + dead code 제거'로 명세보다 작음."
+
+    superseded_in_v9: []  # 본문 수정 없음. 본 amendment 블록은 정정 기록만.
+    note: |
+      ontology entity는 그대로 두되 (재사용 매핑임), 실제 구현 시 TRD가 우선.
+      TRD-RegTrack-2026-05-19-v9-m3m4.md + decomposition-2026-05-19-v9-m3m4.yaml
+      는 본 amendment에 맞춰 같은 PR에서 수정됨 (TRD/decomposition은 immutable 대상 아님).
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Changes from v8 — 변경 이력 (immutable spec 진화 추적)
@@ -1308,7 +1346,8 @@ ontology:
     # v9 추가 (nanobot 게이트웨이 영역)
     - { canonical: "NanobotAgentSession", aliases: ["agent session", "chat session", "nanobot 세션", "agent:<id>:<name>"] }
     - { canonical: "GatewayDeviceIdentity", aliases: ["device identity", "Ed25519 keypair", "디바이스 신원", "pairing identity"] }
-    - { canonical: "GatewayChannelBinding", aliases: ["채널 바인딩", "encrypted token", "gateway binding"] }
+    - { canonical: "GatewayChannelBinding", aliases: ["채널 바인딩", "encrypted token", "gateway binding"], note: "amendment 2026-05-19: 신규 테이블 X — 기존 channelGatewayBindings(junction) + gatewayResources(token_encrypted, paired_device_id) 조합의 의미 alias. T-004 드롭." }
+    - { canonical: "GatewayDeviceIdentity-keypair", aliases: ["~/.nanobot-devices/${hash}.json", "Ed25519 keypair 파일"], note: "amendment: DB가 아닌 파일시스템에 저장. gatewayResources.paired_device_id가 'WHICH device', 파일이 'OUR keypair'를 담당." }
     - { canonical: "AI_PROVIDER=nanobot", aliases: ["nanobot 모드", "nanobot adapter", "nanobot 단일 경로"] }
     - { canonical: "openclawConfig", aliases: ["gateway config (필드명 유지, 의미 reinterpret)", "agent config"], note: "필드명은 openclawConfig 유지하되 의미상 'gateway agent config'로 재해석" }
 

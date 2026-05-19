@@ -3,8 +3,23 @@ decomposition:
   trd_ref: "docs/trd/TRD-RegTrack-2026-05-19-v9-m3m4.md"
   owner: "m3_m4_gateway"
   created: "2026-05-19T10:30:00"
+  amended: "2026-05-19T11:30:00"
   scope: "owner block 17 AC (M3/M4 담당). AC-001/007/009/010 제외 (다른 팀)"
-  total_tasks: 58
+  total_tasks: 58  # 원본. amendment 후 실질 작업량은 Phase 1에서 7→3 task 축소 (T-005/006/007 verify-only로 변경, T-004 드롭)
+
+  amendments:
+    - date: "2026-05-19T11:30:00"
+      trigger: "Phase 1 Discovery에서 schema/code drift 검출 — 기존 인프라가 TRD §2.3.a + Phase 1 task 대부분을 이미 만족"
+      changes:
+        - "T-004 (gateway_channel_bindings 신규 migration) — 드롭. 기존 gatewayResources + channelGatewayBindings 활용."
+        - "T-005 (encryptGatewayToken 정리) — verify only로 rescope. 기존 함수 이미 AES-256-GCM v1 format 완벽."
+        - "T-006 (internalRpc Bearer middleware 정리) — verify only로 rescope. 기존 함수 이미 EBUSY retry + dev/prod dual-mode."
+        - "T-007 (gateway-channel-binding repository) — verify only로 rescope. 기존 gateway-resources.ts:305-373에 존재."
+      affected_phases: [1]
+      phase_1_effective_tasks: 3  # T-001, T-002, T-003 (실질 코드 변경). 나머지는 verify pass-through.
+      affected_seed_entities:
+        - "GatewayChannelBinding — alias 의미로 reinterpret (신규 테이블 아님)"
+        - "GatewayDeviceIdentity — 파일시스템(~/.nanobot-devices/) + gatewayResources.paired_device_id 조합. DB 테이블은 Phase 2 결정으로 연기"
 
   # ─────────────────────────────────────────────────────────────────────
   # Phase 1 — Foundation (의존 최소, 다른 모든 parity AC의 기반)
@@ -46,13 +61,16 @@ decomposition:
         ac: [AC-018]
 
     # AC-019 (medium) — Authentication tokens parity
+    # AMENDED 2026-05-19: T-004 dropped, T-005/006/007 rescoped to verify-only.
+
     - id: T-004
       ac_ref: AC-019
       layer: data
-      description: "drizzle migration: gateway_channel_bindings 테이블 (channel_id PK, encrypted_token, cipher_key_source, gateway_url, device_hash, created_at, rotated_at)"
-      test: "fresh DB에 migration 적용 → 테이블 + 인덱스 존재 확인"
+      status: dropped  # amendment 2026-05-19
+      description: "[DROPPED] drizzle migration: gateway_channel_bindings 테이블 — 기존 gatewayResources + channelGatewayBindings 조합으로 동일 목적 달성됨이 확인됨"
+      test: "N/A"
       depends_on: []
-      estimated_minutes: 20
+      estimated_minutes: 0
       references:
         ac: [AC-019]
         entities: [GatewayChannelBinding, Channel]
@@ -60,30 +78,33 @@ decomposition:
     - id: T-005
       ac_ref: AC-019
       layer: logic
-      description: "gateway-resources.ts: encryptGatewayToken / decryptGatewayToken (AES-256-GCM, v1 format iv:tag:encrypted base64url) 정리 + nanobot 호환 보장"
-      test: "round-trip 단위 테스트: encrypt(plain) → decrypt → plain. INTERNAL_RPC_SECRET / JWT_SECRET 양쪽 source key 테스트"
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] encryptGatewayToken / decryptGatewayToken 이미 AES-256-GCM v1:iv:tag:encrypted base64url로 구현됨 (gateway-resources.ts:57,65). 변경 X. 회귀 테스트 1건 추가."
+      test: "round-trip 단위 테스트: encrypt(plain) → decrypt → plain. INTERNAL_RPC_SECRET / JWT_SECRET 양쪽 source key 테스트. 기존 동작 변경 없음을 보장."
       depends_on: []
-      estimated_minutes: 25
+      estimated_minutes: 15  # 코드 작성 X, 테스트만
       references:
         ac: [AC-019]
 
     - id: T-006
       ac_ref: AC-019
       layer: logic
-      description: "internal-rpc.ts: Bearer Token + INTERNAL_RPC_SECRET 검증 미들웨어 정리"
-      test: "유효한 Bearer → 200 pass-through. invalid/missing → 401"
-      depends_on: [T-005]
-      estimated_minutes: 20
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] internalRpc 이미 Bearer Token + INTERNAL_RPC_SECRET 검증 + EBUSY retry + dev/prod dual-mode 구현됨 (internal-rpc.ts:31). 변경 X. 회귀 테스트 1건."
+      test: "유효한 Bearer → 200 pass-through. invalid/missing → 401. 기존 동작 회귀 보호."
+      depends_on: []  # T-005 의존 제거 (verify-only 간 의존성 없음)
+      estimated_minutes: 15
       references:
         ac: [AC-019]
 
     - id: T-007
       ac_ref: AC-019
       layer: data
-      description: "gateway-channel-binding repository: getByChannelId / upsert / rotate 메서드"
-      test: "Postgres integration: upsert → getByChannelId → rotate → 새 token 반환"
-      depends_on: [T-004]
-      estimated_minutes: 25
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] gateway-channel-binding repository 이미 존재 (gateway-resources.ts:305-373 — bindGatewayToChannel/unbind/list 등). 변경 X. 통합 테스트 1건."
+      test: "Postgres integration: bind → list → unbind 회귀. 기존 동작 보호."
+      depends_on: []  # T-004 드롭으로 의존성 없음
+      estimated_minutes: 15
       references:
         ac: [AC-019]
 
@@ -655,7 +676,12 @@ decomposition:
       tasks: [T-001, T-002, T-003, T-004, T-005, T-006, T-007]
       ac_covered: [AC-012, AC-018, AC-019]
       pair_mode: false
-      notes: "병렬 가능 (T-001/T-002/T-004는 독립). T-003은 T-002 의존, T-006/T-007은 다른 task 의존"
+      notes: |
+        AMENDED 2026-05-19: T-004 드롭 + T-005/006/007 verify-only로 rescope.
+        실질 작업 task: T-001 (~25분, 회귀 E2E), T-002 (~20분, JSONB key cleanup migration), T-003 (~15분, fallback 코드 제거).
+        verify-only task (각 ~15분): T-005, T-006, T-007 — 기존 동작 회귀 보호 테스트만.
+        병렬: T-001/002/005/006/007 모두 독립. T-003만 T-002 의존.
+        amendment 후 Phase 1 총 추정: ~105분 (원본 ~140분).
 
     - phase: 2
       name: "Gateway core (parity 핵심)"
