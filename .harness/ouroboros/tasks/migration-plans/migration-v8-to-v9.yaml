@@ -1,0 +1,77 @@
+schema_version: 1
+generated_at: '2026-05-19T01:20:23Z'
+from_version: 8
+to_version: 9
+summary:
+  total_tasks: 1
+  unchanged: 1
+  modified: 0
+  deprecated: 0
+  added: 18
+classifications:
+  unchanged:
+  - .harness/ouroboros/tasks/decomposition-2026-05-16.yaml
+  modified: []
+  deprecated: []
+  added:
+  - source: AC-013
+    proposed_task: Cover new AC AC-013
+    priority: should
+  - source: AC-014
+    proposed_task: Cover new AC AC-014
+    priority: should
+  - source: AC-015
+    proposed_task: Cover new AC AC-015
+    priority: should
+  - source: AC-016
+    proposed_task: Cover new AC AC-016
+    priority: should
+  - source: AC-017
+    proposed_task: Cover new AC AC-017
+    priority: should
+  - source: AC-018
+    proposed_task: Cover new AC AC-018
+    priority: should
+  - source: AC-019
+    proposed_task: Cover new AC AC-019
+    priority: should
+  - source: AC-020
+    proposed_task: Cover new AC AC-020
+    priority: should
+  - source: AC-021
+    proposed_task: Cover new AC AC-021
+    priority: should
+  - source: entity:GatewayChannelBinding
+    proposed_task: Add support for entity GatewayChannelBinding
+    priority: should
+  - source: entity:GatewayDeviceIdentity
+    proposed_task: Add support for entity GatewayDeviceIdentity
+    priority: should
+  - source: entity:NanobotAgentSession
+    proposed_task: Add support for entity NanobotAgentSession
+    priority: should
+  - source: action:chatAbortStream
+    proposed_task: Implement action chatAbortStream
+    priority: should
+  - source: action:chatSendStream
+    proposed_task: Implement action chatSendStream
+    priority: should
+  - source: action:createNpcAgent
+    proposed_task: Implement action createNpcAgent
+    priority: should
+  - source: action:migrateLegacyOpenClawPaths
+    proposed_task: Implement action migrateLegacyOpenClawPaths
+    priority: should
+  - source: action:pairDeviceWithChannel
+    proposed_task: Implement action pairDeviceWithChannel
+    priority: should
+  - source: action:updateNpcPersona
+    proposed_task: Implement action updateNpcPersona
+    priority: should
+confidence:
+  overall: 0.7
+  details:
+    name_match: 1.0
+    structural_match: 0.7
+    semantic_match: 0.0
+review_queue: []

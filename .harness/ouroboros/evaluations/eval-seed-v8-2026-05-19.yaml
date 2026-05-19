@@ -1,0 +1,112 @@
+date: "2026-05-19T00:00:00"
+seed_ref: "seed-v8.yaml"
+evaluator: "claude-opus-4-7"
+scope: "post-merge of PR #14 (fix/qa-blockers) — HEAD 69b3f2c9 on dev"
+
+stages:
+  mechanical:
+    result: "pass"
+    details:
+      detect_violations: "pass"
+      check_layers: "pass"
+      check_secrets: "pass"
+      check_boundaries: "pass"
+      check_spec: "pass"
+      check_structure: "pass"
+      lint: "skip (no node_modules)"
+      type_check: "skip (no node_modules)"
+      build: "skip"
+      tests: "skip (no node_modules)"
+
+  semantic:
+    result: "fail"
+    ac_compliance:
+      met: 1
+      partial: 2
+      not_met: 9
+      total: 12
+    ac_detail:
+      AC-001: { status: "not_met", evidence: "no regulations table in deskrpg/src/db/schema-sqlite.ts (27 tables, none domain); no crawler in nanobot/nanobot/agent/" }
+      AC-002: { status: "not_met", evidence: "npc_reports table exists (schema-sqlite.ts:233) but kind enum has no NEW_REGULATION wiring; no producer pipeline" }
+      AC-003: { status: "not_met", evidence: "no impact_analyses/citations tables; chat persists but no Citation/char_offset model" }
+      AC-004: { status: "not_met", evidence: "grep source_codes|change_types|target_departments|date_from → 0 hits in deskrpg/src/" }
+      AC-005: { status: "not_met", evidence: "demo scenario steps unimplemented; only docs/demo-scenario/STORYBOARD plan exists" }
+      AC-006: { status: "not_met", evidence: "grep obsidian|27123|wikilink|VaultDocument → 0 hits anywhere" }
+      AC-007: { status: "not_met", evidence: "no regulation_sources table; no BOK/FSC/BCBS seed data" }
+      AC-008: { status: "partial", evidence: "llm_usage_records schema + widget + WS push wired (LlmUsageWidget.tsx:38-56), nanobot cost hook (hook.py:243,312); MISSING: $60 NPCReport(ERROR), $90 BUDGET_EXCEEDED call-block, $30 stderr warn" }
+      AC-009: { status: "not_met", evidence: "no regulation_versions table; no diff_summary code" }
+      AC-010: { status: "met", evidence: "Stage 1 gates all PASS" }
+      AC-011: { status: "not_met", evidence: "meeting_minutes (schema-sqlite.ts:258) generic; no meeting_reports 4-item structure; no weekly compliance scene" }
+      AC-012: { status: "partial", evidence: "LPC sprite via AppearanceEditor/CharacterPreview/sprite-compositor persists characters.appearance (schema-sqlite.ts:19); field name 'appearance' (JSON) drifts from seed-named 'sprite_asset_id'" }
+    goal_alignment: "drifted"
+    goal_drift_note: "9/12 must-ACs unimplemented; recent 4 merged PRs are generic RPG infra (chat persistence, LLM widget, Postgres bind fix, sidebar UX) — no regulation-domain code"
+    non_goals_check: "clean"
+    constraint_violations:
+      - id: "must_not: PostgreSQL/pgvector in MVP deps"
+        evidence: "deskrpg/package.json:62 pg ^8.20.0 in dependencies; drizzle.config.ts:7 dialect: postgresql; src/db/index.ts:12-13 Postgres-first when DATABASE_URL set; commit acbfa6e5 actively fixes Postgres bind types"
+        severity: "high"
+        note: "dual-mode (sqlite fallback exists) but pg is active runtime dep, not vestigial"
+      - id: "must_not: LLM 응답을 Citation 없이 노출"
+        evidence: "no Citation entity exists; no quote/char_offset field anywhere"
+        severity: "high"
+      - id: "must_not: 누적 cost_usd >= $90 RED 임계 도달 후 LLM 호출 계속"
+        evidence: "widget only colors (LlmUsageWidget.tsx:51-56); no call-block gate"
+        severity: "high"
+    ontology_drift: "high"
+    ontology_drift_detail:
+      missing_entities: [Regulation, RegulationSource, RegulationVersion, ImpactAnalysis, Citation, VaultDocument, MeetingReport]
+      drifted_entities:
+        - { name: UserCharacter, code_name: characters, field_drift: "appearance(JSON) vs seed sprite_asset_id" }
+      aligned_entities: [LLMUsageRecord, NPCReport]
+    layer_compliance: "pass"
+    test_by_layer:
+      logic: "none"
+      data: "none"
+      presentation: "none"
+      note: "no RegTrack-specific tests; nanobot tests are upstream-fork (test_api_stream, test_msteams, ...)"
+
+  judgment:
+    result: "skip"
+    reason: "Stage 2 produced unambiguous FAIL with concrete evidence; Stage 3 unnecessary"
+
+verdict: "fail"
+
+critical_issues:
+  - id: 1
+    severity: "blocker"
+    title: "Regulation domain entirely unimplemented"
+    detail: "9/12 must-ACs NOT MET (AC-001..007, 009, 011). Implementation is forked deskrpg + nanobot infrastructure with only AC-008 widget partially built. Reference: deskrpg/src/db/schema-sqlite.ts has 27 tables, none domain-related."
+  - id: 2
+    severity: "blocker"
+    title: "Constraint must_not: PostgreSQL in MVP deps — violated"
+    detail: "pg ^8.20.0 is runtime dep; Postgres-first DB switch; recent PR fixed Postgres bind types. SQLite path coexists but Postgres is not removed."
+  - id: 3
+    severity: "major"
+    title: "AC-008 partial: $60/$90 enforcement absent"
+    detail: "Widget visualizes thresholds but no NPCReport(ERROR) push at $60 and no BUDGET_EXCEEDED call-block at $90."
+  - id: 4
+    severity: "major"
+    title: "Citation contract not modeled"
+    detail: "must_not constraint says LLM responses always with Citation; Citation entity does not exist in schema."
+  - id: 5
+    severity: "major"
+    title: "Obsidian Local REST integration absent"
+    detail: "AC-006 entire integration (port 27123, Bearer Token, SSRF whitelist, frontmatter rules) unimplemented; 0 grep hits."
+  - id: 6
+    severity: "minor"
+    title: "Ontology drift on UserCharacter"
+    detail: "characters.appearance (JSON blob) used instead of seed-named sprite_asset_id."
+
+recommendation: |
+  발표/시연 acceptance(seed-v8)를 기준으로 보면 현재 상태는 PR2a/PR2b로
+  LLM 위젯 + 채팅 인프라만 갖춘 단계입니다. 다음 우선순위 권고:
+
+  1. (P0) 도메인 모델 도입: Regulation/RegulationSource/RegulationVersion/
+     ImpactAnalysis/Citation/VaultDocument/MeetingReport 7개 엔티티 SQLite 스키마.
+     /decompose AC-001/007/009 우선 분해 권고.
+  2. (P0) Postgres 의존성 결정: must_not 위반 처리 방안 결정 — (a) deskrpg fork에서
+     pg/postgresql 경로 제거, 또는 (b) seed-v9에서 dual-mode 허용으로 명시 갱신.
+     /parallel-change Expand→Migrate→Contract 사용 권고.
+  3. (P1) AC-008 미완: $60/$90 enforcement 추가 (NPCReport push + BUDGET_EXCEEDED gate).
+  4. (P1) Obsidian Local REST integration 시작 (AC-006).
+  5. (P2) UserCharacter 필드명 정렬 또는 seed-v9에서 이름 갱신.
