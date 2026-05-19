@@ -1,0 +1,162 @@
+# Decomposition v9 follow-up — Phase 3 smoke test에서 발견된 backlog 일부의 task화
+# Source: .harness/ouroboros/seeds/seed-v9.yaml post_creation_amendments[1].non_blocking_backlog
+# Created: 2026-05-19T17:30:00
+# Scope: backlog-2/3/5만 포함. backlog-1/6은 seed-v10 interview, backlog-4는 RFC로 분리.
+
+decomposition:
+  seed_ref: "seed-v9.yaml"
+  amendment_ref: "post_creation_amendments[1] (2026-05-19T17:00:00)"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-19-v9-m3m4.md"
+  owner: "m3_m4_gateway"
+  created: "2026-05-19T17:30:00"
+  scope: |
+    seed-v9 amendment 두 번째 블록의 non_blocking_backlog 중 spec이 충분히 명확하여
+    interview/RFC 없이 즉시 task화 가능한 항목. 각 task는 기존
+    decomposition-2026-05-19-v9-m3m4.yaml과 동일한 layer 구조를 따른다.
+
+    제외:
+      - backlog-1 (task → nanobot tool API): seed-v10 interview 필요 → interviews/2026-05-19-seed-v10-candidates.md
+      - backlog-4 (nanobot cancel endpoint): nanobot fork 변경 + 설계 합의 필요 → docs/rfc/RFC-nanobot-cancel-endpoint.md
+      - backlog-6 (chat 첨부파일 multimodal): seed-v10 interview 필요 (모델 multimodal 지원 사전 조사 + AC-014 확장 여부) → interviews/2026-05-19-seed-v10-candidates.md
+
+  total_tasks: 5
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 2 — T-029 migrateLegacyOpenClawPaths가 production server.js에 미와이어링
+  #             + nanobotAgentSessions schema가 CJS server-db.js에 미정의
+  # ─────────────────────────────────────────────────────────────────────
+  tasks:
+    - id: T-F01
+      backlog_ref: backlog-2
+      ac_ref: AC-015
+      layer: logic
+      description: |
+        server.js 부팅 흐름에 migrateLegacyOpenClawPaths() 호출 추가.
+        dev-server.ts의 app.prepare().then() 안에 있는 호출과 동일 의미.
+        호출 위치는 io 초기화 전 (한 번만 실행되는 boot section).
+      test: |
+        - fixture: HOME/.openclaw + HOME/.openclaw-devices 디렉토리 존재 상태에서 server.js boot
+        - expect: 로그에 [migrate] 출력 + HOME/.nanobot + HOME/.nanobot-devices 생성됨
+        - 동시: 두 번째 boot에선 source_missing no-op (idempotent)
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-015]
+        actions: [migrateLegacyOpenClawPaths]
+        files:
+          - "deskrpg/server.js (boot section)"
+          - "deskrpg/src/lib/nanobot-path-migration.ts (이미 존재)"
+
+    - id: T-F02
+      backlog_ref: backlog-2
+      ac_ref: AC-014
+      layer: data
+      description: |
+        deskrpg/server-db.js (CJS)에 nanobotAgentSessions schema 정의 추가.
+        현재 schema.ts (TS) 정의는 dev-server.ts path에서만 사용됨 — production
+        server.js는 CJS여서 schema.ts 직접 import 불가, server-db.js의 별 정의 필요.
+        Drizzle CJS API로 schema.ts와 동일 컬럼 shape 재선언 + named export.
+      test: |
+        - server.js 부팅 후 schema export 확인
+        - chatSend 호출 → DB INSERT 성공 + columns(agent_id, session_key, started_at, last_chunk_at, aborted_at, timeout_ms) 모두 채워짐
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-014]
+        entities: [NanobotAgentSession]
+        files:
+          - "deskrpg/server-db.js (CJS schema 추가)"
+          - "deskrpg/src/db/schema.ts (parity 참조)"
+
+    - id: T-F03
+      backlog_ref: backlog-2
+      ac_ref: AC-014
+      layer: logic
+      description: |
+        nanobot-client.js (CJS adapter)의 chatSend가 T-F02에서 추가한 schema를 사용하여
+        chat:abort, chunk 도착, timeout 이벤트를 nanobot_agent_sessions row에 기록.
+        현재는 module-level Map에만 abort controller 추적 — DB row tracking 누락.
+      test: |
+        - chatSend 후 → row.started_at, last_chunk_at 갱신 확인
+        - chatAbort 후 → row.aborted_at 채워짐
+        - 180s timeout → row.aborted_at + 사유 컬럼 (있다면) 정확
+      depends_on: [T-F02]
+      estimated_minutes: 30
+      references:
+        ac: [AC-014]
+        entities: [NanobotAgentSession]
+        files:
+          - "deskrpg/src/lib/nanobot-client.js"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 3 — NANOBOT_HOME named volume + chown
+  # ─────────────────────────────────────────────────────────────────────
+    - id: T-F04
+      backlog_ref: backlog-3
+      layer: data
+      description: |
+        Dockerfile에서 nextjs(uid 1001) user에게 home dir 부여 + named volume mount.
+        선택 옵션 (T-F04 진행 전 결정 필요):
+          (a) Dockerfile: useradd -m -d /home/nextjs → mkdir -p /home/nextjs/.nanobot
+              + chown nextjs:nextjs. NANOBOT_HOME env 불필요.
+          (b) docker-compose-integration.yml: named volume + entrypoint chown.
+              컨테이너 재시작 후에도 mirror 영속.
+        권고: (a) — Dockerfile 변경이 일회성이고 deploy 단순.
+        현재 임시 fix(NANOBOT_HOME=/tmp/nanobot)는 제거.
+      test: |
+        - docker compose up → /home/nextjs/.nanobot 디렉토리 존재 + nextjs 소유
+        - 컨테이너 재시작 → mirror 파일 유지
+        - NANOBOT_HOME env 없이 정상 동작
+      depends_on: []
+      estimated_minutes: 30
+      references:
+        files:
+          - "deskrpg/Dockerfile"
+          - "docker-compose-integration.yml"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 5 — NanobotPairingStatusCard UI mount
+  # ─────────────────────────────────────────────────────────────────────
+    - id: T-F05
+      backlog_ref: backlog-5
+      ac_ref: AC-016
+      layer: presentation
+      description: |
+        NanobotPairingStatusCard.tsx (Phase 2 commit 1f5adb15에서 생성, mount X)를
+        settings/gateways 페이지에 mount. AI_PROVIDER=nanobot 일 때 기존
+        OpenClawPairingStatusCard 대신 NanobotPairingStatusCard 렌더.
+        AC-016 verification "UI 카드는 pairingRequired 상태로 전환"이 user-observable
+        형태로 검증 가능해진다.
+      test: |
+        - Playwright: AI_PROVIDER=nanobot 환경에서 settings/gateways 진입 → NanobotPairingStatusCard 노출
+        - gateway 강제 unpaired 상태 → 카드 "pairingRequired" 표시
+        - POST /api/gateways/:id/pair 성공 → 카드 "connected"로 전환
+      depends_on: []
+      estimated_minutes: 35
+      references:
+        ac: [AC-016]
+        files:
+          - "deskrpg/src/components/NanobotPairingStatusCard.tsx (이미 존재)"
+          - "deskrpg/src/app/settings/gateways/page.tsx (또는 적절한 mount point — Phase 1 확인 필요)"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 실행 순서 권고
+  # ─────────────────────────────────────────────────────────────────────
+  execution_order:
+    - phase: 4
+      label: "Production wiring + DB schema parity"
+      tasks: [T-F01, T-F02, T-F03]
+      rationale: "T-F02는 데이터 정의, T-F03가 그 위에 build. T-F01은 독립적."
+    - phase: 5
+      label: "Deployment 정리"
+      tasks: [T-F04]
+      rationale: "T-F04는 인프라성 변경이며 production deploy 시점에 함께."
+    - phase: 6
+      label: "Cross-team UI integration"
+      tasks: [T-F05]
+      rationale: "settings/gateways 페이지 소유자(다른 팀)와 협업 필요."
+
+  notes:
+    - "본 followup decomposition은 seed-v9 amendment의 non_blocking_backlog 일부만 task화한 것. backlog-1/6/4는 별 artifact로 진입한다."
+    - "각 T-F##은 기존 T-###(v9-m3m4)과 ID 충돌 없음 (F prefix)."
+    - "/run을 본 파일에 대고 실행하려면 명시적으로 decomposition 파일을 지정하거나, 본 파일을 main decomposition에 inline merge 한 후 실행."

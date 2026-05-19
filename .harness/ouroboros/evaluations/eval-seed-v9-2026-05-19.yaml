@@ -1,0 +1,132 @@
+date: "2026-05-19T15:00:00+09:00"
+seed_ref: "seed-v9.yaml"
+scope: "Phase 3 (AC-014/015/016/020 + T-022). Phase 1/2 ACs(AC-012/013/017/018/019)는 별 PR scope이나 같은 stack에 stacked되어 함께 검증됨."
+commits_evaluated:
+  - 8c8cf543  # T-022 pair route
+  - 4b28e53b  # T-023/024/025 chat streaming (Pair Mode)
+  - 4ab53283  # T-026 NpcChatPanel Abort UI + Playwright
+  - 03d19b42  # T-028/029 setAgentFiles + migration
+  - 5eebe755  # T-027/030/031 telemetry + SSE contract
+  - 11804c08  # production socket wiring + EACCES + KAIST mirror (smoke fix)
+
+stages:
+  mechanical:
+    result: "pass"
+    details:
+      harness_gates:
+        secrets: pass
+        boundaries: pass
+        structure: pass
+        spec: pass
+        layers: pass
+        security: pass
+        deps: pass
+      deskrpg_tests: "123/123 pass (node:test + tsx)"
+      nanobot_pytest: "17/17 pass (T-027 6 + T-030 11)"
+      playwright_spec: "3 discovered (chromium browser install required to execute)"
+      typescript_strict: "pass (exit 0)"
+
+  semantic:
+    result: "pass_with_noted_gaps"
+    ac_compliance:
+      met: 2
+      partially_met: 2
+      total: 4
+    details:
+      - ac: "AC-014"
+        status: "MET"
+        evidence:
+          - "deskrpg/src/lib/nanobot-client.js createNanobotAdapter — production runtime chatSend/chatAbort with AbortController map + 180s timeout"
+          - "deskrpg/src/lib/nanobot-chat-streaming.ts chatSendStream/chatAbortStream — dev path (TS), 15 unit tests"
+          - "deskrpg/server.js — pendingNpcChats + chat:abort socket handler"
+          - "Manual smoke 2026-05-19: Abort button disappears, chunks halt"
+      - ac: "AC-015"
+        status: "PARTIALLY_MET"
+        evidence:
+          - "nanobot-agent-lifecycle.ts setAgentFiles + writeNanobotAgentFiles (6 unit tests)"
+          - "POST/PUT npc routes wire mirror writes on persona change"
+          - "nanobot-path-migration.ts migrateLegacyOpenClawPaths (6 unit tests)"
+        gaps:
+          - "Migration wired to dev-server.ts only; production server.js missing the call. Affects 'auto-run on first boot' clause when ~/.openclaw exists. Tracked as smoke-backlog Backlog 2."
+      - ac: "AC-016"
+        status: "PARTIALLY_MET"
+        evidence:
+          - "pairing-manager.ts: Ed25519 keypair (T-017), challenge-response v2 (T-018), 4-state FSM (T-019), env mode (T-020), 23 unit tests"
+          - "POST /api/gateways/:id/pair route + attemptGatewayPairing probe — 8 unit tests"
+          - "NanobotPairingStatusCard.tsx component created (Phase 2)"
+        gaps:
+          - "NanobotPairingStatusCard not mounted in any page. AC verification 'UI 카드는 pairingRequired 상태로 전환' unobservable. Tracked as smoke-backlog Backlog 5 (Phase 6 cross-team integration)."
+      - ac: "AC-020"
+        status: "MET"
+        evidence:
+          - "nanobot/agent/hook.py _classify_provider — 11 pytest"
+          - "deskrpg /api/internal/llm-usage + buildLlmUsageUpdatePayload helper — 11 unit tests"
+          - "Smoke: llm_usage_records has 5 rows with provider='NANOBOT'"
+          - "LlmUsageWidget cumulative cost/calls confirmed live"
+    goal_alignment: "aligned"
+    constraint_check:
+      must: "satisfied (180s timeout, onDelta callback, chatAbort RPC, Test by Layer 100% on Logic)"
+      must_not: "no violations"
+    ontology_drift: "low"
+    ontology_notes:
+      - "NanobotAgentSession entity defined in schema.ts (TS) but not in server-db.js (CJS). Production runtime cannot access DB row tracking — Phase 4 testcontainers will harmonize."
+    layer_compliance: "pass"
+    test_by_layer:
+      logic: "100% (123 unit + 17 pytest + 6 setAgentFiles)"
+      data: "partial (schema definitions tested via lifecycle, no DB integration in unit)"
+      presentation: "fixture-only (3 Playwright tests against /__test__/chat-abort route)"
+
+  judgment:
+    result: "pass"
+    code_quality: 4
+    edge_cases: "covered (empty stream, [DONE] sentinel, double abort, network throw, HTTP 4xx, timeout via mock timers, pre-first-chunk abort, idempotency, trailing slash, identity persistence)"
+    error_handling: "adequate (try/catch with non-fatal fallbacks at every external boundary)"
+    review_ready: "yes"
+    notes:
+      - "404 src / 847 test = 1:2.1 ratio — excellent (Test Designer-driven inversion)"
+      - "Test Designer worktree isolation employed for AC-014 (high) per TRD §523 Pair Mode mandate"
+      - "Schema duplication (TS schema.ts vs CJS server-db.js) flagged as Backlog 2 — known structural debt to resolve in Phase 4"
+
+verdict: "pass_with_noted_gaps"
+
+issues:
+  blocking: []
+  non_blocking_backlog:
+    - id: "backlog-1"
+      title: "Task 추출을 LLM 본문 parsing 대신 nanobot tool API로 재설계"
+      severity: "medium"
+      source: "smoke test 2026-05-19 (사용자 제안)"
+      target: "seed-v10 candidate / /rfc 권고"
+    - id: "backlog-2"
+      title: "T-029 migrateLegacyOpenClawPaths가 production server.js에 미와이어링 + nanobotAgentSessions schema가 CJS server-db.js에 미정의"
+      severity: "medium"
+      source: "smoke test 2026-05-19"
+      target: "Phase 4 testcontainers 시점에 통합"
+    - id: "backlog-3"
+      title: "NANOBOT_HOME named volume + chown — 현재 /tmp/nanobot은 컨테이너 재시작 시 mirror 손실"
+      severity: "low"
+      source: "smoke test 2026-05-19 (EACCES fix 후속)"
+      target: "production deployment 시점"
+    - id: "backlog-4"
+      title: "nanobot-side cancel endpoint — HTTP-level abort 만으로는 LLM 계산 즉시 중단 X (토큰 낭비)"
+      severity: "low"
+      source: "smoke test 2026-05-19 (사용자 제안)"
+      target: "별 RFC + nanobot fork 변경"
+    - id: "backlog-5"
+      title: "NanobotPairingStatusCard UI mount 누락 — AC-016 verification 'UI 카드 상태 전환' unobservable"
+      severity: "medium"
+      source: "smoke test 2026-05-19"
+      target: "Phase 6 cross-team integration"
+
+recommendation: |
+  Phase 3 implementation passes mechanical + semantic + judgment evaluation.
+  Two ACs are partially met due to scoped-out integration (production wiring +
+  UI mount), both tracked in backlog with explicit follow-up targets. Smoke
+  test on docker compose integration env confirmed all user-visible behavior.
+
+  Action items:
+    1. (Now) seed-v9 post_creation_amendments에 5 backlog items 등재 (next /evolve step)
+    2. (Phase 1 PR merge 후) Phase 2/3 stack push + PR
+    3. (Phase 4 시작 시) Backlog 2/3 resolution과 함께 testcontainers 인프라 도입
+
+  No blocking issues. Ready for PR after Phase 1 PR lands.

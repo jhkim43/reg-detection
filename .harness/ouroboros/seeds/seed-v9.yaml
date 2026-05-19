@@ -42,6 +42,83 @@ post_creation_amendments:
       TRD-RegTrack-2026-05-19-v9-m3m4.md + decomposition-2026-05-19-v9-m3m4.yaml
       는 본 amendment에 맞춰 같은 PR에서 수정됨 (TRD/decomposition은 immutable 대상 아님).
 
+  - date: "2026-05-19T17:00:00"
+    trigger: |
+      Phase 3 완료 후 docker compose 통합 smoke test (2026-05-19) + /evaluate
+      (eval-seed-v9-2026-05-19.yaml) 결과 6건의 non-blocking 이슈 발견:
+        (1) Task 추출이 LLM 응답 본문의 ```task-action``` 코드블록 정규식 파싱에
+            의존 — LLM이 형식을 빠뜨리면 등록 누락 (smoke test 재현: "등록해"
+            2회 응답 중 1건만 board 반영). 구조적으로 nanobot tool/state API
+            기반으로 재설계 권장 (사용자 제안).
+        (2) T-029 migrateLegacyOpenClawPaths 호출이 dev-server.ts에만 wire됨.
+            production server.js 부팅 path는 호출 누락 → 실 배포에서 기존
+            ~/.openclaw 디렉토리 잔존 시 마이그레이션 skip.
+        (3) NANOBOT_HOME named volume + chown 미정리. 통합 docker-compose의
+            nextjs(uid 1001 system user) home이 /nonexistent → getNanobotHomeDir
+            fallback EACCES. 임시 fix(NANOBOT_HOME=/tmp/nanobot)는 컨테이너
+            재시작 시 mirror 손실.
+        (4) chatAbort가 HTTP-level abort(TCP close)만 수행 — nanobot의
+            process_direct asyncio task는 client disconnect 자동 감지 X.
+            결과: UI 정상 정지하나 LLM token 일부 추가 생성됨 (비용 낭비).
+        (5) NanobotPairingStatusCard.tsx는 Phase 2(commit 1f5adb15)에서
+            구현됐으나 어떤 페이지에도 mount되지 않음. AC-016 verification의
+            "UI 카드가 pairingRequired 상태로 전환" 조건이 user-observable
+            형태로는 검증 불가 (API + DB 우회 검증만 가능).
+        (6) 채팅 첨부파일(20MB 버퍼 + ChatPanel showFileUpload + 클라이언트가
+            ArrayBuffer로 socket.emit)이 server.js npc:chat 핸들러에서
+            destructure 누락(`const { npcId, message } = data`)으로 nanobot에
+            전달되지 않음. 즉 attach UI는 동작하나 backend drop. seed-v9
+            AC-014(Chat streaming parity)는 텍스트-only로 명세되어 scope 밖.
+
+    affected_sections:
+      - "AC-015 verification — 실 배포 마이그레이션 미작동 (위 (2)). evaluate
+         결과 PARTIALLY_MET. 본 amendment는 backlog-2로 추적."
+      - "AC-016 verification — 'UI 카드 상태 전환' 조건이 mount 누락(위 (5))으로
+         user-observable 불가. evaluate PARTIALLY_MET. 본 amendment는 backlog-5로
+         추적."
+      - "AC-014 — 텍스트-only chat streaming parity 명세 그대로 유지.
+         첨부파일(위 (6))은 seed-v9 scope 밖이며 seed-v10 candidate로 분류."
+
+    superseded_in_v9: []  # 본문 수정 없음. 본 amendment는 follow-up 추적 기록.
+
+    non_blocking_backlog:
+      - id: "backlog-1"
+        title: "Task 추출을 LLM 본문 parsing 대신 nanobot tool API로 재설계"
+        severity: "medium"
+        source: "smoke test 2026-05-19 (사용자 제안)"
+        target: "seed-v10 candidate / /rfc 권고"
+      - id: "backlog-2"
+        title: "T-029 migrateLegacyOpenClawPaths가 production server.js에 미와이어링 + nanobotAgentSessions schema가 CJS server-db.js에 미정의"
+        severity: "medium"
+        source: "smoke test 2026-05-19"
+        target: "Phase 4 testcontainers 시점에 통합"
+      - id: "backlog-3"
+        title: "NANOBOT_HOME named volume + chown — 현재 /tmp/nanobot은 컨테이너 재시작 시 mirror 손실"
+        severity: "low"
+        source: "smoke test 2026-05-19 (EACCES fix 후속)"
+        target: "production deployment 시점"
+      - id: "backlog-4"
+        title: "nanobot-side cancel endpoint — HTTP-level abort 만으로는 LLM 계산 즉시 중단 X (토큰 낭비)"
+        severity: "low"
+        source: "smoke test 2026-05-19 (사용자 제안)"
+        target: "별 RFC + nanobot fork 변경"
+      - id: "backlog-5"
+        title: "NanobotPairingStatusCard UI mount 누락 — AC-016 verification 'UI 카드 상태 전환' user-observable 불가"
+        severity: "medium"
+        source: "smoke test 2026-05-19"
+        target: "Phase 6 cross-team integration"
+      - id: "backlog-6"
+        title: "채팅 첨부파일이 nanobot까지 전달 안 됨 — server.js npc:chat 핸들러가 files 필드 destructure 누락. ChatPanel + 클라이언트는 ArrayBuffer로 전송 중."
+        severity: "medium"
+        source: "smoke test 2026-05-19 (사용자 질문)"
+        target: "seed-v10 candidate (AC-014 multimodal 확장 or 별 AC)"
+
+    note: |
+      6개 backlog는 모두 non-blocking이며, /evaluate가 PASS_WITH_NOTED_GAPS로
+      Phase 3 implementation을 승인함. 본문 AC 정의는 그대로 유지되고, 본
+      amendment는 follow-up scope 추적용. backlog-1/6은 seed-v10에서 정식 AC로
+      승격 가능 (LLM-output parsing 의존 제거 + multimodal chat input).
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Changes from v8 — 변경 이력 (immutable spec 진화 추적)
