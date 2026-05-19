@@ -1,31 +1,29 @@
-# Methodology State (template)
-#
-# This file is copied to .harness/methodology/_state.yaml on init.
-# It tracks which methodologies are currently active in this project.
-#
-# DO NOT edit by hand — use:
-#   /methodology use <name>           — activate a methodology
-#   /methodology compose <a> <b>      — activate multiple
-#   /methodology deactivate <name>    — turn one off
-#   /methodology current              — show current state
-
 schema_version: 1
-last_modified: ""                          # ISO-8601 timestamp, written by dispatcher
-
-# Currently active methodologies (in activation order).
-# At least one entry. The default (ouroboros) is auto-activated on first init.
+last_modified: '2026-05-18T23:52:22Z'
 active:
-  - name: ouroboros
-    activated_at: ""
-    activated_by: "init"                   # init | user | compose
-
-# History of activation events (newest first, capped at 50)
-history: []
-#  - action: "activate"                    # activate | deactivate | compose
-#    name: "living-spec"
-#    timestamp: "2026-04-27T12:00:00"
-#    actor: "user"
-
-# Composition policy — what to do when commands/personas conflict between
-# active methodologies. Default: first-active wins.
-conflict_policy: "first-wins"              # first-wins | last-wins | error
+- name: ouroboros
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: init
+- name: living-spec
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: parallel-change
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: rfc-driven
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: incident-review
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+history:
+- action: set_active
+  names:
+  - ouroboros
+  - living-spec
+  - parallel-change
+  - rfc-driven
+  - incident-review
+  timestamp: '2026-05-18T23:52:22Z'
+  actor: user
+conflict_policy: first-wins
