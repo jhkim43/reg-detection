@@ -1,0 +1,246 @@
+date: "2026-05-19T10:04:00"
+topic: |
+  seed-v9 evolution (from seed-v8):
+    1. Postgres 채택 (must_not 위반 해소)
+    2. openclaw → nanobot 게이트웨이 feature parity 명문화
+    3. M3/M4 본인 담당 범위(nanobot↔deskrpg 연계 + Obsidian 프론트엔드) 명시
+    4. 스토리보드 미커버 영역은 v10 이후로 evolve
+
+interviewer: "claude-opus-4-7"
+interviewee_role: "팀원 (M3/M4 nanobot↔deskrpg gateway + Obsidian 프론트 담당)"
+
+dimensions:
+  goal_clarity: 0.95
+  constraint_clarity: 0.92
+  success_criteria: 0.88
+  context_clarity: 0.92  # brownfield
+ambiguity_score: 0.08
+gate_passed: true  # ≤ 0.20
+
+# ─────────────────────────────────────────────────────────────────────
+# Round 1 — openclaw 대체 범위 확정
+# ─────────────────────────────────────────────────────────────────────
+answers:
+  - q_id: Q1
+    question: "openclaw가 deskrpg에서 실제로 담당하는 기능 목록은?"
+    answer: "코드 스캔 위임 (Explore 서브에이전트)"
+    dimension: "context"
+    clarity_delta: +0.10
+    findings: |
+      128+ 터치포인트 / 18+ 파일 / 9 functional categories:
+      (1) NPC/Agent lifecycle
+      (2) Chat streaming (SSE-style onDelta + 180s timeout + chatAbort)
+      (3) File/workspace management (~/.openclaw/workspace-${agentId})
+      (4) Pairing / connection status (Ed25519 device identity + challenge-response)
+      (5) Error mapping (OpenClawGatewayError → HTTP 409/etc, requestId 보존)
+      (6) Configuration storage (npcs.openclawConfig JSONB shape)
+      (7) Authentication / auth tokens (~/.openclaw-devices/${hash}.json, AES-256-GCM)
+      (8) Telemetry / usage tracking (LLM cost recording — AC-008과 부분 겹침)
+      (9) Provider abstraction (AI_PROVIDER=nanobot 분기 이미 부분 구현됨)
+
+  - q_id: Q2
+    question: "'동등 대체'의 정의는 functional / behavioral / drop-in 어느 쪽?"
+    answer: |
+      "deskrpg와 openclaw 연동의 기능적 이점을 nanobot으로도 그대로 받으면 좋겠음"
+      → functional parity (option a). 응답 latency·chunk 형식 등 behavioral
+      세부는 명시적 요구 아님. drop-in은 nice-to-have.
+    dimension: "goal"
+    clarity_delta: +0.10
+
+  - q_id: Q3
+    question: "DB 컬럼명·심볼명(`openclawConfig`)은 유지/rename/abstract?"
+    answer: "사용은 안 하지만 fork 영향도 차원에서 유지 — 판단 위임"
+    decision: "DB 컬럼명 `npcs.openclawConfig` 유지 (rename 영향도 vs 명확성 tradeoff에서 영향도 우선)"
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q4
+    question: "dual-mode (openclaw + nanobot 공존) 유지 기간이 있나?"
+    answer: "dual-mode 유지 기간 없음. 이번 프로젝트에 openclaw 쓸 생각 없음."
+    decision: "v9 즉시 nanobot 전용. AI_PROVIDER=openclaw 경로는 contract phase에서 제거"
+    dimension: "constraint"
+    clarity_delta: +0.10
+
+  - q_id: Q5
+    question: "Ed25519 디바이스 페어링을 nanobot도 구현?"
+    answer: "(a) Same Ed25519 페어링 — full parity, UI 그대로 사용"
+    decision: "nanobot 게이트웨이도 Ed25519 keypair + challenge-response 구현. OpenClawPairingStatusCard UI 재활용 (브랜드만 변경)"
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q6
+    question: "워크스페이스 파일 경로 `~/.openclaw/workspace-*` 처리?"
+    answer: "(b) `~/.nanobot/`로 rename — 마이그레이션 코드 필요"
+    decision: |
+      파일시스템 경로 prefix `~/.openclaw/` → `~/.nanobot/`, `~/.openclaw-devices/` → `~/.nanobot-devices/`
+      마이그레이션: 첫 부팅 시 기존 경로 발견하면 이동 (1회용 스크립트)
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q7
+    question: "IDENTITY.md/SOUL.md 파일 동기화 정책?"
+    answer: "agent loop·prompt bloat 위험 명확화 후 (a-W) Write-only mirror 선택"
+    decision: |
+      nanobot은 DB의 personaConfig를 source of truth로 사용 (매 호출 system prompt 재구성).
+      `.md` 파일은 인간 디버깅용 사이드 아티팩트로 워크스페이스에 함께 쓰기만 함 (read 안 함).
+      → agent loop·bloat 위험 없음 확인됨.
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q8
+    question: "Legacy `npcs.openclawConfig.persona` 문자열 필드 처리?"
+    answer: "(a) 제거 — v9에서 `.personaConfig`만 정식"
+    decision: "nanobot-client.js:148-150 + nanobot-chat.ts:37-47의 legacy persona fallback 제거"
+    dimension: "constraint"
+    clarity_delta: +0.03
+
+  - q_id: Q9
+    question: "openclaw parity AC를 하나로 묶을까, 9개 카테고리별로 쪼갤까?"
+    answer: "(b) 카테고리별로 9개 AC — AC-013..021"
+    decision: "9개 functional category를 각각 testable AC로 분리"
+    dimension: "success"
+    clarity_delta: +0.15
+
+  # ───────────────────────────────────────────────────────────────────
+  # Round 2 — Postgres + 스토리보드 + 본인 범위
+  # ───────────────────────────────────────────────────────────────────
+  - q_id: Q10-1
+    question: "Postgres 배포 형태?"
+    answer: "docker-compose 로컬"
+    decision: "로컬 docker-compose Postgres 서비스. 원격 호스팅·관리형 DB 아님"
+    dimension: "constraint"
+    clarity_delta: +0.03
+
+  - q_id: Q10-2
+    question: "pgvector MVP 포함 vs stretch 유지?"
+    answer: "(a) stretch 유지 — Obsidian wikilink + BM25로 시작"
+    decision: |
+      v8 should 그대로 유지. 데이터 양(FSS 1소스), 시연 임계(질문 1개),
+      예산($100, 임베딩 생성 비용), wiki link 큐레이션이 있다는 점을 종합하면 BM25로 충분.
+      시연 직전 정확도 미달 발견 시 pgvector enable (1일 작업).
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q10-3
+    question: "SQLite 코드 처리 — import만 끊기 vs 완전 제거 vs parallel-change?"
+    answer: "(b) 완전 제거"
+    decision: |
+      schema-sqlite.ts, better-sqlite3 의존성, DB_TYPE 분기, sqlite-base-schema.js 등
+      SQLite 관련 코드 일괄 제거. 롤백은 git revert로 처리.
+      → /parallel-change Expand→Migrate→Contract의 contract phase에 해당.
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - q_id: Q10-4
+    question: "기존 SQLite 데이터 마이그레이션?"
+    answer: "마이그레이션할 데이터 없음 — wipe & re-seed"
+    decision: "data migration 불필요. 신규 Postgres 인스턴스에 drizzle migrations + seed 스크립트 실행"
+    dimension: "constraint"
+    clarity_delta: +0.03
+
+  - q_id: Q11
+    question: "스토리보드에서 AC-005/011 외 추출이 필요한 단계?"
+    answer: "지금 당장 없어보이고, 추후 개발 완료 후 필요할 때 추가 — 가능?"
+    decision: |
+      v9는 "현재 알려진 스토리보드 (AC-005/011)"로 freeze.
+      추후 단계 필요 시 /interview → /seed v10 → /diff-spec → /migrate-tasks 사이클로
+      living-spec methodology를 통해 evolve. (Q11에서 절차 합의됨)
+    dimension: "success"
+    clarity_delta: +0.05
+
+  - q_id: Q12
+    question: "본인 담당 AC 매핑 (AC-002/003/004/005/006/008/011/012 + AC-013~021 = 17개)?"
+    answer: "전부 나의 담당"
+    decision: |
+      Owner = 본 인터뷰이 (M3/M4 담당):
+        - AC-002 (NPCReport NEW_REGULATION)
+        - AC-003 (분석 NPC Citation 응답)
+        - AC-004 (대시보드 필터 4종)
+        - AC-005 (메인 시연 4단계)
+        - AC-006 (Obsidian Local REST + Vault + 웹 UI 표시)
+        - AC-008 (LLM 사용량 위젯 + 임계치 — PR2a/2b로 부분 완료)
+        - AC-011 (주간 회의 NPC 모임)
+        - AC-012 (LPC 캐릭터 커스터마이징)
+        - AC-013~021 (openclaw → nanobot parity 9 categories)
+      Other team:
+        - AC-001 (FSS 크롤러)
+        - AC-007 (4소스 RegulationSource 시딩 + mock 1건)
+        - AC-009 (RegulationVersion 이력)
+        - AC-010 (harness gates — 공통)
+    dimension: "context"
+    clarity_delta: +0.07
+
+  - q_id: Q12-dep
+    question: "AC-004(필터 UI)가 타 팀원 도메인 모델에 의존 — dependency 명시?"
+    answer: "y, 다만 추후 나의 역할이 늘어날 가능성 있음"
+    decision: |
+      seed-v9 `dependencies` 섹션 신설:
+        - AC-004 depends_on: ["AC-001", "AC-007"] (Regulation/RegulationSource 모델 필요)
+        - AC-003 depends_on: ["AC-001"] (Regulation + Citation 모델)
+        - AC-009 (다른 팀원)이 본인 AC-002/003의 demo data 의존성에 영향
+      Owner scope expansion은 v10+에서 재인터뷰 + 재할당.
+    dimension: "success"
+    clarity_delta: +0.05
+
+# ─────────────────────────────────────────────────────────────────────
+# 최종 결정 사항 (seed-v9에 반영될 내용)
+# ─────────────────────────────────────────────────────────────────────
+decisions:
+  # Database
+  - "D-15 (가칭): PostgreSQL 채택 (로컬 docker-compose). SQLite must_not 해제, must로 변경."
+  - "D-16 (가칭): pgvector는 v8 stretch 그대로 유지 (MVP 포함 아님). BM25 + wikilink 우선."
+  - "D-17 (가칭): SQLite 코드 일괄 제거 — schema-sqlite.ts, better-sqlite3, DB_TYPE 분기 등."
+
+  # openclaw → nanobot parity
+  - "D-18 (가칭): AI_PROVIDER=nanobot 전용. openclaw 모드는 v9 즉시 deprecate + 제거 (dual-mode 없음)."
+  - "D-19 (가칭): nanobot 게이트웨이가 openclaw 9 functional categories에 대해 functional parity 제공."
+  - "D-20 (가칭): Ed25519 device pairing + challenge-response를 nanobot도 구현 (full parity)."
+  - "D-21 (가칭): 워크스페이스 경로 ~/.openclaw/ → ~/.nanobot/ rename (1회용 migration 스크립트)."
+  - "D-22 (가칭): IDENTITY.md/SOUL.md는 write-only mirror (nanobot read X, DB가 source of truth)."
+  - "D-23 (가칭): legacy npcs.openclawConfig.persona fallback 코드 제거."
+  - "D-24 (가칭): DB 컬럼명 `npcs.openclawConfig` 유지 (rename 영향도 vs 명확성 tradeoff에서 영향도 우선)."
+
+  # 신규 AC
+  - "AC-013..021 신설 — 9 functional categories 각각 testable AC로 분리:"
+  - "  AC-013: NPC/Agent lifecycle parity (agents.create/delete + persona sync)"
+  - "  AC-014: Chat streaming parity (onDelta 콜백 + 180s timeout + chatAbort)"
+  - "  AC-015: Workspace file management parity (.md write-only mirror)"
+  - "  AC-016: Device pairing parity (Ed25519 + challenge-response + UI 4상태)"
+  - "  AC-017: Error mapping parity (errorCode + pairingRequired + requestId + HTTP 409)"
+  - "  AC-018: Configuration storage parity (npcs.openclawConfig JSONB shape 호환)"
+  - "  AC-019: Authentication tokens parity (디바이스 키 + AES-256-GCM 토큰 암호화)"
+  - "  AC-020: Telemetry parity (LLM cost recording — AC-008과 통합)"
+  - "  AC-021: Provider abstraction hardening (AI_PROVIDER=nanobot 단일 경로)"
+
+  # Owner scope
+  - "Owner block 신설: AC-002/003/004/005/006/008/011/012 + AC-013..021 = 17 AC (인터뷰이 담당)."
+  - "Dependencies block 신설: AC-004 → AC-001/007, AC-003 → AC-001, AC-002 → AC-001."
+
+  # Process
+  - "스토리보드 추가 단계는 v10 이상에서 living-spec 사이클로 evolve."
+  - "owner scope 확장 가능성 명시 (v10 candidate)."
+
+assumptions_surfaced:
+  - "nanobot provider abstraction이 deskrpg에 부분 구현됨 (AI_PROVIDER 환경변수, nanobot-client.js adapter) — v9는 0→1이 아닌 '절반 만든 path를 parity까지'."
+  - "nanobot은 stateless (DB의 personaConfig를 매 호출 prompt로 재구성). 따라서 .md write-only mirror가 안전 (loop/bloat 없음)."
+  - "AC-008 LLM 위젯의 $60 NPCReport push + $90 BUDGET_EXCEEDED 호출 차단은 미구현 — v9에서 추가 (현재 위젯은 색상만 변경)."
+  - "openclaw 대체는 코드 영향도가 큼 (128+ 터치포인트, 18+ 파일). 한 PR에 다 못 담을 가능성 있음 → /decompose 시 카테고리별 분해 강제."
+  - "$100 / 2.5개월 예산, FSS 1 소스 MVP, 5분 시연 한도 (v8 carry-over)."
+  - "owner의 역할 범위가 추후 늘어날 수 있음 (v10 candidate trigger)."
+  - "openclaw legacy 코드 잔존물 (현재 dual-mode 주석들) 도처에 있음 — contract phase에서 일괄 정리 필요."
+
+open_questions_for_v10_plus:
+  - "스토리보드 추가 시나리오 (사용자가 v9 구현 진행 후 발견 시 trigger)"
+  - "Owner scope 확장 (M5 retro 안건 후보)"
+  - "pgvector enable 결정 (시연 직전 정확도 평가 시점)"
+
+# ─────────────────────────────────────────────────────────────────────
+# 다음 액션
+# ─────────────────────────────────────────────────────────────────────
+next_action: "/seed 실행 → seed-v9.yaml 발급"
+post_seed_workflow:
+  - "/diff-spec v8 v9 — 변경 자동 분석"
+  - "/migrate-tasks --to 9 — 기존 task 영향 분류"
+  - "/parallel-change start — Postgres 채택 + openclaw 제거의 Expand→Migrate→Contract 추적"
+  - "/decompose — 본인 담당 17 AC를 atomic task로 분해"
+  - "/run — 구현"

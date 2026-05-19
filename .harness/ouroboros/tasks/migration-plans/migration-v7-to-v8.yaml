@@ -1,0 +1,23 @@
+schema_version: 1
+generated_at: '2026-05-19T00:09:19Z'
+from_version: 7
+to_version: 8
+summary:
+  total_tasks: 1
+  unchanged: 1
+  modified: 0
+  deprecated: 0
+  added: 0
+classifications:
+  unchanged:
+  - .harness/ouroboros/tasks/decomposition-2026-05-16.yaml
+  modified: []
+  deprecated: []
+  added: []
+confidence:
+  overall: 0.7
+  details:
+    name_match: 1.0
+    structural_match: 0.7
+    semantic_match: 0.0
+review_queue: []

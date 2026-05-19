@@ -1,0 +1,2098 @@
+# Seed Specification v9 — RegTrack
+# Generated: 2026-05-19
+# Supersedes: seed-v8.yaml
+# Source Interview: .harness/ouroboros/interviews/2026-05-19-10-04.yaml
+# WARNING: This file is IMMUTABLE. To change, create seed-v10.yaml.
+# 작성 원칙: 한국어 주 + 영어 기술 용어 병기. TODO/TBD 금지.
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v8 — 변경 이력 (immutable spec 진화 추적)
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v8:
+  trigger: |
+    seed-v8 기반 /evaluate 결과 다중 발견:
+      (1) must_not 위반: deskrpg fork에 PostgreSQL(pg ^8.20.0)이 runtime
+          dependency로 활성. seed-v8은 "SQLite 단일 파일 DB"를 must, "PostgreSQL을 MVP
+          의존성에 포함"을 must_not으로 못박았으나 fork 코드와 직접 충돌.
+      (2) M3/M4 담당자(인터뷰이) 작업 범위가 v8 미반영: nanobot fork가 deskrpg가
+          openclaw 게이트웨이로 제공하던 모든 기능을 functional parity로 대체하는
+          것이 본 프로젝트의 핵심 작업이지만, v8에 "openclaw" 단어는 0건.
+          코드에는 openclaw 관련 128+ 터치포인트가 9개 functional category에 분산.
+      (3) AC-008 위젯이 PR2a/2b로 부분 구현됐으나 v8 명세의 $60 NPCReport push
+          + $90 BUDGET_EXCEEDED 호출 차단은 미구현.
+      (4) 스토리보드(docs/demo-scenario/STORYBOARD-RegTrack-2026-05-16.md)에서
+          AC-005/011 외 시나리오 단계는 AC 추출 안 됨 (인터뷰이는 추후 evolve로 합의).
+
+  decided:
+    - "PostgreSQL 채택 (로컬 docker-compose). SQLite must_not 해제 + must 갱신."
+    - "pgvector는 v8 should 그대로 stretch 유지 (MVP 포함 X). BM25 + Obsidian wikilink 우선."
+    - "SQLite 코드 일괄 제거 — schema-sqlite.ts, better-sqlite3, DB_TYPE 분기, sqlite-base-schema.js."
+    - "AI_PROVIDER=nanobot 전용 (dual-mode 없음). openclaw 모드는 v9 즉시 deprecate."
+    - "nanobot 게이트웨이가 openclaw 9 functional categories에 대해 functional parity 제공."
+    - "Ed25519 device pairing + challenge-response를 nanobot도 구현 (full parity)."
+    - "워크스페이스 파일 경로 ~/.openclaw/ → ~/.nanobot/ rename (1회용 migration)."
+    - "IDENTITY.md/SOUL.md는 write-only mirror (nanobot read X, DB가 source of truth)."
+    - "legacy npcs.openclawConfig.persona fallback 코드 제거."
+    - "DB 컬럼명 npcs.openclawConfig 유지 (rename 영향도 vs 명확성 tradeoff에서 영향도 우선)."
+    - "M3/M4 owner(인터뷰이) 담당 AC 범위 명시: AC-002/003/004/005/006/008/011/012 + 신규 AC-013..021 = 17 AC."
+    - "스토리보드 미커버 시나리오는 v10 이상에서 living-spec 사이클로 evolve."
+
+  added:
+    - "constraints.must: 구조화 데이터는 PostgreSQL에 저장 (로컬 docker-compose)"
+    - "constraints.must: AI_PROVIDER=nanobot 단일 경로 (openclaw 경로 제거)"
+    - "constraints.must: nanobot 게이트웨이는 openclaw 9 functional categories와 functional parity"
+    - "constraints.must: Ed25519 device identity + challenge-response 페어링 (~/.nanobot-devices/)"
+    - "constraints.must: 워크스페이스 경로 ~/.nanobot/workspace-${agentId} (기존 ~/.openclaw 마이그레이션)"
+    - "constraints.must: NPC persona의 source of truth는 DB npcs.openclawConfig.personaConfig"
+    - "constraints.must_not: openclaw 모드(AI_PROVIDER=openclaw) 신규 코드 추가"
+    - "constraints.must_not: nanobot agent loop이 .md persona 파일을 read (write-only mirror만)"
+    - "constraints.must_not: legacy npcs.openclawConfig.persona 문자열 필드 신규 참조"
+    - "constraints.should: openclaw 경로 dead code는 contract phase에서 일괄 제거 (parallel-change)"
+    - "acceptance_criteria AC-013..021 신설 — 9 functional category별 testable parity"
+    - "tech_decisions D-15..D-24 추가 — Postgres·SQLite·nanobot 결정 사항"
+    - "owner: 본 인터뷰이(M3/M4 nanobot↔deskrpg gateway + Obsidian 프론트엔드) — 17 AC 매핑"
+    - "dependencies: AC-004 → AC-001/007, AC-003 → AC-001, AC-002 → AC-001"
+    - "R-19 (Risk Register): openclaw → nanobot 대체 중 회귀 위험 (128+ 터치포인트)"
+    - "R-20: Ed25519 페어링 구현 누락 시 시연 봉인 위험 (UI 4상태 의존)"
+
+  modified:
+    - "constraints.must: '구조화 데이터는 SQLite에 저장' → 'PostgreSQL에 저장 (로컬 docker-compose)'"
+    - "constraints.must_not: 'PostgreSQL/pgvector를 MVP 의존성에 포함' 항목 제거 (Postgres는 must로 승격, pgvector는 should stretch 유지)"
+    - "AC-008: $60/$90 enforcement 미구현 명시 (현재 위젯 색상만; v9에서 NPCReport push + BUDGET_EXCEEDED 차단 추가)"
+    - "scope.mvp: 'Postgres 채택 + openclaw 제거 + nanobot parity 9 카테고리' 추가"
+    - "환경 변수 AI_PROVIDER 기본값 'openclaw' → 'nanobot'"
+    - "환경 변수 DATABASE_URL은 PostgreSQL 연결 문자열 필수 (SQLITE_PATH 제거)"
+
+  unchanged:
+    - "Qwen 모델 결정 (v7 D-12)"
+    - "AC-008 단계별 임계치 ($30/60/90, v6 D-11)"
+    - "Obsidian REST API 통합 + Vault 정책 (v5)"
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "$100 / 2.5개월 총 예산"
+    - "Scope Change Governance (§17)"
+    - "deskrpg Sustainable Use License 1.0 (v8 신규 — 학술 시연 범위)"
+    - "12 v8 AC 중 AC-001/002/003/004/005/006/007/009/010/011/012 본문 (AC-008만 enforcement 항목 modified)"
+
+  pending_v10:
+    - "스토리보드 추가 시나리오 (인터뷰이가 v9 구현 진행 후 발견 시 trigger)"
+    - "Owner scope 확장 (현재 17 AC; M5 retro 안건 후보)"
+    - "pgvector enable 결정 (시연 직전 정확도 평가 시점)"
+    - "OpenRouter prompt cache 지원 여부 (v7 pending 유지 — W6 구현 시 확인)"
+    - "Qwen 정확도 benchmark 결과 (v7 pending 유지 — W6 첫 주)"
+    - "팀원 역할 4인 최종 확정 (현재 일반 명칭 팀장/팀원1/팀원2/팀원3 유지)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v7 — 누적 변경 이력
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v7:
+  trigger: |
+    deskrpg upstream(https://github.com/dandacompany/deskrpg) 라이센스 확인 결과
+    "Sustainable Use License 1.0" 적용 — 학술/내부 사용 OK, 상업 배포 금지.
+    또한 LPC asset 일부는 LICENSE-assets.md에서 CC-BY-SA 3.0 등 별도 라이센스.
+    RegTrack은 학술 시연(AIMBA ABP) 범위로 사용 → 라이센스 위반 없음.
+    단 commercial pivot 시 라이센스 교체·재구현 필요 → non_goal에 명시 + R-18로 추적.
+
+  decided:
+    - "deskrpg 사용 범위: 학술 시연 + 내부 검증 only. 상업 배포 명시적 non-goal."
+    - "deskrpg fork 시점: M4 시작(W7) — 그 전까지는 reference 용도로만 참조"
+    - "LPC asset 라이센스 헤더는 LICENSE-assets.md 그대로 유지 (제거 X)"
+    - "deskrpg upstream pull은 시연 종료 후로 연기 (M5 retro 안건)"
+    - "팀 구성원 명칭은 일반 명칭(팀장/팀원1/팀원2/팀원3)으로 표기 — 역할 미확정"
+
+  added:
+    - "constraints.must: deskrpg fork는 학술용·시연용으로만 사용 (Sustainable Use License 1.0 준수)"
+    - "constraints.must_not: deskrpg fork를 상업 배포 (라이센스 위반)"
+    - "constraints.must_not: LPC asset의 별도 라이센스(LICENSE-assets.md) 헤더 제거"
+    - "tech_decisions D-13: deskrpg 라이센스 명시 + 학술 범위 한정"
+    - "non_goals: 상업 배포 (Production commercial launch) — 라이센스 사유"
+    - "resolved_ambiguities: deskrpg 라이센스 사용 가능 여부 (Sustainable Use License 1.0 학술 OK)"
+    - "R-18 (Risk Register): deskrpg/LPC 라이센스 위반 — Low/Medium severity (학술 범위 내 OK)"
+
+  modified:
+    - "deskrpg fork 시점 명시 (M4 W7) — v7까지는 미명시"
+    - "scope.future: '상업화'는 별도 검토(라이센스 재선택 필요) 명시"
+    - "모든 문서 팀원 실명 → 일반 명칭(팀장/팀원1/팀원2/팀원3) 치환 — 역할 미확정 반영"
+
+  unchanged:
+    - "Qwen 모델 결정 (v7 D-12)"
+    - "AC-008 단계별 임계치 ($30/60/90, v6 D-11)"
+    - "Obsidian REST API 통합 (v5)"
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "$100 / 2.5개월 총 예산"
+    - "Scope Change Governance (§17)"
+
+  pending_v9:
+    - "팀원 역할 4인 최종 확정 (현재 일반 명칭 팀장/팀원1/팀원2/팀원3로 표기)"
+    - "OpenRouter prompt cache 지원 여부 (v7 pending 유지 — W6 구현 시 확인)"
+    - "Qwen 정확도 benchmark 결과 (v7 pending 유지 — W6 첫 주)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v6 — 누적 변경 이력
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v6:
+  trigger: |
+    팀이 OpenRouter 모델을 'qwen/qwen3.6-35b-a3b'로 최종 확정.
+    v6의 pending_v7 (정확한 Qwen 모델명)을 해소. 가격 검증 + 비용 모델 갱신.
+
+  decided:
+    - "Default LLM model 확정: qwen/qwen3.6-35b-a3b (MoE, 35B 전체 / 3B active)"
+    - "OpenRouter 가격: $0.15 / $1.00 per 1M tokens (prompt/completion)"
+
+  added:
+    - "tech_decisions D-12: qwen3.6-35b-a3b 모델 확정 + alternatives"
+    - "constraints.must: default model 명시"
+    - "resolved_ambiguities: Qwen 변종 확정"
+
+  modified:
+    - "v6 pending_v7 항목 해소 (모델명 + 가격 명세)"
+    - "환경 변수 DEFAULT_LLM_MODEL placeholder → 실제 값"
+    - "비용 추정: 시연 기간 ~$1.30 (예산의 1.3%) — Qwen 매우 저렴"
+    - "AC-008 임계치 평가: $30/60/90 단계는 현 사용량에선 거의 도달 불가 → 안전 마진 확보"
+    - "R-3 (LLM 비용) severity: Low → 거의 mitigation 완료 수준"
+    - "R-13 (Qwen 정확도): MoE 모델 특성 반영하여 benchmark 시 active param 한계 고려"
+
+  unchanged:
+    - "OpenRouter provider 결정 (v6 D-10)"
+    - "단계별 임계치 ($30/60/90, v6 D-11)"
+    - "OpenAI 호환 API 사용 (코드 변경 minimal)"
+    - "모든 AC + 시연 시나리오"
+
+  pending_v8:
+    - "OpenRouter prompt cache 지원 여부 (qwen3.6 시리즈 — W6 LLMClient 구현 시 확인)"
+    - "정확도 benchmark 결과 (W6 첫 주) → 미달 시 qwen3.6-flash·qwen3.6-27b 등 전환 검토"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v5 — 누적 변경 이력
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v5:
+  trigger: |
+    팀에서 LLM provider를 OpenRouter + Qwen 모델로 결정 (이미 결제·키 발급 완료).
+    seed-v5의 "OpenAI/Claude API only" 가정과 충돌 → seed-v6로 align.
+    AC-008 임계치도 단계별로 정교화 ($30/60/90).
+
+  decided:
+    - "LLM provider: OpenRouter (OpenAI 호환 API)"
+    - "default model: qwen/qwen-2.5-72b-instruct (placeholder — 팀원 확인 후 v7에서 확정)"
+    - "Provider enum 확장: [OPENROUTER, OPENAI, CLAUDE]"
+    - "AC-008 단계별 임계치: $30 yellow / $60 orange / $90 red"
+
+  added:
+    - "constraints.must: OpenRouter 경유 + Bearer Token + 모델은 Qwen 계열"
+    - "ImpactAnalyzerAgent.llm_provider enum에 OPENROUTER 추가"
+    - "LLMUsageRecord.provider enum에 OPENROUTER 추가"
+    - "LlmUsageSnapshot에 threshold_level 필드 (NONE|YELLOW|ORANGE|RED)"
+    - "tech_decisions D-10 (OpenRouter+Qwen 채택), D-11 (단계별 임계치)"
+
+  modified:
+    - "AC-008 description: $40 단일 → $30/$60/$90 단계별 + 위젯 색상"
+    - "환경 변수: OPENAI_API_KEY → OPENROUTER_API_KEY"
+    - "constraint should: 'LLM 캐싱' + 'OpenRouter prompt cache 지원 모델 우선'"
+    - "비용 가정: Qwen이 GPT-4o-mini 대비 약 50~70% 저렴 → $100 예산 여유 ↑"
+
+  pending_v7:
+    - "정확한 Qwen 모델명 (팀원 확인 후) — 다른 변종(qwq-32b-preview, qwen-2.5-7b 등) 가능성"
+    - "OpenRouter prompt cache 지원 여부 (Qwen 변종별 다름)"
+
+  unchanged:
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "회의 디지스트 (AC-011)"
+    - "Obsidian REST API 통합 (D-8 v5)"
+    - "$100 / 2.5개월 총 예산"
+    - "Scope Change Governance (§17)"
+
+version: 9
+created: "2026-05-19T10:04:00"
+supersedes: ".harness/ouroboros/seeds/seed-v8.yaml"
+interview_ref: ".harness/ouroboros/interviews/2026-05-19-10-04.yaml"
+charter_ref: "Project Charter_4팀_0514.docx"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v4 — 변경 이력 (immutable spec 진화 추적)
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v4:
+  trigger: |
+    base repo(jhkim43/reg-detection) clone 후 dev 브랜치의 팀원 작업물 확인.
+    nanobot/nanobot/skills/obsidian/SKILL.md + docs/obsidian-interface.md에서
+    팀원이 이미 Obsidian Local REST API plugin 기반 통합을 구현했음을 발견.
+    우리 v4 가정(백엔드가 vault/ 파일시스템 직접 write)과 충돌 → 팀원 구현
+    방향으로 align (정합성 우선, 재작업 최소화).
+
+  decided:
+    - "Vault 접근은 Obsidian Local REST API plugin(port 27123) HTTP 호출"
+    - "Obsidian이 vault 관리 (백엔드는 파일시스템 직접 접근 X)"
+    - "Bearer Token + SSRF whitelist(192.168.56.1/32) 강제"
+    - "VaultDocument frontmatter 규칙: #topic 태그 + '## Connected Knowledge' 섹션 + [[wikilink]] 강제"
+    - "팀원 구현(skills/obsidian/SKILL.md)을 nanobot Captain skill로 호출"
+
+  pending_pm_review:
+    - "시연 환경(Windows 호스트 + Oracle VM) vs Mac 단일 노트북 — 다음 retro·PM 회의 안건. 결정 후 v6 발급"
+
+  added:
+    - "constraints.must: Obsidian Local REST API 통합 4개 항목"
+    - "constraints.must_not: 'Backend가 vault/ 직접 접근 금지' (REST API 강제)"
+    - "VaultDocument 필드 확장: topic_tag, connected_knowledge_links"
+    - "tech_decisions: D-8 (Obsidian REST API 통합) + D-9 (frontmatter 규칙)"
+    - "actions: pushToObsidianVault (REST API 경유 write/append)"
+    - "resolved_ambiguities: Obsidian 통합 방식 (팀원 REST API), 시연 환경 (PM 회의 보류)"
+
+  modified:
+    - "action syncVaultToGit: Backend write → Obsidian REST API → Obsidian이 vault 관리 → Git plugin push (사용자 수동)"
+    - "AC-006: 'Backend writer + plugin 설정' → 'Backend가 Obsidian REST API로 VaultDocument PUT/POST + Obsidian Git plugin private repo 설정 확인'"
+    - "AC-006 complexity: low → medium (REST API 호출 + 인증 + SSRF whitelist)"
+    - "architecture.layers.data.runtime: Obsidian REST API 명시"
+    - "architecture.layers.data.cannot_access: 'vault/ 파일시스템 직접 접근 금지' 추가"
+    - "complexity 분포: low 4 / medium 3 / high 5 (AC-006 medium 격상)"
+    - "scope.mvp 'Obsidian markdown vault 저장' → 'Obsidian Local REST API를 통한 vault 저장'"
+
+  unchanged:
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "LLM 사용량 위젯 (AC-008 high)"
+    - "회의 디지스트 (AC-011)"
+    - "Vault private repo 강제 (보안 정책)"
+    - "5개 RegulationSource (FSS FULL + 4 INTERFACE_ONLY)"
+    - "Scope Change Governance (§17 process_governance)"
+    - "deskrpg fork, nanobot fork, SQLite, BM25, Kiwi"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v3 — 누적 변경 이력
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v3:
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v3:
+  trigger: |
+    TRD 검토 도중 사용자 두 가지 질문 제기:
+    (1) Vault git sync를 백엔드 자동화까지 갈 필요가 있나? → 단순화로 결정
+    (2) 크롤링 대상이 진행 중 바뀔 가능성이 있는데 어떻게 처리? → scope change governance 명시
+
+  decided:
+    - "Vault git sync 자동화 → Obsidian Git plugin + 수동 push로 단순화"
+    - "Scope change governance: 주 1회 retro + 소/중/대형 triage matrix"
+
+  added:
+    - "process_governance 섹션 (scope change triage + retro cadence)"
+    - "constraints.must: Obsidian Git plugin 사용 + 수동 push 정책"
+    - "constraints.should: 주 1회 금요일 30분 retrospective"
+
+  modified:
+    - "AC-006: '백엔드 git sync 자동 검증' → 'vault/에 markdown 파일 생성 + private repo 동기화 도구(Obsidian Git plugin) 설정 확인'"
+    - "AC-006 complexity: medium → low (자동화 빠짐)"
+    - "action syncVaultToGit: actor를 System(Data) → UserCharacter(Obsidian plugin)으로 변경"
+    - "tech_decisions: D-6 vault sync 결정 갱신"
+    - "constraints.must_not: 'Crawler 실패 시 silent fail' 유지, vault private 유지"
+    - "scope.mvp: 'Obsidian markdown vault 저장 + git sync (private)' → 'Obsidian markdown vault 저장 + Obsidian Git plugin private repo sync'"
+    - "complexity 분포 재계산: low 5 / medium 2 / high 5 (AC-006이 low로 강등)"
+
+  unchanged:
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "Citation 강제 (AC-003)"
+    - "LLM 사용량 위젯 (AC-008 high)"
+    - "회의 디지스트 (AC-011)"
+    - "Vault private repo 강제 (보안 정책)"
+    - "Vault frontmatter + markdown 구조"
+    - "5개 RegulationSource (FSS FULL + 4 INTERFACE_ONLY)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v2 — 누적 변경 이력
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v2:
+  trigger: |
+    PRD v2 검토 도중 사용자 피드백:
+    1) LLM 호출량(누적 비용·호출 횟수)을 핵심 시연 시나리오에 표시 — wow 강화
+    2) AC-008 complexity를 medium → high로 격상 — Pair Mode + Test Designer 강제
+
+  added:
+    - "시연 시나리오에 'LLM 사용량 위젯' (각 Frame마다 호출 인디케이터 + 보너스 직전 누적 패널)"
+    - "AC-008 확장: '+ 메인 시연 진행 중 사용자 화면에 누적 비용·호출 횟수·캐시 적중률 위젯 실시간 표시'"
+
+  modified:
+    - "AC-008 complexity: medium → high (Pair Mode + Test Designer 강제)"
+    - "AC complexity 분포: low 4 / medium 3 / high 5 (기존 medium 4 / high 4)"
+    - "AC-008 rationale: WebSocket push + UI 위젯 + LLM 사용량 메타 집계 → 3-tier 전체"
+
+  unchanged:
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "보너스 페이즈 회의 (AC-011)"
+    - "Citation 강제 (AC-003)"
+    - "데이터·통신 결정 (D-1~D-7 from TRD)"
+    - "양보 우선순위"
+
+# ─────────────────────────────────────────────────────────────────────
+# Changes from v1 — 누적 변경 이력 (이전 버전과의 차이)
+# ─────────────────────────────────────────────────────────────────────
+changelog_from_v1:
+  trigger: |
+    PRD v1 검토 도중 사용자가 "deskrpg 원본 AI 미팅룸을 RegTrack으로 repurpose 하고 싶다"고 결정.
+    AI 미팅룸을 cut 대신 '주간 컴플라이언스 회의실'로 변환해 P0 스코프에 포함.
+    LPC 캐릭터 커스터마이징(공수 0)도 함께 KEEP. 맵 에디터·멀티플레이어는 여전히 CUT.
+
+  added:
+    - "AI 미팅룸 → 주간 컴플라이언스 회의실 repurpose (P0)"
+    - "LPC 캐릭터 커스터마이징 KEEP (의상·머리 부품 조합)"
+    - "MeetingSession, MeetingReport, MeetingParticipant 엔티티"
+    - "scheduleWeeklyMeeting, conductMeeting, generateMeetingDigest 액션"
+    - "AC-011: 주간 컴플 회의 NPC 모임 작동"
+    - "AC-012: LPC 캐릭터 커스터마이징 작동"
+
+  modified:
+    - "non_goals: 'AI 미팅룸 유지' 제거 (이제 repurpose로 P0)"
+    - "should: AI 미팅룸 repurpose 시연 페이즈는 메인 4단계와 분리 (5분 한도 보호)"
+
+  unchanged:
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "데이터 레이어 (SQLite + Obsidian)"
+    - "FSS 1개 소스 MVP 깊이"
+    - "$100 / 2.5개월 LLM 예산 (단, 회의 디지스트 비용 추가 고려 필요)"
+    - "양보 우선순위 (4개 소스 → deskrpg 고급 자산 → RAG 고도화 → 개정 이력)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Goal — 한 문장으로 압축한 목표
+# ─────────────────────────────────────────────────────────────────────
+goal:
+  summary: |
+    금융 규제 변동을 자동 수집·분석하여 deskrpg 기반 RPG 대시보드의
+    NPC 에이전트(crawler/analyzer)가 사용자 캐릭터에게 in-world로
+    보고하고, 주간 컴플라이언스 회의실에서 NPC 모임 디지스트를
+    자동 발표하는 RegTrack 시스템 구축 (FSS 1개 소스 end-to-end MVP).
+
+  detail: |
+    수동 웹서핑(5개 사이트 매일 확인) + 부서 간 공유 부재 + 영향도 판단 시간 소요
+    + 변경 이력 추적 어려움이라는 4대 페인 포인트를 해결한다. 12주 안에
+    FSS(금융감독원) 1개 소스를 보도·규정·해설 게시판까지 깊게 자동화하고,
+    LLM(OpenAI/Claude API) 기반 영향도 분석에 근거 구절(Citation)을 첨부하며,
+    Next.js + deskrpg fork로 픽셀 아트 RPG 대시보드를 구현한다. deskrpg
+    원본의 AI 미팅룸을 RegTrack '주간 컴플라이언스 회의실'로 repurpose해
+    크롤러/분석 NPC들이 모여 '이번 주 신규 N건 + HIGH 영향 K건'을 자동
+    브리핑한다. LPC 캐릭터 커스터마이징은 그대로 KEEP. 나머지 4개
+    소스(BOK/FSC/국회·관보/바젤위)는 인터페이스 stub + mock 데이터 1건으로
+    확장 가능성만 증명한다.
+
+  non_goals:
+    - "프로덕션 운영 (멀티 테넌트, 권한 모델, SSO, audit log)"
+    - "모바일 반응형 UI"
+    - "장기 데이터 보관 (12주 종료 후 폐기 OK)"
+    - "deskrpg 원본의 맵 에디터 (CUT 유지 — RegTrack 무관)"
+    - "deskrpg 원본의 멀티플레이어 동시 입장 (CUT 유지 — 시연 1인 모드)"
+    - "BCBS(바젤위) 영문 본문 번역 자동화 (v2)"
+    - "픽셀 아트 자산 신규 제작 (MVP는 deskrpg 기본 자산 재활용 + 색상·이름 변경)"
+    - "Vector DB(pgvector) 기반 의미 검색 (BM25로 시작, stretch)"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "상업 배포 (Production commercial launch) — deskrpg Sustainable Use License 1.0 위반. 상업화는 별도 라이센스 재선택·재구현 필요"
+    - "deskrpg upstream의 비RegTrack 신규 기능 직접 통합 (시연 종료 후 M5 retro 안건)"
+    # ── v9 신규 (openclaw 대체 + Postgres 채택) ──
+    - "OpenClaw 게이트웨이 MVP 포함 (AI_PROVIDER=openclaw 경로) — v9에서 즉시 제거, dual-mode 운영 안 함"
+    - "SQLite 운영 (구조화 데이터) — v9에서 Postgres로 전환, SQLite 코드 일괄 제거"
+    - "behavioral parity (응답 latency·chunk 형식 등 byte-level 동일) — v9는 functional parity만 보장"
+    - "openclaw 페어링 디바이스 키 마이그레이션 (~/.openclaw-devices → 신규 ~/.nanobot-devices 자동 이동만, 키 자체 변환 X)"
+    - "nanobot agent loop이 .md persona 파일을 read (drift/loop/bloat 위험 — DB가 source of truth)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Constraints — 절대 / 금지 / 권장
+# ─────────────────────────────────────────────────────────────────────
+constraints:
+  must:
+    - "3-tier 레이어 분리(Presentation/Logic/Data) 준수 — ARCHITECTURE_INVARIANTS.md Part 1"
+    - "Base repo: github.com/jhkim43/reg-detection @ dev/nanobot 위에서 작업"
+    - "백엔드는 nanobot(Python) fork 기반 — Agent 워크플로우 재사용"
+    - "프론트엔드는 deskrpg(Next.js + TypeScript) fork 기반"
+    - "LLM은 OpenRouter (https://openrouter.ai/api/v1) 경유 + Bearer Token 인증 + 모델 'qwen/qwen3.6-35b-a3b' (v7 확정, MoE 35B/3B active, 가격 $0.15/$1.00 per 1M tokens)"
+    - "LLM 영향도 분석은 반드시 Citation(원문 근거 구절) 포함 — hallucination 방지"
+    - "수집된 규제 본문은 Obsidian markdown vault 형식으로 저장"
+    - "Vault는 Obsidian Git plugin으로 private git repo에 수동 sync — 팀원 공유 (v4 단순화)"
+    - "구조화 데이터는 PostgreSQL에 저장 (로컬 docker-compose 서비스). v9: SQLite must 해제"
+    - "Crawler는 nanobot과 별도 Python 서비스(scrapy/playwright) — 스케줄·재시도 패턴 분리"
+    - "협업 흐름: feature → dev/nanobot → main 마일스톤마다 병합"
+    - "12주 일정 내 FSS 1개 소스 완전 동작 + 시연 acceptance 4단계 충족"
+    - "LLM 호출은 LLMUsageRecord에 기록 (예산 추적용 nanobot fork 커스텀 기능)"
+    - "Presentation→Data 직접 접근 금지 (DTO/API 경유)"
+    - "AI 미팅룸은 RegTrack '주간 컴플라이언스 회의실'로 repurpose — 원본 코드 재활용"
+    - "LPC 캐릭터 커스터마이징(의상·머리 부품)은 KEEP — UserCharacter.sprite_asset_id 활용"
+    - "Vault sync는 Obsidian Git community plugin 사용 + 수동 push (v4 — 백엔드 자동 sync 제거)"
+    - "Scope change는 주 1회 retro + triage matrix를 통해 결정 (v4 — process_governance 섹션 참조)"
+    # ── v5 신규 (Obsidian Local REST API 통합 — 팀원 구현 정합) ──
+    - "Vault 접근은 Obsidian Local REST API plugin (port 27123)을 거침 — 백엔드 파일시스템 직접 접근 X"
+    - "nanobot Captain skill 'obsidian-commander' (skills/obsidian/SKILL.md) 활용 — Bearer Token 인증"
+    - "SSRF whitelist에 Obsidian 호스트 IP 등록 강제 (~/.nanobot/config.json ssrfWhitelist)"
+    - "VaultDocument frontmatter는 '#topic' 태그 필수 + '## Connected Knowledge' 섹션 + [[wikilink]] 강제"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "deskrpg fork(github.com/dandacompany/deskrpg)는 Sustainable Use License 1.0 하에서 학술용·시연용으로만 사용 — 상업 배포 금지"
+    - "deskrpg fork 시점은 M4 시작(W7) — 그 전까지는 reference 용도(코드 분석)만 허용"
+    - "LPC asset 별도 라이센스 헤더(LICENSE-assets.md, 통상 CC-BY-SA 3.0)는 그대로 유지"
+    # ── v9 신규 (Postgres + openclaw → nanobot parity) ──
+    - "환경 변수 AI_PROVIDER=nanobot 단일 경로 (openclaw 경로는 v9에서 제거)"
+    - "nanobot 게이트웨이는 openclaw 9 functional categories(NPC lifecycle / Chat streaming / File-workspace / Pairing / Error mapping / Config storage / Auth tokens / Telemetry / Provider abstraction)에 대해 functional parity 제공"
+    - "Ed25519 device identity + challenge-response 페어링을 nanobot도 구현 (~/.nanobot-devices/${hash}.json). OpenClawPairingStatusCard UI 4상태(idle/connected/pairingRequired/error) 그대로 재활용"
+    - "워크스페이스 경로 prefix ~/.nanobot/workspace-${agentId} (기존 ~/.openclaw/workspace-*는 1회용 마이그레이션 스크립트로 이동)"
+    - "NPC persona의 source of truth는 DB npcs.openclawConfig.personaConfig (필드명 유지). nanobot은 매 호출마다 system prompt를 DB에서 재구성"
+    - "IDENTITY.md/SOUL.md는 워크스페이스에 write-only mirror로 같이 쓰기 (인간 디버깅·tail 용도). nanobot agent loop은 이 파일을 read 하지 않는다"
+    - "Error 응답은 openclaw 호환 shape 유지: {ok, errorCode, error, requestId, details, pairingRequired}. HTTP 409는 pairing required 케이스"
+    - "Chat streaming은 openclaw와 동일 onDelta 콜백 패턴 + 180s timeout + chatAbort RPC 지원 (functional parity)"
+    - "AI_PROVIDER=nanobot 모드에서 agents.create/agents.files.set RPC는 no-op (DB의 personaConfig가 source of truth)"
+    - "AC-008 LLM 위젯의 $60 도달 시 NPCReport(ERROR) push, $90 도달 시 NPCReport(ERROR) + BUDGET_EXCEEDED로 LLM 호출 차단 — v9에서 명시 enforcement 추가"
+    - "DB 컬럼명 npcs.openclawConfig 유지 (rename 영향도 vs 명확성 tradeoff에서 영향도 우선). 의미는 'agent gateway config'로 reinterpret"
+
+  must_not:
+    - "pgvector를 MVP 의존성에 포함 (stretch goal로만 — v9에서 PostgreSQL은 must 승격, pgvector만 stretch 유지)"
+    - "Obsidian vault를 public repo에 올리기 (민감 규제 본문 노출 방지)"
+    - "LLM 응답을 Citation 없이 사용자에게 노출"
+    - "ARCHITECTURE_INVARIANTS.md Part 1의 4대 절대 규칙 위반"
+    - "차터에 명시된 5개 소스 외 추가 소스 추가 (scope creep 방지)"
+    - "deskrpg 원본 맵 에디터·멀티플레이어 코드를 유지 (불필요 기능 제거)"
+    - "비용 모니터링 없이 LLM 호출 (월 예산 $40 초과 위험)"
+    - "Crawler 실패 시 silent fail (Flexible Parser는 반드시 알림)"
+    - "주간 회의 디지스트가 Citation 없는 LLM 요약에 의존 (반드시 Regulation·ImpactAnalysis 참조)"
+    - "Backend가 vault/ 디렉토리를 파일시스템으로 직접 read/write (v5 — Obsidian REST API 강제)"
+    - "Obsidian REST API 호출에 SSRF whitelist 등록 누락 (보안 강화)"
+    - "누적 cost_usd >= $90 RED 임계 도달 후 LLM 호출 계속 (v6 — BUDGET_EXCEEDED 차단)"
+    # ── v8 신규 (deskrpg 라이센스 명시) ──
+    - "deskrpg fork를 상업 배포 (Sustainable Use License 1.0 위반)"
+    - "LPC asset의 별도 라이센스(LICENSE-assets.md) 헤더 제거 또는 누락"
+    - "deskrpg 라이센스 고지 누락한 채 외부 데모/배포 공개 (학술 시연 OK, 외부 배포 X)"
+    # ── v9 신규 (Postgres + openclaw 제거) ──
+    - "AI_PROVIDER=openclaw 신규 코드 추가 (openclaw 경로는 v9 contract phase에서 제거 대상)"
+    - "openclaw 모드와 nanobot 모드를 동시 운영하는 dual-mode 코드 신규 작성"
+    - "nanobot agent loop이 .md persona 파일(IDENTITY.md/SOUL.md)을 read (drift/loop/bloat 위험 — DB가 source of truth)"
+    - "legacy npcs.openclawConfig.persona 문자열 필드 신규 참조 (deprecated, .personaConfig 사용)"
+    - "SQLite 코드 신규 작성 또는 better-sqlite3 의존성 재추가"
+    - "워크스페이스 ~/.openclaw/ 경로 신규 참조 (v9에서 ~/.nanobot/로 마이그레이션 후 제거)"
+    - "Ed25519 device key 알고리즘 변경 (호환성 깨짐 + UI 페어링 흐름 봉인)"
+
+  should:
+    - "RAG는 BM25부터 — 정확도 부족 시 pgvector stretch"
+    - "RegulationVersion diff는 LLM 1줄 요약으로 시작 (텍스트 diff는 stretch)"
+    - "GitHub Actions CI로 게이트(.harness/gates) 자동 실행"
+    - "Notification(앱 토스트)은 사용자가 RPG 맵 밖에 있을 때만 fallback (MVP는 NPCReport만)"
+    - "부서(target_department)는 자유 텍스트로 시작 (시연: '리테일'), enum 변환은 v2"
+    - "4개 소스(BOK/FSC/국회·관보/BCBS) 인터페이스 증명은 코드 stub + mock 데이터 1건"
+    - "Agent 타입은 MVP에서 Crawler + ImpactAnalyzer 2개만 (요약/디스패처 NPC는 stretch)"
+    - "LLM 캐싱(prompt cache, embedding cache) 적극 활용 — $100/2.5개월 예산 보호. v6: OpenRouter prompt cache 지원 Qwen 변종 우선 (변종별 지원 여부 확인 필요)"
+    - "주간 회의 디지스트는 메인 시연 4단계와 분리된 별도 30초 페이즈 — 발표 5분 한도 보호"
+    - "주간 회의는 시연일 직전 1회만 자동 발화 시연 (실제 cron schedule은 stretch)"
+    - "Scope change: 주 1회 금요일 30분 retrospective에서 소/중/대형 triage matrix로 분류 (v4)"
+    - "Vault push는 시연 데모 직전·주 1회 retro 후 사람이 수동 실행 (v4)"
+    # ── v9 신규 ──
+    - "openclaw 경로 dead code 제거는 parallel-change methodology의 contract phase로 일괄 수행 (Expand→Migrate는 v9 진입 = 완료)"
+    - "SQLite 코드 제거도 같은 contract phase에 묶기 (schema-sqlite.ts, better-sqlite3, DB_TYPE 분기, sqlite-base-schema.js)"
+    - "openclaw 카테고리별 9개 AC는 functional category 단위로 PR 분할 (한 PR에 9개 다 담지 않기 — 회귀 위험 분산)"
+    - "Ed25519 페어링은 nanobot의 첫 부팅 시 자동 셋업 시도 + 실패 시 PairingStatusCard UI로 안내 (시연 시 페어링 실패 위험 최소화)"
+    - "PostgreSQL은 docker-compose의 healthcheck로 ready 보장 후 deskrpg/nanobot 컨테이너 기동"
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance Criteria — testable 만 작성. complexity가 Pair Mode를 결정
+# ─────────────────────────────────────────────────────────────────────
+acceptance_criteria:
+  - id: "AC-001"
+    description: |
+      FSS 보도·규정·해설 3개 게시판을 크롤링해 신규/개정 Regulation을
+      SQLite + Obsidian vault에 저장한다 (1게시판 1건 이상 검증 가능).
+    verification: "automated"
+    priority: "must"
+    complexity: "high"
+    rationale: "3-tier 전체 + 외부 사이트 + Flexible Parser → Pair Mode + Test Designer 강제"
+
+  - id: "AC-002"
+    description: |
+      신규 Regulation 발견 후 1시간 이내(시연일 기준)에 NPCReport(NEW_REGULATION)이
+      대시보드 화면에 시각·청각 효과로 표시된다.
+    verification: "manual"
+    priority: "must"
+    complexity: "medium"
+    rationale: "스케줄러 + 이벤트 전파 → Pair Mode 선택적"
+
+  - id: "AC-003"
+    description: |
+      사용자 캐릭터가 분석 NPC에게 자연어로 '리테일 영향'을 질문하면
+      ImpactAnalysis 응답이 in-world 말풍선으로 표시되며, 응답에 1개 이상의
+      Citation(원문 인용 + char_offset)이 포함된다.
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "LLM API + RAG + Presentation → Pair Mode + Test Designer 강제"
+
+  - id: "AC-004"
+    description: |
+      대시보드 필터가 4종 이상 동작한다: 소스(source_codes), 분류(change_types),
+      부서 영향(target_departments), 날짜 범위(date_from/to).
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+    rationale: "단순 쿼리 + UI → Direct 구현"
+
+  - id: "AC-005"
+    description: |
+      메인 시연 시나리오 4단계가 끊김 없이 동작한다:
+      (1) 사용자 캐릭터 입장
+      (2) 크롤러 NPC가 신규 Regulation 보고 (NPCReport)
+      (3) 사용자가 분석 NPC에게 '리테일 영향' 질문 (askAnalystNPC)
+      (4) 분석 NPC가 Citation 포함 응답 (말풍선)
+    verification: "manual"
+    priority: "must"
+    complexity: "high"
+    rationale: "전체 통합 시나리오 — 발표 acceptance"
+
+  - id: "AC-006"
+    description: |
+      Backend가 Obsidian Local REST API plugin(port 27123)을 통해 VaultDocument를
+      markdown으로 PUT/POST한다. frontmatter에 #topic 태그가 포함되고 본문에
+      '## Connected Knowledge' 섹션과 1개 이상 [[wikilink]]가 포함된다.
+      vault 자체는 Obsidian이 관리하며, Obsidian Git plugin이 private remote에
+      sync되도록 설정되어 있다 (push는 사용자 수동).
+    verification: "both"
+    priority: "must"
+    complexity: "medium"
+    rationale: "v5: REST API 호출 + Bearer Token + SSRF whitelist + frontmatter 규칙 → 단순 파일 write보다 의존성 다층. Pair Mode 선택적."
+
+  - id: "AC-007"
+    description: |
+      4개 소스(BOK/FSC/국회·관보/BCBS)의 RegulationSource 엔트리가 SQLite에
+      등록되고, 각 소스마다 mock 데이터 1건이 Vault + Regulation 테이블에
+      존재한다 (확장성 증명).
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+    rationale: "데이터 seeding → Direct 구현"
+
+  - id: "AC-008"
+    description: |
+      모든 LLM API 호출(OpenRouter+Qwen, v6)이 LLMUsageRecord에 기록되며,
+      누적 cost_usd 임계치 도달 시 위젯 색상이 단계별로 변경되고 NPC 알림이
+      발생한다 (v6 단계별, v9 enforcement 명시):
+        • $30 도달: 위젯 YELLOW + stderr 경고 (PR2a/2b로 구현 완료)
+        • $60 도달: 위젯 ORANGE + NPCReport(ERROR) push (v9 신규 enforcement)
+        • $90 도달: 위젯 RED + NPCReport(ERROR) + 호출 차단 BUDGET_EXCEEDED (v9 신규 enforcement)
+      메인 시연 시나리오 4단계 진행 중 사용자 화면에 'LLM 사용량 위젯'이
+      상시 표시되어 (a) 누적 비용 USD, (b) 누적 호출 횟수, (c) 캐시 적중률(%),
+      (d) 직전 호출 모델명, (e) threshold_level을 실시간(WebSocket push)으로
+      갱신한다.
+      v9 추가 검증: $90 RED 도달 후 LLM 호출 시도가 BUDGET_EXCEEDED 에러로
+      차단되며 NPCReport(ERROR)이 dispatched 되는 통합 테스트 1건 이상.
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "v3+v6: nanobot fork 커스텀 + WebSocket 실시간 push + UI 위젯 + 단계별 색상 + 시연 시나리오 핵심 wow → 3-tier 전체 통합. v9: $60/$90 enforcement 추가로 미구현 부분 완결. Pair Mode + Test Designer 강제."
+
+  - id: "AC-009"
+    description: |
+      RegulationVersion 이력이 동일 external_id에 대해 최소 2회 이상 캡처된다
+      (개정 케이스 시뮬레이션). diff_summary는 LLM 1줄 요약으로 채워진다.
+    verification: "automated"
+    priority: "should"
+    complexity: "medium"
+    rationale: "변경 이력 페인 포인트 해소 — Pair Mode 선택적"
+
+  - id: "AC-010"
+    description: |
+      .harness/gates의 default 게이트(check-secrets/boundaries/structure/spec/
+      layers/security/deps)가 모두 PASS 한다.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+    rationale: "harness 게이트 자동 실행 — Direct 구현"
+
+  - id: "AC-011"
+    description: |
+      '주간 컴플라이언스 회의실' 씬에서 크롤러 NPC + 분석 NPC가 한 방에 모여
+      MeetingReport를 생성·낭독한다. 디지스트는 다음 4개 항목을 포함:
+      (a) 이번 주 신규 Regulation 건수
+      (b) 영향도 HIGH 건수
+      (c) 가장 중요한 1건의 제목 + Citation 1개
+      (d) 다음 주 모니터링 권고 1줄
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "AI 미팅룸 repurpose — 다중 NPC 조율 + 디지스트 LLM + 별도 씬 통합"
+
+  - id: "AC-012"
+    description: |
+      LPC 캐릭터 커스터마이징이 동작한다. 사용자가 의상·머리 부품을 1개 이상
+      변경하면 UserCharacter.sprite_asset_id (실 코드: characters.appearance JSON
+      필드)에 반영되어 재로드 시에도 유지된다.
+      v9 노트: ontology 이름 'sprite_asset_id'와 실 코드 컬럼 'characters.appearance'
+      의 드리프트는 v10 정렬 후보로 보류 (이번 단일 변경에서는 데이터 형식만 유지).
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+    rationale: "deskrpg 원본 기능 KEEP — 단순 상태 영속화 → Direct 구현"
+
+  # ─── v9 신규 (openclaw → nanobot functional parity) ───
+  - id: "AC-013"
+    description: |
+      NPC/Agent lifecycle parity. AI_PROVIDER=nanobot 모드에서 다음 RPC가
+      openclaw와 functionally 동등하게 동작한다:
+        • agents.create (npcs.openclawConfig.agentId 발급 + personaConfig 저장)
+        • agents.delete (npcs row 삭제 + 워크스페이스 cleanup)
+        • agents.files.set (IDENTITY.md/SOUL.md 워크스페이스 write — write-only mirror)
+        • agents.list (channel 단위 agent 목록 반환)
+      검증: 통합 테스트 1건 — POST /api/npcs → POST /api/npcs/:id (persona 변경)
+      → DELETE /api/npcs/:id 의 happy path가 nanobot 모드에서 통과.
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "9 functional category 중 가장 surface 큼. nanobot stateless 특성과 openclaw stateful 모델 차이를 매핑. Pair Mode + Test Designer 강제."
+
+  - id: "AC-014"
+    description: |
+      Chat streaming parity. nanobot 게이트웨이가 chatSend(agentId, sessionKey,
+      message, onDelta) 인터페이스를 구현하며 다음을 만족:
+        • SSE-style onDelta 콜백 (chunk마다 invoke)
+        • 180s timeout 후 자동 중단
+        • chatAbort(agentId, sessionKey)로 in-flight 스트림 취소 가능
+      검증: deskrpg socket-handlers의 chat:send 이벤트로 nanobot 응답이
+      streaming chunk로 전달되어 in-world 말풍선이 점진적으로 채워진다.
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "사용자 체감 critical path. AC-003/AC-005 시연 시나리오의 backbone."
+
+  - id: "AC-015"
+    description: |
+      Workspace file management parity. nanobot 워크스페이스 ~/.nanobot/workspace-${agentId}
+      에 IDENTITY.md/SOUL.md가 write-only mirror로 저장된다. nanobot agent loop은
+      이 파일들을 read 하지 않으며 (DB의 personaConfig가 source of truth), 디렉토리
+      마이그레이션(기존 ~/.openclaw/* → ~/.nanobot/*)은 첫 부팅 시 자동 수행.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+    rationale: "마이그레이션 + write-only 보장 — 단순 파일 IO지만 누락 시 디버깅 봉인"
+
+  - id: "AC-016"
+    description: |
+      Device pairing parity. nanobot 게이트웨이가 다음을 구현:
+        • Ed25519 keypair 생성 + ~/.nanobot-devices/${hash}.json 저장
+        • Pairing challenge-response (modern device auth protocol)
+        • Pairing state machine 4상태 (idle/connected/pairingRequired/error)
+        • OpenClawPairingStatusCard UI 컴포넌트 재활용 (브랜드만 'Nanobot Pairing'으로)
+      검증: 페어링 미완 상태에서 RPC 호출 시 HTTP 409 + errorCode=PAIRING_REQUIRED
+      반환, UI 카드는 pairingRequired 상태로 전환.
+    verification: "both"
+    priority: "must"
+    complexity: "high"
+    rationale: "암호학 + 상태머신 + UI 4상태 통합. 시연 시 페어링 실패 시 봉인 위험 → Pair Mode + Test Designer 강제."
+
+  - id: "AC-017"
+    description: |
+      Error mapping parity. nanobot 에러는 openclaw 호환 shape으로 변환:
+        { ok: false, errorCode: string, error: string, requestId: string,
+          details: object, pairingRequired: boolean }
+      HTTP 상태 매핑: PAIRING_REQUIRED → 409, NOT_PAIRED → 409, 기타 → fallback.
+      검증: 강제 실패 케이스 3종(페어링 미완 / 인증 실패 / 일반 에러)에 대해
+      buildGatewayErrorPayload + getGatewayErrorStatus 결과가 openclaw 모드와 동일.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+    rationale: "deskrpg API route catch 블록이 이 shape에 의존 — 다르면 UI 침묵 실패. 자동 테스트 가능."
+
+  - id: "AC-018"
+    description: |
+      Configuration storage parity. npcs.openclawConfig JSONB 필드 shape 유지:
+        { agentId: string, sessionKeyPrefix: string,
+          personaConfig: { identity: string, soul: string } }
+      v9: legacy npcs.openclawConfig.persona (string) 필드는 제거 (deprecated).
+      검증: schema migration이 personaConfig만 정식으로 두고, parseDbObject /
+      loadPersonaFromNpc 함수가 legacy 경로 없이 동작.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+    rationale: "DB 필드 + 헬퍼 함수 정리 — 명확한 입출력 → Direct 구현"
+
+  - id: "AC-019"
+    description: |
+      Authentication tokens parity. nanobot 게이트웨이가:
+        • Bearer Token 인증 (Authorization 헤더 + INTERNAL_RPC_SECRET 검증)
+        • 채널 단위 토큰 암호화 저장: AES-256-GCM, channels.gatewayConfig.encryptedToken
+        • encryptGatewayToken/decryptGatewayToken 함수 호환 (v1 format: iv:tag:encrypted base64url)
+      검증: 채널 페어링 후 encryptedToken이 DB에 base64url 형식으로 저장되고
+      restart 후 decryptGatewayToken으로 복호화 + RPC 호출 성공.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+    rationale: "암호화 + DB + 재시작 영속성 — 보안 critical, 자동 테스트 가능."
+
+  - id: "AC-020"
+    description: |
+      Telemetry parity. nanobot 모드의 모든 LLM 호출이 LLMUsageRecord에 기록되어
+      AC-008 위젯에 실시간 반영된다 (provider='nanobot' 또는 'openrouter' 라벨링).
+      검증: nanobot agent 1회 chat 호출 → llmUsageRecords에 row 1건 추가 + WebSocket
+      llm-usage:update 이벤트 dispatch + 위젯의 누적 cost·call count 증가.
+    verification: "both"
+    priority: "must"
+    complexity: "medium"
+    rationale: "AC-008과 의존 — AC-008의 데이터 소스가 nanobot으로 전환됨을 보장"
+
+  - id: "AC-021"
+    description: |
+      Provider abstraction hardening. AI_PROVIDER 환경변수의 default가 'nanobot'으로
+      변경되고, AI_PROVIDER=openclaw 경로의 모든 코드(socket-handlers의 OpenClawGateway
+      분기, nanobot-client.js의 dual-mode 코드 등)가 제거된다.
+      검증: grep "AI_PROVIDER === 'openclaw'" → 0 hits. grep "openclawGateway" (instance
+      use) → 0 hits. /api/* 라우트들이 nanobotAdapter 단일 경로로 통합.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+    rationale: "contract phase 완결 — dead code 제거가 본 AC의 acceptance. Direct + 게이트로 검증 가능."
+
+# ─────────────────────────────────────────────────────────────────────
+# Ontology — v1의 15 entities + v2 추가 3 = 18 entities
+# ─────────────────────────────────────────────────────────────────────
+ontology:
+  entities:
+    # ─── v1 unchanged (15 entities) ───
+    - name: Regulation
+      korean_name: 규제
+      description: "한 건의 규제 변동(보도·규정·해설 통합) 최상위 엔티티"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: source_id, type: reference, required: true, ref: RegulationSource }
+        - { name: external_id, type: string, required: true }
+        - { name: title, type: string, required: true }
+        - { name: board_type, type: enum, required: true, values: [보도, 규정, 해설] }
+        - { name: change_type, type: enum, required: true, values: [NEW, AMENDED] }
+        - { name: published_at, type: date, required: true }
+        - { name: detected_at, type: date, required: true }
+        - { name: source_url, type: string, required: true }
+        - { name: vault_path, type: string, required: true }
+        - { name: raw_text, type: string, required: true }
+      relationships:
+        - { target: RegulationSource, type: belongs_to }
+        - { target: ImpactAnalysis, type: has_many }
+        - { target: RegulationVersion, type: has_many }
+        - { target: Notification, type: has_many }
+        - { target: VaultDocument, type: has_one }
+
+    - name: RegulationSource
+      korean_name: 규제 소스
+      description: "규제 발행 출처 기관/사이트. MVP는 FSS만 FULL"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: code, type: enum, required: true, values: [FSS, BOK, FSC, NA_GAZETTE, BCBS] }
+        - { name: name_ko, type: string, required: true }
+        - { name: base_url, type: string, required: true }
+        - { name: language, type: enum, required: true, values: [KO, EN] }
+        - { name: mvp_status, type: enum, required: true, values: [FULL, INTERFACE_ONLY] }
+        - { name: parser_config, type: string, required: true, note: "Flexible Parser JSON 직렬화" }
+      relationships:
+        - { target: Regulation, type: has_many }
+        - { target: CrawlJob, type: has_many }
+
+    - name: RegulationVersion
+      korean_name: 규제 버전 이력
+      description: "동일 external_id의 개정 이력 시계열"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: regulation_id, type: reference, required: true, ref: Regulation }
+        - { name: version_no, type: number, required: true }
+        - { name: diff_summary, type: string, required: false, note: "LLM 1줄 요약" }
+        - { name: snapshot_text, type: string, required: true }
+        - { name: captured_at, type: date, required: true }
+      relationships:
+        - { target: Regulation, type: belongs_to }
+
+    - name: ImpactAnalysis
+      korean_name: 영향도 분석
+      description: "LLM이 부서별 영향을 표준화 형식으로 산출 (시연 오프닝)"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: regulation_id, type: reference, required: true, ref: Regulation }
+        - { name: requested_by, type: reference, required: false, ref: UserCharacter }
+        - { name: target_department, type: string, required: true, note: "MVP는 자유 텍스트, 시연: '리테일'" }
+        - { name: severity, type: enum, required: true, values: [LOW, MEDIUM, HIGH] }
+        - { name: summary, type: string, required: true }
+        - { name: llm_model, type: string, required: true }
+        - { name: token_usage, type: number, required: true }
+        - { name: created_at, type: date, required: true }
+      relationships:
+        - { target: Regulation, type: belongs_to }
+        - { target: Citation, type: has_many }
+        - { target: UserCharacter, type: belongs_to }
+
+    - name: Citation
+      korean_name: 근거 인용
+      description: "ImpactAnalysis 결론의 원문 근거 구절. hallucination 방지"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: impact_analysis_id, type: reference, required: true, ref: ImpactAnalysis }
+        - { name: regulation_id, type: reference, required: true, ref: Regulation }
+        - { name: quoted_text, type: string, required: true }
+        - { name: char_offset_start, type: number, required: true }
+        - { name: char_offset_end, type: number, required: true }
+        - { name: relevance_score, type: number, required: false, note: "BM25 점수" }
+      relationships:
+        - { target: ImpactAnalysis, type: belongs_to }
+        - { target: Regulation, type: belongs_to }
+
+    - name: Agent
+      korean_name: 에이전트
+      description: "nanobot 워크플로우 단위이자 deskrpg NPC. 추상 베이스"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: agent_type, type: enum, required: true, values: [CRAWLER, IMPACT_ANALYZER] }
+        - { name: display_name, type: string, required: true }
+        - { name: sprite_asset_id, type: string, required: true, note: "deskrpg 픽셀 자산 키" }
+        - { name: status, type: enum, required: true, values: [IDLE, WORKING, REPORTING, ERROR, IN_MEETING] }
+        - { name: current_task_id, type: reference, required: false }
+      relationships:
+        - { target: CrawlJob, type: has_many }
+        - { target: ImpactAnalysis, type: has_many }
+        - { target: NPCReport, type: has_many }
+        - { target: LLMUsageRecord, type: has_many }
+        - { target: MeetingParticipant, type: has_many }
+
+    - name: CrawlerAgent
+      korean_name: 크롤러 NPC
+      description: "Agent의 구체 타입 — 별도 Python 서비스(scrapy/playwright)"
+      fields:
+        - { name: assigned_source_id, type: reference, required: true, ref: RegulationSource }
+        - { name: poll_interval_minutes, type: number, required: true }
+      relationships:
+        - { target: Agent, type: has_one, note: "is_a (specialization)" }
+        - { target: RegulationSource, type: belongs_to }
+
+    - name: ImpactAnalyzerAgent
+      korean_name: 분석 NPC
+      description: "Agent의 구체 타입 — RAG(BM25) + LLM API (v6: OpenRouter+Qwen 기본)"
+      fields:
+        - { name: rag_strategy, type: enum, required: true, values: [BM25, HYBRID] }
+        - { name: llm_provider, type: enum, required: true, values: [OPENROUTER, OPENAI, CLAUDE], note: "v6: OPENROUTER 추가 (default)" }
+      relationships:
+        - { target: Agent, type: has_one, note: "is_a (specialization)" }
+        - { target: ImpactAnalysis, type: has_many }
+
+    - name: UserCharacter
+      korean_name: 사용자 캐릭터
+      description: "deskrpg 입장 플레이어. 시연 시나리오 1인칭. v2부터 LPC 부품 목록 보유"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: display_name, type: string, required: true }
+        - { name: department, type: string, required: false }
+        - { name: sprite_asset_id, type: string, required: true }
+        - { name: lpc_parts, type: string, required: true, note: "JSON {head, body, hair, outfit, ...} — LPC 커스터마이징 영속 (v2)" }
+      relationships:
+        - { target: ImpactAnalysis, type: has_many }
+        - { target: NPCReport, type: has_many }
+        - { target: DashboardFilter, type: has_many }
+        - { target: MeetingParticipant, type: has_many, note: "v2 — 사용자가 회의 참관" }
+
+    - name: CrawlJob
+      korean_name: 수집 작업
+      description: "한 번의 폴링 사이클 실행 기록"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: crawler_agent_id, type: reference, required: true, ref: CrawlerAgent }
+        - { name: source_id, type: reference, required: true, ref: RegulationSource }
+        - { name: started_at, type: date, required: true }
+        - { name: finished_at, type: date, required: false }
+        - { name: status, type: enum, required: true, values: [RUNNING, SUCCESS, FAILED] }
+        - { name: items_found, type: number, required: false }
+        - { name: parser_error, type: string, required: false }
+      relationships:
+        - { target: CrawlerAgent, type: belongs_to }
+        - { target: RegulationSource, type: belongs_to }
+
+    - name: NPCReport
+      korean_name: NPC 보고
+      description: "NPC가 사용자에게 in-world 전달하는 보고 (시각·청각)"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: agent_id, type: reference, required: true, ref: Agent }
+        - { name: user_character_id, type: reference, required: true, ref: UserCharacter }
+        - { name: report_type, type: enum, required: true, values: [NEW_REGULATION, ANALYSIS_READY, ERROR, MEETING_DIGEST] }
+        - { name: payload_ref, type: string, required: true, note: "Regulation.id 또는 ImpactAnalysis.id 또는 MeetingReport.id" }
+        - { name: visual_effect, type: string, required: true }
+        - { name: audio_effect, type: string, required: true }
+        - { name: created_at, type: date, required: true }
+        - { name: acknowledged_at, type: date, required: false }
+      relationships:
+        - { target: Agent, type: belongs_to }
+        - { target: UserCharacter, type: belongs_to }
+
+    - name: Notification
+      korean_name: 알림
+      description: "RPG 맵 밖 fallback 알림 (앱 토스트/배지). MVP에서는 stretch"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: regulation_id, type: reference, required: true, ref: Regulation }
+        - { name: channel, type: enum, required: true, values: [IN_APP, TOAST, BADGE] }
+        - { name: created_at, type: date, required: true }
+        - { name: read_at, type: date, required: false }
+      relationships:
+        - { target: Regulation, type: belongs_to }
+
+    - name: DashboardFilter
+      korean_name: 대시보드 필터
+      description: "AC-004의 4종 필터 상태"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: user_character_id, type: reference, required: true, ref: UserCharacter }
+        - { name: source_codes, type: string, required: false, note: "JSON array<string>" }
+        - { name: change_types, type: string, required: false, note: "JSON array<enum>" }
+        - { name: target_departments, type: string, required: false, note: "JSON array<string>" }
+        - { name: date_from, type: date, required: false }
+        - { name: date_to, type: date, required: false }
+      relationships:
+        - { target: UserCharacter, type: belongs_to }
+
+    - name: VaultDocument
+      korean_name: Vault 문서
+      description: "Obsidian markdown vault 한 파일 — Obsidian Local REST API로 CRUD (v5)"
+      fields:
+        - { name: vault_path, type: string, required: true, note: "PK. Obsidian vault 내 상대 경로 (예: FSS/보도/2026/05/16-xxx.md)" }
+        - { name: regulation_id, type: reference, required: true, ref: Regulation }
+        - { name: frontmatter, type: string, required: true, note: "YAML 직렬화" }
+        - { name: body_markdown, type: string, required: true, note: "본문 + Connected Knowledge 섹션 필수 (v5)" }
+        - { name: topic_tag, type: string, required: true, note: "v5: '#topic' 태그 (예: '#regulation/FSS/보도'). graph view용" }
+        - { name: connected_knowledge_links, type: string, required: true, note: "v5: JSON array<string> — [[wikilink]] 목록. 최소 1개" }
+        - { name: obsidian_synced_at, type: date, required: true, note: "v5: REST API write 시각 (Obsidian → vault 반영 완료)" }
+      relationships:
+        - { target: Regulation, type: belongs_to }
+
+    - name: LLMUsageRecord
+      korean_name: LLM 사용량 기록
+      description: "$100/2.5개월 예산 추적 (nanobot fork 커스텀, v6: OpenRouter+Qwen)"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: agent_id, type: reference, required: true, ref: Agent }
+        - { name: provider, type: enum, required: true, values: [OPENROUTER, OPENAI, CLAUDE], note: "v6: OPENROUTER 추가" }
+        - { name: model, type: string, required: true }
+        - { name: input_tokens, type: number, required: true }
+        - { name: output_tokens, type: number, required: true }
+        - { name: cost_usd, type: number, required: true }
+        - { name: cached, type: boolean, required: true }
+        - { name: created_at, type: date, required: true }
+      relationships:
+        - { target: Agent, type: belongs_to }
+
+    # ─── v2 NEW (3 entities) ───
+    - name: MeetingSession
+      korean_name: 회의 세션
+      description: |
+        '주간 컴플라이언스 회의실' 씬에서 NPC들이 모여 디지스트를 생성·낭독하는
+        1회성 회의 세션. AI 미팅룸 원본 코드를 RegTrack 도메인으로 repurpose한 결과.
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: scheduled_for, type: date, required: true, note: "주간 회의 예정 시각 (보통 매주 금요일 17:00)" }
+        - { name: started_at, type: date, required: false }
+        - { name: ended_at, type: date, required: false }
+        - { name: status, type: enum, required: true, values: [SCHEDULED, IN_PROGRESS, COMPLETED, FAILED] }
+        - { name: room_scene_id, type: string, required: true, note: "deskrpg 미팅룸 씬 식별자" }
+        - { name: digest_window_start, type: date, required: true, note: "디지스트 대상 기간 시작" }
+        - { name: digest_window_end, type: date, required: true, note: "디지스트 대상 기간 끝" }
+      relationships:
+        - { target: MeetingParticipant, type: has_many }
+        - { target: MeetingReport, type: has_one }
+
+    - name: MeetingParticipant
+      korean_name: 회의 참가자
+      description: |
+        MeetingSession에 참여한 Agent(NPC) 또는 UserCharacter. 좌석 위치·발언 순서 보유.
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: meeting_session_id, type: reference, required: true, ref: MeetingSession }
+        - { name: participant_type, type: enum, required: true, values: [AGENT, USER] }
+        - { name: agent_id, type: reference, required: false, ref: Agent }
+        - { name: user_character_id, type: reference, required: false, ref: UserCharacter }
+        - { name: seat_position, type: string, required: true, note: "씬 좌표 (x,y) 직렬화" }
+        - { name: speaking_order, type: number, required: false }
+      relationships:
+        - { target: MeetingSession, type: belongs_to }
+        - { target: Agent, type: belongs_to, optional: true }
+        - { target: UserCharacter, type: belongs_to, optional: true }
+
+    - name: MeetingReport
+      korean_name: 회의 디지스트 보고서
+      description: |
+        MeetingSession이 산출한 주간 컴플라이언스 디지스트. AC-011의 4개 항목 (a~d)
+        포함. NPC가 in-world 낭독.
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: meeting_session_id, type: reference, required: true, ref: MeetingSession }
+        - { name: new_regulation_count, type: number, required: true, note: "(a) 신규 건수" }
+        - { name: high_severity_count, type: number, required: true, note: "(b) HIGH 영향 건수" }
+        - { name: top_regulation_id, type: reference, required: true, ref: Regulation, note: "(c) 가장 중요한 1건" }
+        - { name: top_citation_id, type: reference, required: true, ref: Citation, note: "(c) 1건의 Citation" }
+        - { name: next_week_recommendation, type: string, required: true, note: "(d) 다음 주 권고 1줄" }
+        - { name: digest_text, type: string, required: true, note: "낭독용 전문 (LLM 생성)" }
+        - { name: llm_model, type: string, required: true }
+        - { name: token_usage, type: number, required: true }
+        - { name: created_at, type: date, required: true }
+      relationships:
+        - { target: MeetingSession, type: belongs_to }
+        - { target: Regulation, type: belongs_to, note: "top_regulation_id" }
+        - { target: Citation, type: belongs_to, note: "top_citation_id" }
+
+    # ─── v9 신규 (nanobot gateway 영역 — 3 entities) ───
+    - name: NanobotAgentSession
+      korean_name: 나노봇 에이전트 세션
+      description: "nanobot 게이트웨이의 chat 세션 추적 (chatSend/chatAbort 단위)"
+      fields:
+        - { name: id, type: UUID, required: true }
+        - { name: npc_id, type: reference, required: true, ref: NPC }
+        - { name: agent_id, type: string, required: true, note: "npcs.openclawConfig.agentId — 필드명 유지" }
+        - { name: session_key, type: string, required: true, note: "agent:{agentId}:{sessionName}" }
+        - { name: started_at, type: date, required: true }
+        - { name: last_chunk_at, type: date, required: false, note: "streaming 진행 추적" }
+        - { name: aborted_at, type: date, required: false }
+        - { name: timeout_ms, type: number, required: true, note: "default 180000 (180s, openclaw parity)" }
+        - { name: total_tokens, type: number, required: false, note: "LLMUsageRecord와 join 후 채워짐" }
+      relationships:
+        - { target: NPC, type: belongs_to }
+        - { target: LLMUsageRecord, type: has_many, note: "세션 중 발생한 LLM 호출 집계" }
+
+    - name: GatewayDeviceIdentity
+      korean_name: 게이트웨이 디바이스 신원
+      description: "Ed25519 device keypair + 페어링 상태 (openclaw parity)"
+      fields:
+        - { name: device_hash, type: string, required: true, note: "Ed25519 public key의 hash — 파일명 prefix" }
+        - { name: public_key, type: string, required: true, note: "base64url Ed25519 public" }
+        - { name: private_key_path, type: string, required: true, note: "~/.nanobot-devices/${hash}.json" }
+        - { name: pairing_state, type: enum, required: true, values: [idle, connecting, connected, reconnecting, pairing_required, error] }
+        - { name: paired_with_channel_id, type: reference, required: false, ref: Channel }
+        - { name: last_pairing_request_id, type: string, required: false, note: "errorCode=PAIRING_REQUIRED 시 details.code" }
+        - { name: created_at, type: date, required: true }
+        - { name: connected_at, type: date, required: false }
+      relationships:
+        - { target: Channel, type: belongs_to, note: "paired_with_channel_id, optional" }
+
+    - name: GatewayChannelBinding
+      korean_name: 게이트웨이 채널 바인딩
+      description: "채널별 nanobot 게이트웨이 토큰·암호화 저장 (encryptGatewayToken/decryptGatewayToken)"
+      fields:
+        - { name: channel_id, type: reference, required: true, ref: Channel }
+        - { name: encrypted_token, type: string, required: true, note: "v1 format: iv:tag:encrypted base64url, AES-256-GCM" }
+        - { name: cipher_key_source, type: string, required: true, note: "INTERNAL_RPC_SECRET 또는 JWT_SECRET" }
+        - { name: gateway_url, type: string, required: true, note: "nanobot 게이트웨이 base URL" }
+        - { name: created_at, type: date, required: true }
+        - { name: rotated_at, type: date, required: false }
+      relationships:
+        - { target: Channel, type: belongs_to }
+        - { target: GatewayDeviceIdentity, type: has_one, note: "채널이 페어링한 디바이스" }
+
+  actions:
+    # ─── v1 unchanged (10 actions) ───
+    - name: crawlRegulationSource
+      korean_name: 규제 소스 크롤링
+      actor: CrawlerAgent
+      input: "RegulationSource + poll_interval_minutes"
+      output: "신규/개정 Regulation 목록 + CrawlJob 기록"
+      side_effects:
+        - "VaultDocument 신규 생성"
+        - "SQLite Regulation/RegulationVersion insert"
+        - "신규 발견 시 NPCReport(NEW_REGULATION) 생성"
+        - "parser_error 시 알림 트리거 (Flexible Parser)"
+
+    - name: classifyChangeType
+      korean_name: 신규/개정 분류
+      actor: System(Logic)
+      input: "신규 발견 Regulation 후보 + 기존 RegulationVersion 이력"
+      output: "change_type ∈ {NEW, AMENDED}"
+      side_effects:
+        - "AMENDED 시 RegulationVersion 추가 + diff_summary(LLM 1줄) 산출"
+
+    - name: analyzeImpact
+      korean_name: 영향도 분석
+      actor: ImpactAnalyzerAgent
+      input: "Regulation + target_department"
+      output: "ImpactAnalysis + Citation 목록"
+      side_effects:
+        - "LLM API 호출 (OpenAI/Claude)"
+        - "LLMUsageRecord 적재"
+        - "NPCReport(ANALYSIS_READY) 생성"
+        - "BM25 인덱스 조회"
+
+    - name: askAnalystNPC
+      korean_name: 분석 NPC에게 질문
+      actor: UserCharacter
+      input: "자연어 질문 (예: '리테일 영향')"
+      output: "ImpactAnalysis 응답 (in-world 말풍선)"
+      side_effects:
+        - "analyzeImpact 트리거"
+        - "NPCReport 생성"
+
+    - name: enterDashboard
+      korean_name: 대시보드 입장
+      actor: UserCharacter
+      input: "사용자 세션"
+      output: "RPG 맵 렌더 + 활성 NPC + Pending NPCReport"
+      side_effects:
+        - "deskrpg 씬 초기화"
+
+    - name: applyFilter
+      korean_name: 필터 적용
+      actor: UserCharacter
+      input: "DashboardFilter (≥4종)"
+      output: "필터링된 Regulation 목록 (카드/타임라인)"
+      side_effects: []
+
+    - name: syncVaultToGit
+      korean_name: Vault git 동기화
+      actor: UserCharacter (Obsidian Git plugin)
+      input: "Obsidian이 관리하는 vault의 변경 markdown 파일들 (자동 staged by plugin)"
+      output: "git commit + push (private repo) — Obsidian 단축키로 수동 실행"
+      side_effects:
+        - "팀원 vault에 변경 전파"
+        - "v4 정책: 시연 데모 직전·주 1회 retro 후 수동 push 권장"
+
+    # ─── v5 신규 (Obsidian Local REST API 통합) ───
+    - name: pushToObsidianVault
+      korean_name: Obsidian vault에 push
+      actor: Backend (services.data.vault.obsidian_client)
+      input: |
+        VaultDocument (vault_path + frontmatter + body + topic_tag +
+        connected_knowledge_links)
+      output: |
+        HTTP 201/204 응답 + obsidian_synced_at 갱신
+      side_effects:
+        - "Obsidian Local REST API에 PUT /vault/{path} 또는 POST 호출"
+        - "Obsidian이 vault 디렉토리에 markdown 파일 작성"
+        - "Obsidian graph view·tags index 자동 갱신"
+        - "Bearer Token 인증 + SSRF whitelist 통과 (192.168.56.1/32)"
+        - "실패 시 retry 3회 + parser_error에 기록"
+
+    - name: searchObsidianVault
+      korean_name: Obsidian vault 검색
+      actor: Backend (services.rag 또는 services.impact)
+      input: "query 자연어 또는 keyword"
+      output: "matched VaultDocument 목록 + 발췌 (contextLength=100)"
+      side_effects:
+        - "Obsidian REST API POST /search/simple/ 호출"
+        - "한국어 query는 URL 인코딩 (UTF-8)"
+        - "BM25 인덱스 보조 검색으로 활용 가능 (stretch)"
+
+    - name: parseFlexible
+      korean_name: 유연 파싱
+      actor: CrawlerAgent
+      input: "원본 HTML + parser_config"
+      output: "구조화 Regulation 후보"
+      side_effects:
+        - "파싱 실패 시 parser_error 기록 + 알림"
+
+    - name: acknowledgeReport
+      korean_name: NPC 보고 확인
+      actor: UserCharacter
+      input: "NPCReport id"
+      output: "acknowledged 상태 전이"
+      side_effects:
+        - "시각·청각 효과 종료"
+
+    - name: trackLLMUsage
+      korean_name: LLM 사용량 추적
+      actor: System(nanobot fork)
+      input: "LLM API 호출 응답 (토큰·모델)"
+      output: "LLMUsageRecord + 누적 cost_usd"
+      side_effects:
+        - "예산 임계치($40 누적) 초과 시 경고"
+
+    # ─── v2 NEW (4 actions) ───
+    - name: scheduleWeeklyMeeting
+      korean_name: 주간 회의 예약
+      actor: System(Logic)
+      input: "다음 주 금요일 17:00 + digest_window (지난 7일)"
+      output: "MeetingSession (status=SCHEDULED) + 참가자 목록"
+      side_effects:
+        - "MeetingParticipant 생성 (모든 활성 Agent + 활성 UserCharacter)"
+
+    - name: conductMeeting
+      korean_name: 회의 진행
+      actor: System(Logic)
+      input: "MeetingSession (status=SCHEDULED)"
+      output: "MeetingReport + status=COMPLETED"
+      side_effects:
+        - "deskrpg 미팅룸 씬 활성화"
+        - "각 Agent NPC가 좌석으로 이동"
+        - "MeetingReport.digest_text를 NPC별 발화로 분배"
+        - "NPCReport(MEETING_DIGEST) 생성"
+
+    - name: generateMeetingDigest
+      korean_name: 회의 디지스트 생성
+      actor: ImpactAnalyzerAgent
+      input: "digest_window 내 Regulation·ImpactAnalysis 집합"
+      output: "MeetingReport (a/b/c/d 항목 모두 채움)"
+      side_effects:
+        - "LLM API 호출 (요약 + 다음 주 권고)"
+        - "LLMUsageRecord 적재"
+        - "top_regulation·top_citation 선정 (severity HIGH 우선)"
+
+    - name: customizeAvatar
+      korean_name: 아바타 커스터마이징
+      actor: UserCharacter
+      input: "LPC 부품 선택 (head/body/hair/outfit/...)"
+      output: "UserCharacter.lpc_parts 업데이트 + sprite_asset_id 갱신"
+      side_effects:
+        - "deskrpg 캐릭터 스프라이트 재합성"
+        - "재로드 시 영속 유지 (AC-012)"
+
+    # ─── v9 신규 (nanobot 게이트웨이 actions — 6개) ───
+    - name: pairDeviceWithChannel
+      korean_name: 디바이스-채널 페어링
+      actor: NanobotGateway
+      input: "Channel + GatewayDeviceIdentity (Ed25519 keypair)"
+      output: "GatewayChannelBinding + connected pairing_state"
+      side_effects:
+        - "GatewayDeviceIdentity.pairing_state: idle → connecting → connected"
+        - "channels.gatewayConfig.encryptedToken 저장 (AES-256-GCM)"
+        - "PairingStatusCard UI 상태 갱신"
+
+    - name: chatSendStream
+      korean_name: NPC 채팅 스트리밍 전송
+      actor: NanobotGateway
+      input: "agentId + sessionKey + message + onDelta 콜백"
+      output: "스트리밍 chunk + 최종 응답 텍스트"
+      side_effects:
+        - "NanobotAgentSession row 신규/갱신"
+        - "180s timeout 워치"
+        - "LLMUsageRecord 적재 (AC-008/AC-020)"
+        - "in-world 말풍선 점진 갱신 (socket-handlers)"
+
+    - name: chatAbortStream
+      korean_name: NPC 채팅 스트림 중단
+      actor: NanobotGateway
+      input: "agentId + sessionKey"
+      output: "abort 확인"
+      side_effects:
+        - "NanobotAgentSession.aborted_at 기록"
+        - "in-flight LLM 호출 cancel 신호"
+
+    - name: createNpcAgent
+      korean_name: NPC 에이전트 생성 (nanobot 모드)
+      actor: NanobotGateway
+      input: "personaConfig (identity + soul) + channelId"
+      output: "agentId + workspace path (~/.nanobot/workspace-${agentId})"
+      side_effects:
+        - "npcs.openclawConfig.{agentId, sessionKeyPrefix, personaConfig} 저장 (필드명 유지)"
+        - "워크스페이스에 IDENTITY.md/SOUL.md write-only mirror 작성"
+        - "nanobot에서는 stateless이므로 agents.create RPC는 no-op (DB만 갱신)"
+
+    - name: updateNpcPersona
+      korean_name: NPC persona 업데이트
+      actor: NanobotGateway
+      input: "npcId + personaConfig (identity 또는 soul 갱신)"
+      output: "갱신된 NPC + 워크스페이스 .md 파일"
+      side_effects:
+        - "npcs.openclawConfig.personaConfig 갱신"
+        - "IDENTITY.md/SOUL.md 워크스페이스 mirror 재작성"
+        - "다음 호출부터 nanobot이 새 persona를 system prompt로 사용 (DB 재구성)"
+
+    - name: migrateLegacyOpenClawPaths
+      korean_name: openclaw 레거시 경로 마이그레이션
+      actor: NanobotGateway
+      input: "첫 부팅 시 ~/.openclaw/ 및 ~/.openclaw-devices/ 존재 여부"
+      output: "이동 결과 (이동 건수 + 실패 건수)"
+      side_effects:
+        - "~/.openclaw/workspace-* → ~/.nanobot/workspace-* 이동"
+        - "~/.openclaw-devices/* → ~/.nanobot-devices/* 이동"
+        - "로그에 마이그레이션 결과 기록 (1회용 스크립트)"
+
+  synonyms:
+    - { canonical: Regulation, aliases: [규제, 규정, 공시, 규제 변동, 규제 항목] }
+    - { canonical: RegulationSource, aliases: [규제 소스, 소스, 게시판 출처] }
+    - { canonical: ImpactAnalysis, aliases: [영향도 분석, 영향도, 영향 분석 결과] }
+    - { canonical: ImpactAnalyzerAgent, aliases: [분석 NPC, 영향도 분석기, RAG agent, analyzer] }
+    - { canonical: CrawlerAgent, aliases: [크롤러 NPC, 수집 NPC, 크롤러, 크롤링 엔진, scraper] }
+    - { canonical: Agent, aliases: [에이전트, NPC, nanobot agent] }
+    - { canonical: UserCharacter, aliases: [사용자, 플레이어, 사용자 캐릭] }
+    - { canonical: Citation, aliases: [근거 인용, 근거 구절, 근거 문구] }
+    - { canonical: NPCReport, aliases: [NPC 보고, in-world 보고, 말풍선 보고] }
+    - { canonical: VaultDocument, aliases: [Obsidian 문서, vault 파일, markdown 원문] }
+    - { canonical: DashboardFilter, aliases: [필터, 필터링 조건] }
+    - { canonical: RegulationVersion, aliases: [개정 이력, 버전, 변경 이력] }
+    - { canonical: change_type=NEW, aliases: [신규, new] }
+    - { canonical: change_type=AMENDED, aliases: [개정, amended, 변경] }
+    - { canonical: LLMUsageRecord, aliases: [LLM 사용량, 토큰 사용량, 비용 기록] }
+    # v2 추가
+    - { canonical: MeetingSession, aliases: [회의, 주간 회의, 컴플 회의, weekly meeting, 미팅] }
+    - { canonical: MeetingReport, aliases: [회의 디지스트, 주간 보고, weekly digest, 회의 요약] }
+    - { canonical: MeetingParticipant, aliases: [회의 참가자, 참석 NPC, attendee] }
+    - { canonical: customizeAvatar, aliases: [LPC 커스터마이징, 캐릭터 꾸미기, 아바타 변경] }
+    # v9 추가 (nanobot 게이트웨이 영역)
+    - { canonical: "NanobotAgentSession", aliases: ["agent session", "chat session", "nanobot 세션", "agent:<id>:<name>"] }
+    - { canonical: "GatewayDeviceIdentity", aliases: ["device identity", "Ed25519 keypair", "디바이스 신원", "pairing identity"] }
+    - { canonical: "GatewayChannelBinding", aliases: ["채널 바인딩", "encrypted token", "gateway binding"] }
+    - { canonical: "AI_PROVIDER=nanobot", aliases: ["nanobot 모드", "nanobot adapter", "nanobot 단일 경로"] }
+    - { canonical: "openclawConfig", aliases: ["gateway config (필드명 유지, 의미 reinterpret)", "agent config"], note: "필드명은 openclawConfig 유지하되 의미상 'gateway agent config'로 재해석" }
+
+# ─────────────────────────────────────────────────────────────────────
+# Architecture — 3-tier 매핑 (v1 베이스 + 미팅룸 씬 추가)
+# ─────────────────────────────────────────────────────────────────────
+architecture:
+  pattern: "3-tier-layered"
+
+  layers:
+    presentation:
+      description: "Next.js + TypeScript (deskrpg fork) — RPG UI · 대시보드 · NPC 조종 · 미팅룸 씬"
+      directories:
+        - "frontend/app"
+        - "frontend/components"
+        - "frontend/scenes/dashboard"   # 메인 사무실 맵
+        - "frontend/scenes/meeting"     # v2 — 주간 컴플 회의실
+        - "frontend/scenes/avatar"      # v2 — LPC 커스터마이징 모달
+        - "frontend/lib/api"
+      responsibilities:
+        - "RPG 맵 렌더 (deskrpg 픽셀 자산)"
+        - "사용자 입력 처리 (캐릭터 이동·NPC 클릭·말풍선)"
+        - "대시보드 카드·필터·타임라인 UI"
+        - "NPCReport 시각·청각 효과 재생"
+        - "Obsidian vault 원문 임베드 또는 외부 링크"
+        - "v2: 주간 회의실 씬 — NPC 좌석 배치·디지스트 낭독 자막·턴 애니"
+        - "v2: LPC 커스터마이징 모달 — 부품 조합 미리보기·저장"
+      cannot_access:
+        - "database"
+        - "external_services (LLM API, 크롤링 대상)"
+        - "Obsidian vault 파일시스템 직접 접근"
+
+    logic:
+      description: "Python (nanobot fork + 별도 Crawler 서비스) — Agent 워크플로우 · 영향도 · RAG · 회의 오케스트레이션"
+      directories:
+        - "backend/nanobot"
+        - "backend/agents"
+        - "backend/services/impact"
+        - "backend/services/rag"
+        - "backend/services/llm"
+        - "backend/services/meeting"   # v2 — 주간 회의 오케스트레이션
+        - "crawler"
+      responsibilities:
+        - "Agent 워크플로우 오케스트레이션"
+        - "신규/개정 분류 (classifyChangeType)"
+        - "영향도 분석 + Citation 생성"
+        - "RAG (BM25 우선, pgvector stretch)"
+        - "Flexible Parser + 파싱 실패 알림"
+        - "LLM 사용량 추적 (예산 가드)"
+        - "v2: 주간 회의 스케줄·진행·디지스트 LLM 생성"
+      cannot_access:
+        - "Next.js Presentation 코드 import 금지"
+
+    data:
+      description: "SQLite + Obsidian Local REST API (Obsidian이 vault 관리, v5) — v2부터 MeetingSession/Report 테이블 추가"
+      directories:
+        - "backend/data/sqlite"
+        - "backend/data/repositories"
+        - "backend/data/vault/"        # v5: ObsidianApiClient 위치 (파일시스템 X)
+        # vault/ 자체는 Obsidian 호스트(또는 VM)가 관리 — 백엔드 외부
+      responsibilities:
+        - "SQLite CRUD (Regulation·Version·ImpactAnalysis·Citation 등)"
+        - "v5: VaultDocument를 Obsidian Local REST API로 PUT/POST/GET (port 27123)"
+        - "v5: Obsidian search API 보조 호출 (BM25와 보완)"
+        - "BM25 인덱스 영속화 (Backend 자체 인덱스 — 한국어 형태소)"
+        - "LLMUsageRecord 적재"
+        - "v2: MeetingSession·MeetingReport·MeetingParticipant CRUD"
+        - "v2: UserCharacter.lpc_parts JSON 영속"
+        - "v5: Obsidian Git plugin push는 Obsidian이 담당 (백엔드 책임 X)"
+      cannot_access:
+        - "presentation"
+        - "v5: vault/ 디렉토리 파일시스템 직접 접근 (REST API 강제)"
+
+  layer_communication:
+    presentation_to_logic: "REST/HTTP + WebSocket (deskrpg ↔ nanobot)"
+    logic_to_data: "Repository 패턴 (Python) — DTO/Domain Model 분리"
+    data_format: "DTO (Python dataclass / TypeScript interface)"
+    notes:
+      - "Crawler 서비스는 nanobot과 message queue 또는 직접 HTTP로 통신"
+      - "WebSocket은 NPCReport 푸시 (in-world 실시간 보고)"
+      - "v2: 회의 진행은 별도 WebSocket 채널 (NPC 좌석 이동·발화 턴 동기화)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Scope — MVP / Future
+# ─────────────────────────────────────────────────────────────────────
+scope:
+  mvp:
+    - "FSS 보도·규정·해설 게시판 크롤러 (1개 소스 end-to-end)"
+    - "신규/개정 자동 분류"
+    - "LLM 영향도 분석 (Citation 포함)"
+    - "deskrpg fork RPG 대시보드 (캐릭터·NPC 2종·필터 4종·타임라인)"
+    - "Obsidian Local REST API를 통한 vault 저장 (v5) + Obsidian Git plugin private repo sync (수동, v4)"
+    - "메인 시연 시나리오 4단계 (AC-005)"
+    - "4개 소스(BOK/FSC/국회·관보/BCBS) 인터페이스 stub + mock 1건"
+    - "LLM 사용량 추적 + $40 임계 경고"
+    - "GitHub Actions CI + .harness/gates default 통과"
+    - "v2: AI 미팅룸 → 주간 컴플라이언스 회의실 repurpose (AC-011)"
+    - "v2: LPC 캐릭터 커스터마이징 (AC-012)"
+    # ── v9 신규 (M3/M4 본인 담당 작업) ──
+    - "PostgreSQL 채택 (로컬 docker-compose) + SQLite 코드 일괄 제거 (parallel-change contract phase)"
+    - "AI_PROVIDER=nanobot 단일 경로 + openclaw 코드 제거"
+    - "openclaw → nanobot functional parity 9 categories (AC-013..021)"
+    - "AC-008 $60 NPCReport push + $90 BUDGET_EXCEEDED 호출 차단 enforcement 완결"
+    - "워크스페이스 경로 ~/.nanobot/로 rename + 1회용 마이그레이션"
+    - "Ed25519 device pairing + PairingStatusCard UI 재활용"
+
+  future:
+    - "BOK/FSC/국회·관보/BCBS 본격 크롤러 구현"
+    - "BCBS 영문 본문 번역 자동화"
+    - "Vector DB (pgvector) 의미 검색"
+    - "Notification 채널 확장 (이메일/Slack)"
+    - "픽셀 아트 자산 신규 제작 (NPC 스프라이트·맵 타일)"
+    - "RegulationVersion 텍스트 diff (현재는 LLM 1줄 요약)"
+    - "Agent 타입 확장 (요약 NPC·디스패처 NPC)"
+    - "부서(target_department) enum 정규화 + 부서별 영향도 매트릭스"
+    - "프로덕션 운영 (멀티 테넌트·권한·SSO·audit)"
+    - "모바일 반응형 UI"
+    - "Notification ↔ NPCReport 듀얼 채널 (RPG 맵 밖 fallback)"
+    - "v2 stretch: 주간 회의 cron 자동 실행 (현재는 시연용 수동 발화)"
+    - "v2 stretch: 회의 음성 합성 (TTS) — 현재는 자막"
+    - "deskrpg 멀티플레이어·맵 에디터 부분 복원 (v3)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Tech Decisions — v1 9개 + v2 추가 2개
+# ─────────────────────────────────────────────────────────────────────
+tech_decisions:
+  - decision: "Python nanobot fork를 Logic 레이어 백본으로 채택"
+    reason: "Agent 워크플로우 + MCP + 다채널 전송 + 메모리 등 RegTrack 핵심 요구를 거의 다 충족. 처음부터 짜는 비용 절감"
+    alternatives_considered:
+      - "FastAPI + LangGraph 직접 구성 (자유도 ↑, 일정 risk ↑)"
+      - "OpenAI Assistants API (벤더 lock-in)"
+
+  - decision: "Next.js + TypeScript (deskrpg fork)를 Presentation 채택"
+    reason: "wow 모먼트(픽셀 RPG NPC 보고)의 핵심. 자체 구현 시 12주 안에 불가"
+    alternatives_considered:
+      - "Streamlit (시연 효과 ↓, 시간 ↑ 절약)"
+      - "deskrpg embed only (시연 셸로만 사용)"
+
+  - decision: "Crawler를 nanobot과 분리한 별도 Python 서비스(scrapy/playwright)"
+    reason: "스케줄·재시도·브라우저 자동화 패턴이 nanobot agent 모델과 다름. 분리 시 운영 단순화"
+    alternatives_considered:
+      - "nanobot agent 안에 scraper 통합"
+      - "Cloudflare Workers 등 외부 크롤링"
+
+  - decision: "Data 레이어: SQLite + Obsidian markdown vault (PostgreSQL/pgvector 제거)"
+    reason: "시연용 데이터량 적고 단일 노트북 배포. vault는 git sync로 팀 공유 자연스러움"
+    alternatives_considered:
+      - "PostgreSQL + pgvector (운영 복잡도 ↑)"
+      - "Vault만 사용 (메타 쿼리 어려움)"
+
+  - decision: "RAG는 BM25부터 (pgvector는 stretch)"
+    reason: "$100 예산에서 임베딩 비용·인프라 비용 부담. BM25는 한국어 형태소 분석기로 충분"
+    alternatives_considered:
+      - "pgvector + OpenAI embeddings (비용 ↑)"
+      - "Qdrant/Weaviate 외부 서비스"
+
+  - decision: "LLM은 OpenAI/Claude API만 (자체 호스팅 X)"
+    reason: "예산·일정·인프라 부담 회피. Citation 기반 hallucination 통제로 충분"
+    alternatives_considered:
+      - "Llama 3 자체 호스팅 (GPU 비용)"
+      - "Bedrock/Vertex (벤더 lock-in)"
+
+  - decision: "Obsidian vault git sync + private repo 강제"
+    reason: "팀원 공유 + 버전 관리 + Obsidian 자체가 KB 브라우저로 활용. 단 민감 본문 노출 방지를 위해 private 강제"
+    alternatives_considered:
+      - "Obsidian Sync 유료 서비스"
+      - "vault를 데이터베이스로만 (사람 검색 ↓)"
+
+  - decision: "협업: feature → dev/nanobot → main 마일스톤 머지"
+    reason: "4명 팀 + base repo 이미 dev/nanobot 브랜치 활용 중"
+    alternatives_considered:
+      - "trunk-based (작은 팀에 부담)"
+      - "git flow (12주에 과도)"
+
+  - decision: "12주 광기 수용 — 양보 우선순위 명시 X (사용자 결정)"
+    reason: "사용자 명시적 선언. 다만 마일스톤 슬립 시 재논의 트리거를 Risk Register에 적시"
+    alternatives_considered:
+      - "양보 순서: 4개 소스 인터페이스 → deskrpg 고급 자산 → RAG 고도화"
+
+  # ─── v2 추가 ───
+  - decision: "AI 미팅룸을 RegTrack '주간 컴플 회의실'로 repurpose (P0 포함)"
+    reason: "deskrpg 원본 기능 cut 시 제거 공수 발생 + wow 추가 기회 상실. 도메인 적합 변환으로 코드 재활용 + 신규 시연 임팩트"
+    alternatives_considered:
+      - "CUT (v1 원안) — 안전하지만 wow 상실 + 제거 공수"
+      - "HIDE (코드 유지·UI 숨김) — 데드 코드 risk"
+      - "그대로 유지 (RegTrack 무관) — 부적절"
+
+  - decision: "주간 회의 시연은 메인 4단계와 분리된 보너스 30초 페이즈"
+    reason: "발표 5분 한도 보호. 메인 시나리오(AC-005)는 그대로 유지하고 추가 임팩트만 +30초"
+    alternatives_considered:
+      - "메인 시나리오를 5단계로 확장 (시간 초과 risk)"
+      - "주간 회의를 별도 영상으로 사전 녹화 (현장 시연 효과 ↓)"
+
+  # ─── v4 추가 ───
+  - decision: "Vault git sync는 Obsidian Git community plugin + 수동 push로 단순화 (백엔드 자동 sync 제거)"
+    reason: "시연용 데이터량 적음 + 1인 push 가정 + Obsidian 사용자 표준 패턴 + 백엔드 공수 2~3일 절감 + git subprocess 충돌 처리 코드/테스트 제거"
+    alternatives_considered:
+      - "v3 원안: 백엔드가 1초 debounce + git subprocess (공수 +2~3일)"
+      - "백엔드 commit-only + 수동 push (균형, 단 일관성 ↓)"
+      - "git sync 빼고 클라우드 폴더 (충돌 잦음, 비권장)"
+
+  - decision: "Scope change governance: 주 1회 금요일 30분 retrospective + 소/중/대형 triage matrix"
+    reason: "유기적 발견 인정 + 일정 슬립 방지. 변경 batch로 묶어 의사결정 비용 압축"
+    alternatives_considered:
+      - "변경 자유 (잦은 seed 재발행으로 일정 슬립 위험)"
+      - "scope 동결 (유연성 포기, 학습 차단)"
+
+  # ─── v5 추가 (Obsidian Local REST API 통합) ───
+  - decision: "Vault 접근은 Obsidian Local REST API plugin (port 27123) — Backend가 파일시스템 직접 접근 X"
+    reason: "팀원이 이미 skills/obsidian/SKILL.md + docs/obsidian-interface.md로 구현. graph view·태그·wikilink 자동 활용. 백엔드 코드 단순화 (filesystem 권한 처리 X)"
+    alternatives_considered:
+      - "Backend 파일시스템 직접 write (v4 가정 — 팀원 작업 폐기, 재작업 +1주)"
+      - "추상화 레이어 추가해서 둘 다 지원 (공수 ↑, 시연용엔 과도)"
+    side_effects:
+      - "Obsidian app이 시연 동안 항상 실행 중이어야 함"
+      - "Bearer Token 관리·SSRF whitelist 설정 필요"
+      - "네트워크 호출 latency 발생 (로컬 환경에선 무시 가능)"
+
+  - decision: "VaultDocument frontmatter 규칙: '#topic' 태그 + '## Connected Knowledge' 섹션 + 1+ [[wikilink]] 강제 (skills/obsidian/SKILL.md 'Captain's Special Instructions' 준수)"
+    reason: "팀원 skill 정책 일치 + Obsidian graph view 시각 효과 (시연 wow 강화). 단순 노트 dump 방지"
+    alternatives_considered:
+      - "frontmatter free-form (graph view 효과 ↓)"
+      - "더 엄격한 schema (Json Schema 검증 — 공수 ↑)"
+
+  # ─── v6 추가 (OpenRouter + Qwen 채택) ───
+  - decision: "LLM provider를 OpenRouter (qwen 모델)로 채택"
+    reason: |
+      팀 결정 + 결제 완료. OpenRouter는 OpenAI 호환 API라 코드 변경 minimal.
+      Qwen 모델이 GPT-4o-mini 대비 약 50~70% 저렴 → $100 예산 여유 ↑.
+      단일 provider로 가입·키 관리 단순화.
+    alternatives_considered:
+      - "OpenAI 직접 (gpt-4o-mini, 가정 모델 — 가격 ↑)"
+      - "Claude 직접 (claude-haiku, anthropic SDK 별도)"
+      - "여러 provider 동시 (운영 복잡도 ↑)"
+    side_effects:
+      - "OpenRouter prompt cache 지원은 Qwen 변종마다 다름 — 확인 필요"
+      - "OpenRouter 응답 latency가 직접 호출보다 약간 ↑ (proxy hop)"
+      - "정확한 Qwen 모델명은 v7에서 확정 (default placeholder: qwen/qwen-2.5-72b-instruct)"
+
+  - decision: "AC-008 단계별 임계치: $30 yellow / $60 orange / $90 red"
+    reason: "Qwen 저렴해도 통제 가시화 강화. 단계별 색상은 시연 시 wow 강화 (위젯 실시간 색 변화)"
+    alternatives_considered:
+      - "단일 $40 (v3 원안) — 단계 없음, 시각 효과 약함"
+      - "$60 단일 상향 — Qwen 저렴 반영"
+      - "$80 단일 상향 — 공격적"
+
+  # ─── v7 추가 (Qwen 모델 확정) ───
+  - decision: "Default LLM model: qwen/qwen3.6-35b-a3b (MoE, 35B 전체 / 3B active)"
+    reason: |
+      OpenRouter 가격 $0.15/$1.00 per 1M tokens (prompt/completion) — 가성비 최상위.
+      MoE 구조로 3B active만 추론에 사용 → 빠른 latency + 저비용.
+      Qwen3.6 시리즈는 최신 instruct-tuned, 한국어 정확도 우수 (예상).
+      시연 기간 총 비용 추정 ~$1.30 → $100 예산 대비 1.3% → AC-008 단계 도달 거의 불가능.
+    alternatives_considered:
+      - "qwen/qwen3.6-flash ($0.19/$1.13) — 약간 더 빠르나 가격 ↑"
+      - "qwen/qwen3.6-27b ($0.32/$3.20) — denser, 완성도 ↑ but 가격 ↑↑"
+      - "qwen/qwen3.6-max-preview ($1.04/$6.24) — 최강 but 12주 예산 부담"
+      - "qwen/qwen3.5-35b-a3b ($0.14/$1.00) — 이전 버전, 거의 동일 가격"
+    side_effects:
+      - "MoE 모델 특성: 일부 도메인(법률·금융 전문) 정확도 ↓ 가능성 → benchmark 필요 (W6)"
+      - "OpenRouter prompt cache 지원 여부 미검증 (W6 LLMClient 구현 시 확인)"
+      - "R-13 (Qwen 정확도): benchmark 미달 시 qwen3.6-27b 또는 plus로 전환 검토 (seed-v8)"
+
+  # ─── v8 추가 (deskrpg 라이센스 명시) ───
+  - decision: "deskrpg fork는 학술용·시연용으로만 사용 (Sustainable Use License 1.0 준수). 상업 배포는 명시적 non-goal로 차단."
+    reason: |
+      deskrpg(github.com/dandacompany/deskrpg)는 Sustainable Use License 1.0 적용 —
+      비상업·내부 사용은 허용, 상업 배포는 별도 라이센스 필요. AIMBA ABP 학술 시연은
+      "internal use + non-commercial"에 해당 → 위반 없음.
+      LPC asset 일부는 LICENSE-assets.md에서 CC-BY-SA 3.0 등 별도 라이센스 — 헤더 유지 필수.
+      Commercial pivot 가능성을 차단하기보다 명시적 non-goal로 두고 향후 별도 검토.
+    alternatives_considered:
+      - "라이센스 호환 OSS 프론트(Phaser·Excalibur 등)로 재구현 (12주 일정 risk + wow 상실)"
+      - "deskrpg fork 후 자체 라이센스로 재배포 (Sustainable Use License 1.0 위반)"
+      - "deskrpg embed only (iframe) — 코드 분석·커스텀 불가, RPG NPC 통합 어려움"
+    side_effects:
+      - "Commercial launch 시 프론트엔드 재구현 또는 별도 라이센스 협의 필요"
+      - "LICENSE·LICENSE-assets.md 파일을 RegTrack repo 루트에 그대로 유지·노출 (제거 금지)"
+      - "deskrpg upstream pull은 시연 종료 후로 연기 (M5 retro 안건)"
+      - "R-18로 추적: 라이센스 위반 risk (현재 학술 범위 내, severity Medium)"
+
+  # ─── v9 신규 (Postgres + nanobot parity) ───
+  - decision: "D-15: 구조화 데이터 저장소로 PostgreSQL 채택 (로컬 docker-compose)"
+    reason: |
+      seed-v8 must_not 위반 사실: deskrpg fork에 pg^8.20.0이 runtime dep로 활성 + drizzle.config.ts
+      dialect: 'postgresql' + DB_TYPE 분기에서 Postgres 우선. SQLite를 강제하면 fork 의도와 충돌하고
+      retroactive 제거 비용이 큼. 팀이 SQLite를 사용할 계획 없음을 확인 → PostgreSQL을 must로 승격.
+      운영 친화(connection pooling·HA·jsonb)·팀 익숙도·docker-compose 한 줄로 셋업 가능 이점.
+    alternatives_considered:
+      - "SQLite 유지 + Postgres 코드 제거: fork 정합성·dual-mode 모두 손실"
+      - "둘 다 유지 (dual-mode): dead code + 테스트 매트릭스 2배"
+      - "원격 호스팅 Postgres (Supabase 등): 학술 시연·로컬 우선 정책과 어긋남"
+    side_effects:
+      - "docker-compose.yml에 postgres 서비스 추가 (healthcheck + named volume)"
+      - "DATABASE_URL 환경변수 필수 (SQLITE_PATH 제거)"
+      - "drizzle 마이그레이션은 PG 전용 (schema-sqlite.ts 제거)"
+      - "R-19로 추적: openclaw 제거 작업과 같은 PR에 묶일 경우 회귀 위험 증대 → 분할 권고"
+
+  - decision: "D-16: pgvector는 v8 stretch 그대로 유지 (MVP 포함 아님)"
+    reason: |
+      Postgres가 must로 승격됐어도 pgvector extension은 별도 install + 인덱스 + 임베딩 생성 비용
+      (LLM 호출당 토큰 소비). 데이터 양(FSS 1소스 + 4 mock), 시연 임계('리테일 영향' 1 질문),
+      $100/2.5개월 예산을 고려하면 BM25 + Obsidian wikilink 큐레이션으로 충분할 가능성 큼.
+      시연 직전 정확도 미달 발견 시 1일 작업으로 enable 가능 (Postgres extension 추가 + embedding 백필).
+    alternatives_considered:
+      - "MVP에 pgvector 포함: 임베딩 비용 + 인덱스 운영 + 시연 임계와 ROI 불일치"
+      - "BM25도 제외 (LLM full-text가 알아서): 5분 시연에서 latency 위험 + 비용 폭증"
+    side_effects:
+      - "v10 pending: 시연 직전 정확도 평가 시점에 pgvector enable 여부 결정"
+
+  - decision: "D-17: SQLite 코드 일괄 제거 (parallel-change contract phase)"
+    reason: |
+      D-15 결정에 따라 SQLite는 사용 안 함. 'import만 끊기' 옵션은 dead code(schema-sqlite.ts,
+      better-sqlite3, DB_TYPE 분기, sqlite-base-schema.js)를 영구 유지 → 타입 체크·테스트 매트릭스·
+      신규 기여자 혼란. 마이그레이션 데이터 없음 (Q10-4 확인) → 롤백 시나리오는 git revert 한 줄.
+    alternatives_considered:
+      - "import만 끊고 코드 유지: dead code 비용 영구"
+      - "parallel-change Expand→Migrate→Contract 3단계로 PR 분할: 데이터 없음 케이스에는 과한 절차"
+    side_effects:
+      - "package.json에서 better-sqlite3 dep 제거"
+      - "deskrpg/src/db/sqlite-base-schema.js, schema-sqlite.ts 파일 삭제"
+      - "deskrpg/src/db/index.ts의 DB_TYPE 분기 제거 (Postgres 단일 경로)"
+      - "drizzle-sqlite.config.ts 파일 삭제"
+      - "AC-021 verification의 일부"
+
+  - decision: "D-18: AI_PROVIDER=nanobot 단일 경로 (openclaw 모드 제거, dual-mode 없음)"
+    reason: |
+      Q4 확인: 이번 프로젝트는 openclaw 사용 의도 없음. dual-mode 유지는 코드 복잡도(provider 분기
+      도처) + 테스트 매트릭스 2배 + 신규 기여자 혼란을 초래. 본 프로젝트의 'nanobot fork가 openclaw를
+      대체'라는 정의 자체가 openclaw 코드 잔존을 정당화하지 못함.
+    alternatives_considered:
+      - "dual-mode 유지 (env var로 선택): 영구 dead path + 회귀 매트릭스 2배"
+      - "openclaw fallback만 남김 (nanobot 실패 시): 시연 환경에 fallback 필요 없음 + 디버깅 어려움"
+    side_effects:
+      - "AI_PROVIDER 기본값 'openclaw' → 'nanobot'"
+      - "socket-handlers.ts의 OpenClawGateway 분기 제거"
+      - "nanobot-client.js의 dual-mode 코드 제거"
+      - "AC-021 verification의 핵심"
+
+  - decision: "D-19: nanobot 게이트웨이는 openclaw 9 functional categories에 대해 functional parity 제공"
+    reason: |
+      Q2: '기능적 이점을 그대로' 우선. behavioral parity(byte 단위 latency·chunk 형식)는 명시적 요구
+      아니므로 비용 대비 ROI 낮음. functional parity로 deskrpg UI/서버 호출자 코드 변경 최소화.
+      9 categories는 코드 스캔(Explore agent)으로 검증됨: lifecycle / streaming / file mgmt /
+      pairing / error mapping / config / auth / telemetry / provider abstraction.
+    alternatives_considered:
+      - "drop-in replacement (모든 인터페이스 시그니처 동일): 작업량 폭증 + 시연 일정 risk"
+      - "behavioral parity (latency·chunk 단위): 측정·튜닝 비용 vs 학술 시연 ROI 미달"
+      - "subset만 (chat streaming만): pairing UI·error mapping 누락 시 deskrpg UI 봉인"
+    side_effects:
+      - "AC-013..021 9 AC로 카테고리별 분할"
+      - "R-19로 추적: 128+ 터치포인트 회귀 위험"
+
+  - decision: "D-20: nanobot도 Ed25519 device pairing + challenge-response 구현 (Q5 결정: full parity)"
+    reason: |
+      openclaw는 ~/.openclaw-devices/${hash}.json에 Ed25519 keypair를 저장하고 pairing challenge로
+      인증. deskrpg의 OpenClawPairingStatusCard UI가 4상태(idle/connected/pairingRequired/error)에
+      의존 — nanobot이 같은 페어링 흐름을 제공하지 않으면 UI 카드를 무력화하거나 'always connected'
+      hack이 필요. 사용자(Q5)는 full parity를 선택 → UI 그대로 재활용.
+    alternatives_considered:
+      - "Bearer Token만 (페어링 UI 무력화): UI 4상태 hack 필요 + 보안 약화"
+      - "Bearer + 페어링 UI 유지하되 1회 셋업 후 자동 통과: 페어링 실패 케이스 디버깅 어려움"
+    side_effects:
+      - "~/.nanobot-devices/ 디렉토리 신설 + Ed25519 keypair 생성/저장 로직"
+      - "PairingStatusCard 컴포넌트 재활용 (브랜드만 'Nanobot Pairing'으로)"
+      - "AC-016 verification의 핵심"
+      - "R-20로 추적: 페어링 실패 시 시연 봉인"
+
+  - decision: "D-21: 워크스페이스 경로 prefix ~/.openclaw/ → ~/.nanobot/ rename (Q6 결정)"
+    reason: |
+      Q6 결정: 파일시스템 경로는 브랜드 정리 차원에서 rename. 1회용 마이그레이션 스크립트로
+      기존 사용자 영향 최소화 (~/.openclaw/* 발견 시 ~/.nanobot/*로 이동). 단, DB 컬럼명
+      'openclawConfig'는 영향도 차원에서 유지 (D-24 참고).
+    alternatives_considered:
+      - "경로 유지 (~/.openclaw/): 코드 영향 0이지만 nanobot 시점에서 혼란"
+      - "env var 추상화 (AGENT_WORKSPACE_DIR): 유연하지만 default 결정 회피"
+    side_effects:
+      - "migrateLegacyOpenClawPaths action 추가 (첫 부팅 시 자동 실행)"
+      - "AC-015 verification의 일부"
+
+  - decision: "D-22: NPC persona는 DB가 source of truth, .md 파일은 write-only mirror (Q7 a-W 결정)"
+    reason: |
+      Q7 분석: openclaw는 워크스페이스 .md 파일을 agent loop이 read. nanobot은 stateless이며 매 호출
+      DB의 personaConfig로 system prompt 재구성. 둘 다 .md를 read하면 drift/loop/bloat 위험.
+      → nanobot은 DB만 read, .md는 사이드 아티팩트(인간 디버깅·tail용)로 같이 쓰기만 함.
+    alternatives_considered:
+      - "Bidirectional sync (a-RW): drift·loop·bloat 위험 + 별도 conflict 해결 설계 필요"
+      - ".md sync 자체 drop (b): 디버깅 어려움 (tail로 persona 확인 불가)"
+    side_effects:
+      - "nanobot agent loop은 워크스페이스 파일 read 안 함 (DB만)"
+      - "updateNpcPersona action이 DB 갱신 + .md 파일 mirror 재작성"
+      - "AC-015 verification의 핵심"
+
+  - decision: "D-23: legacy npcs.openclawConfig.persona (string) fallback 코드 제거 (Q8 결정)"
+    reason: |
+      이미 deprecated된 legacy 필드 (nanobot-client.js:148-150, nanobot-chat.ts:37-47). 본 프로젝트는
+      fork 직후이므로 마이그레이션할 기존 데이터 없음 (Q10-4 확인) → fallback 유지 명분 없음.
+      .personaConfig{identity, soul}만 정식.
+    alternatives_considered:
+      - "유지 (upstream 머지 시 충돌 회피): 본 프로젝트는 upstream merge 계획 없음 (M5 retro)"
+    side_effects:
+      - "loadPersonaFromNpc 함수에서 legacy persona fallback 제거"
+      - "AC-018 verification의 일부"
+
+  - decision: "D-24: DB 컬럼명 npcs.openclawConfig 유지 (rename 안 함, 의미만 reinterpret)"
+    reason: |
+      Q3 결정: 영향도 측면에서 컬럼명 유지. DB 마이그레이션 + 모든 helper 함수(parseDbObject /
+      buildPersonaConfig 등) rename 비용 vs 명확성 tradeoff에서 영향도 우선. 의미상 'agent gateway
+      config'로 reinterpret (synonyms 섹션에 명시).
+    alternatives_considered:
+      - "agentConfig로 rename: 마이그레이션 + 18+ 파일 참조 변경 비용"
+      - "rename 후 view 또는 alias 유지: 두 이름 영구 공존 → 혼란 가중"
+    side_effects:
+      - "ontology.synonyms에 'openclawConfig → gateway agent config' 매핑 추가"
+      - "신규 기여자 onboarding 문서에 reinterpret 노트 필요"
+
+# ─────────────────────────────────────────────────────────────────────
+# Validation
+# ─────────────────────────────────────────────────────────────────────
+validation:
+  goal_summary_clear: true
+  must_constraints: 36            # v8 25 + 11 (v9 nanobot parity·Postgres·persona DB·error shape 등)
+  must_not_constraints: 21        # v8 14 + 7 (v9 openclaw 신규·dual-mode·md read·legacy persona 등)
+  acceptance_criteria_count: 21   # v8 12 + 9 (v9 AC-013..021)
+  ac_all_testable: true
+  ac_all_have_complexity: true
+  ontology_entity_count: 21       # v8 18 + 3 (v9 NanobotAgentSession·GatewayDeviceIdentity·GatewayChannelBinding)
+  ontology_action_count: 22       # v8 16 + 6 (v9 pairDeviceWithChannel·chatSendStream·chatAbortStream·createNpcAgent·updateNpcPersona·migrateLegacyOpenClawPaths)
+  tech_decision_count: 24         # v8 14 + 10 (v9 D-15..D-24)
+  mvp_scope_defined: true
+  no_tbd_placeholders: true
+
+  ac_complexity_distribution:
+    low: 5      # AC-004, AC-007, AC-010, AC-012, AC-018
+    medium: 8   # AC-002, AC-006, AC-009, AC-015, AC-017, AC-019, AC-020, AC-021
+    high: 8     # AC-001, AC-003, AC-005, AC-008, AC-011, AC-013, AC-014, AC-016
+    # 합계 = 5 + 8 + 8 = 21 ✓
+
+  ambiguity_at_seed: 0.08         # v9 인터뷰 최종 점수 (gate ≤ 0.20)
+
+# ─────────────────────────────────────────────────────────────────────
+# Resolved Ambiguities — v1 8개 + v2 추가 결정
+# ─────────────────────────────────────────────────────────────────────
+resolved_ambiguities:
+  # v1 그대로
+  - issue: "픽셀 아트 자산 제작 책임자 미정"
+    decision: "MVP는 deskrpg 기본 자산 재활용 + 색상·이름 변경만. 신규 자산 제작은 future."
+  - issue: "부서(target_department) 분류 체계 미정"
+    decision: "MVP는 자유 텍스트(시연: '리테일'). enum 정규화는 future."
+  - issue: "RegulationVersion diff 산출 방식 미정"
+    decision: "MVP는 LLM 1줄 요약. 텍스트 diff는 future."
+  - issue: "4개 소스 interface_only 증명 경계 미정"
+    decision: "코드 stub + mock 데이터 1건/소스 (총 4건) — AC-007에서 검증."
+  - issue: "Notification vs NPCReport 트리거 관계 미정"
+    decision: "MVP는 NPCReport만. Notification은 future."
+  - issue: "Obsidian vault git sync 보안 경계 미정"
+    decision: "Private repo 강제. PRD에 보안 정책 명시."
+  - issue: "BCBS(영문) 처리 미정"
+    decision: "MVP는 RegulationSource.language=EN 메타만 등록. 번역은 future."
+  - issue: "Agent 타입 확장 함의 미정"
+    decision: "MVP는 CRAWLER + IMPACT_ANALYZER 2개만. 추가 타입은 future."
+
+  # v2 추가
+  - issue: "AI 미팅룸 처리 방식 (CUT vs KEEP vs REPURPOSE)"
+    decision: "REPURPOSE — '주간 컴플라이언스 회의실'로 변환. P0 포함. 메인 시연과 분리된 보너스 페이즈."
+  - issue: "맵 에디터·멀티플레이어 처리"
+    decision: "CUT 유지 — RegTrack 무관, 시연 1인 모드"
+  - issue: "LPC 캐릭터 커스터마이징 처리"
+    decision: "KEEP — 공수 0, 시연 임팩트 +"
+  - issue: "주간 회의의 시연 시점"
+    decision: "시연일 직전 1회 자동 발화 (수동 트리거). 실제 cron 주기 실행은 stretch."
+  - issue: "주간 회의 디지스트의 LLM 비용 영향"
+    decision: "주 1회 호출 가정 시 시연 기간 동안 ~$5 추가. $100 예산 내 흡수 가능."
+
+  # v4 추가
+  - issue: "Vault git sync 자동화 수준 (백엔드 자동 vs 사용자 수동)"
+    decision: "Obsidian Git plugin + 수동 push. AC-006 약화 (markdown 작성 + plugin 설정 확인만)."
+  - issue: "크롤링 대상 변경 거버넌스 (진행 중 우선순위 바뀔 가능성)"
+    decision: "주 1회 금요일 30분 retrospective + 소/중/대형 triage matrix (process_governance 섹션 참조)"
+
+  # v5 추가 (base repo clone 후 팀원 작업 확인 결과)
+  - issue: "Obsidian 통합 방식 (Backend 파일시스템 직접 vs 팀원의 REST API 방식)"
+    decision: "팀원 구현(Obsidian Local REST API plugin) 채택 — skills/obsidian/SKILL.md 준수. Backend는 vault/ 파일시스템 직접 접근 X."
+  - issue: "VaultDocument frontmatter 규칙 (free-form vs 강제)"
+    decision: "팀원 'Captain's Special Instructions' 준수: #topic 태그 + ## Connected Knowledge 섹션 + 1+ [[wikilink]] 강제"
+  - issue: "시연 환경 (Windows 호스트 + Oracle VM vs Mac 단일 노트북)"
+    decision: "보류 — 다음 retro·PM 회의 안건. 영향: docker-compose 구성, Obsidian 호스트 IP, 시연 시스템 요구사항"
+  - issue: "nanobot upstream + obsidian skill 충돌 시 우선순위"
+    decision: "팀원 작업물(jhkim43/reg-detection dev 브랜치) 우선. nanobot upstream pull은 시연 후"
+
+  # v6 추가 (LLM provider 변경)
+  - issue: "LLM provider 선택 (OpenAI/Claude vs OpenRouter+Qwen)"
+    decision: "OpenRouter + Qwen 채택 — 팀이 이미 결제·키 발급. OpenAI 호환 API라 코드 변경 minimal. Qwen이 저렴해 예산 여유 ↑"
+  - issue: "정확한 Qwen 모델 변종"
+    decision: "default placeholder: qwen/qwen-2.5-72b-instruct (범용·강력). 팀원 확인 후 v7에서 확정 (qwq-32b-preview, qwen-2.5-7b 등 가능성)"
+  - issue: "AC-008 임계치 ($40 단일 vs 단계별)"
+    decision: "단계별: $30 yellow / $60 orange / $90 red — 시각 효과 강화 + Qwen 저렴 반영"
+
+  # v7 추가 (Qwen 모델 확정)
+  - issue: "정확한 Qwen 변종 (v6 pending_v7)"
+    decision: "qwen/qwen3.6-35b-a3b 채택 — MoE 35B/3B active, $0.15/$1.00 per 1M tokens. 시연 기간 ~$1.30 추정"
+
+  # v8 추가 (deskrpg 라이센스)
+  - issue: "deskrpg(github.com/dandacompany/deskrpg) 라이센스 사용 가능 여부"
+    decision: "Sustainable Use License 1.0 — 학술·내부 사용 OK, 상업 배포 금지. AIMBA ABP 학술 시연 범위는 위반 없음. LPC asset의 LICENSE-assets.md(CC-BY-SA 3.0 등) 헤더는 유지 필수."
+  - issue: "deskrpg fork 시점 (즉시 fork vs M4 진입 시)"
+    decision: "M4 시작(W7) — 그 전까지는 reference 용도(코드 분석)로만 사용. fork 시점에 LICENSE/LICENSE-assets.md 그대로 보존."
+  - issue: "팀 4인 역할·실명 명시 여부"
+    decision: "현재 미확정 — 모든 문서는 일반 명칭(팀장/팀원1/팀원2/팀원3)으로 표기. 역할 확정 시 seed-v10+에서 갱신."
+
+  # v9 추가
+  - issue: "구조화 데이터 저장소 (SQLite 강제 vs PostgreSQL 채택) — seed-v8 must_not과 fork 실태 충돌"
+    decision: "PostgreSQL 채택 (로컬 docker-compose). SQLite 코드 일괄 제거. v8 must_not 위반 해소 — D-15/D-17 참조."
+  - issue: "pgvector MVP 포함 여부 (Postgres 채택 후)"
+    decision: "v8 stretch 그대로 유지. BM25 + Obsidian wikilink로 시작, 시연 직전 정확도 미달 시 enable — D-16 참조."
+  - issue: "OpenClaw 게이트웨이의 대체 범위 — seed-v8에 'openclaw' 0건이었으나 코드에 128+ 터치포인트"
+    decision: "9 functional categories에 대해 nanobot이 functional parity 제공. AC-013..021 신설."
+  - issue: "openclaw·nanobot dual-mode 운영 vs nanobot 단일 경로"
+    decision: "nanobot 단일 경로 (AI_PROVIDER=nanobot). openclaw 경로 즉시 제거 — D-18 참조. Q4 확인됨."
+  - issue: "Functional parity vs Behavioral parity vs Drop-in replacement"
+    decision: "Functional parity만 보장. byte 단위 latency·chunk 형식 동일성은 비기능 — D-19 참조. Q2 확인됨."
+  - issue: "Ed25519 device pairing을 nanobot도 구현? (Bearer Token만으로 가능)"
+    decision: "Full parity로 Ed25519 구현 + PairingStatusCard UI 재활용. UI 4상태 의존성 유지 — D-20 참조. Q5 확인됨."
+  - issue: "워크스페이스 파일 경로 (~/.openclaw/ 유지 vs ~/.nanobot/ rename)"
+    decision: "~/.nanobot/로 rename + 1회용 마이그레이션 스크립트 — D-21 참조. Q6 확인됨."
+  - issue: "IDENTITY.md/SOUL.md 동기화 정책 (drop vs write-only vs bidirectional)"
+    decision: "Write-only mirror (DB가 source of truth, nanobot은 .md read 안 함) — D-22 참조. Q7 확인됨. agent loop·prompt bloat 위험 없음."
+  - issue: "legacy npcs.openclawConfig.persona (string) fallback 코드 처리"
+    decision: "제거 — D-23 참조. Q8 확인됨 (fork 직후, 마이그레이션 데이터 없음)."
+  - issue: "openclaw parity AC를 하나로 묶을까 / 카테고리별로 쪼갤까 / critical path만"
+    decision: "9 카테고리별로 9 AC (AC-013..021). Q9 확인됨."
+  - issue: "DB 컬럼명 npcs.openclawConfig — rename vs 유지"
+    decision: "유지 (영향도 우선). 의미는 'gateway agent config'로 reinterpret, synonyms 섹션 매핑 — D-24 참조. Q3 확인됨."
+  - issue: "M3/M4 owner의 담당 AC 범위 확정"
+    decision: "AC-002/003/004/005/006/008/011/012 + AC-013..021 = 17 AC (owner 블록 참조). owner scope 확장 가능성은 v10 후보."
+  - issue: "AC-004(필터 UI)가 타 팀원 데이터 모델에 의존 — 명시 여부"
+    decision: "dependencies 블록 신설하여 AC-004→AC-001/007, AC-003→AC-001, AC-002→AC-001 명시."
+  - issue: "스토리보드 추가 시나리오 추출 시점"
+    decision: "v9는 현재 AC-005/011만 freeze. 추가 단계는 v10 이상에서 /interview → /seed 사이클로 evolve. living-spec methodology 활용."
+
+# ─────────────────────────────────────────────────────────────────────
+# Process Governance — v4 신규 (scope 변경·리뷰 cadence)
+# ─────────────────────────────────────────────────────────────────────
+process_governance:
+  retrospective:
+    cadence: "매주 금요일 30분"
+    participants: "팀 4인 (팀장(PM)·팀원1·팀원2·팀원3)"
+    agenda:
+      - "지난 주 발견된 scope 변경 안건 1줄씩"
+      - "이번 주 진척 vs 계획"
+      - "다음 주 cut/keep 결정"
+    output: "결정 사항을 git commit (또는 issue) + 필요 시 seed-vN 새 버전 발행"
+
+  scope_change_triage:
+    small:
+      definition: "단일 모듈·데이터값 변경 (예: FSS 게시판 우선순위 조정, parser_config 튜닝)"
+      decision_authority: "작업자 1인"
+      process: "git commit 메시지에 사유 1줄 포함"
+      seed_impact: "없음"
+      example: "FSS '해설' 게시판 폴링 빈도 30분 → 60분으로 조정"
+    medium:
+      definition: "여러 모듈 영향 또는 신규 기능 (예: 새 게시판·필터 추가)"
+      decision_authority: "팀 합의 (주간 retro)"
+      process: "retro에서 결정 → 다음 주에 진행"
+      seed_impact: "없음 (constraints.should 또는 scope.mvp 보조 메모만)"
+      example: "FSS에 '공고' 게시판 추가 (Flexible Parser 활용)"
+    large:
+      definition: "MVP 대상·아키텍처 결정 변경 (예: FSS → BOK 전환, 데이터 레이어 교체)"
+      decision_authority: "어드바이저 + 팀 합의"
+      process: "retro에서 안건 → 어드바이저 회의 → seed-vN 새 버전 발행 → PRD·TRD 갱신"
+      seed_impact: "seed 새 버전 (immutable 원칙)"
+      example: "MVP 소스를 FSS에서 BOK으로 변경, ImpactAnalyzer를 LangGraph로 교체"
+
+  enforcement:
+    - "small 변경이 잦으면 medium으로 묶어 retro에서 재분류"
+    - "large 변경은 마일스톤 게이트(M2/M3/M4) 직전·직후에만 허용 (구현 도중 차단)"
+    - "어드바이저 부재 시 large는 다음 retro로 연기"
+
+# ─────────────────────────────────────────────────────────────────────
+# Owner — v9 신규 (M3/M4 담당자 AC 매핑)
+# ─────────────────────────────────────────────────────────────────────
+owner:
+  m3_m4_gateway:
+    role: "nanobot↔deskrpg 게이트웨이 + Obsidian 프론트엔드 통합 + 스토리보드 시연 구현"
+    person: "본 인터뷰이 (2026-05-19 인터뷰 기준)"
+    acs:
+      # v1~v2에서 본인 도메인 (8개)
+      - AC-002  # NPCReport(NEW_REGULATION) 대시보드 표시
+      - AC-003  # 분석 NPC Citation 응답 (in-world 말풍선)
+      - AC-004  # 대시보드 필터 4종
+      - AC-005  # 메인 시연 시나리오 4단계
+      - AC-006  # Obsidian Local REST + Vault + 웹 UI 표시
+      - AC-008  # LLM 사용량 위젯 + 임계치 enforcement (PR2a/2b 부분 완료)
+      - AC-011  # 주간 회의 NPC 모임 (AI 미팅룸 repurpose)
+      - AC-012  # LPC 캐릭터 커스터마이징
+      # v9 신규 (openclaw → nanobot parity 9개)
+      - AC-013  # NPC/Agent lifecycle parity
+      - AC-014  # Chat streaming parity
+      - AC-015  # Workspace file management parity (.md write-only mirror)
+      - AC-016  # Device pairing parity (Ed25519)
+      - AC-017  # Error mapping parity
+      - AC-018  # Configuration storage parity
+      - AC-019  # Authentication tokens parity
+      - AC-020  # Telemetry parity (AC-008과 통합)
+      - AC-021  # Provider abstraction hardening (dead code 제거)
+    ac_count: 17
+    scope_expansion_candidates_v10:
+      - "AC-001/007/009 일부 (크롤러 산출물 의존 시 본인이 데이터 모델 결정 가능성)"
+      - "신규 스토리보드 시나리오 단계 (v10 evolve 후)"
+      - "팀원 역할 4인 확정 시 재배분 가능성"
+
+  other_team:
+    role: "규제 도메인 (크롤러·데이터·버전 이력)"
+    person: "팀 4인 중 미배정 (역할 확정 v10+ 안건)"
+    acs:
+      - AC-001  # FSS 보도·규정·해설 크롤러 + Regulation 저장
+      - AC-007  # 4개 소스 RegulationSource 시딩 + mock 1건씩
+      - AC-009  # RegulationVersion 이력 (2회 이상 + diff_summary)
+
+  shared:
+    role: "harness 게이트 + CI"
+    acs:
+      - AC-010  # .harness/gates default 통과 — 모든 PR에서 자동 검증
+
+# ─────────────────────────────────────────────────────────────────────
+# Dependencies — v9 신규 (AC 간 데이터/실행 의존성)
+# ─────────────────────────────────────────────────────────────────────
+dependencies:
+  policy: |
+    AC 간 의존성을 명시하여 owner block의 작업 순서를 가시화한다.
+    'depends_on'은 strong dependency (선행 미완 시 후행 불가).
+    'soft_depends_on'은 weak dependency (선행 없이도 mock으로 진행 가능, 통합 시점에 필요).
+
+  edges:
+    # owner=m3_m4_gateway가 owner=other_team에 의존하는 cross-team 경계
+    - ac: AC-002
+      depends_on: [AC-001]
+      reason: "Regulation 엔티티 생성 후 NPCReport(NEW_REGULATION)가 의미 있음. mock Regulation으로 우선 구현 가능 (soft)."
+      severity: "soft"
+      mitigation: "AC-001 완료 전에는 fixture Regulation 1건으로 통합 테스트, 통합 시점에 실 데이터로 교체"
+
+    - ac: AC-003
+      depends_on: [AC-001]
+      soft_depends_on: [AC-006]
+      reason: "분석 NPC가 Regulation·Citation을 들고 응답. Obsidian Vault(AC-006)에서 RAG 데이터를 조회."
+      severity: "strong (AC-001) / soft (AC-006)"
+      mitigation: "AC-001 mock으로 시작, AC-006는 fake Vault로 우선 진행"
+
+    - ac: AC-004
+      depends_on: [AC-001, AC-007]
+      reason: "필터 4종(source_codes/change_types/target_departments/date_range)이 Regulation·RegulationSource 모델에 직접 쿼리"
+      severity: "strong"
+      mitigation: "fixture seed 데이터로 UI·쿼리 골격은 선행 가능, 실 데이터는 AC-001/007 완료 후"
+
+    - ac: AC-005
+      depends_on: [AC-001, AC-002, AC-003]
+      reason: "메인 시연 4단계는 (2) 신규 Regulation 보고 + (3) 분석 NPC 질문 + (4) Citation 응답을 모두 통합"
+      severity: "strong"
+      mitigation: "각 단계별로 따로 통과시킨 후 마지막에 end-to-end 통합 — Pair Mode 강제"
+
+    - ac: AC-009
+      depends_on: [AC-001]
+      reason: "RegulationVersion 이력은 Regulation 본 모델 위에 쌓임 (cross-team 작업)"
+      severity: "strong"
+
+    - ac: AC-011
+      depends_on: [AC-001, AC-003]
+      soft_depends_on: [AC-009]
+      reason: "MeetingReport (a) 신규 건수 + (b) HIGH 영향 + (c) top Citation + (d) 다음 주 권고는 Regulation·ImpactAnalysis 집합 필요"
+      severity: "strong (AC-001/003) / soft (AC-009)"
+
+    # m3_m4_gateway 내부 의존성
+    - ac: AC-008
+      depends_on: [AC-020]
+      reason: "LLM 위젯 데이터 소스가 LLMUsageRecord — nanobot 모드 telemetry parity(AC-020)가 위젯에 데이터 공급"
+      severity: "strong"
+      mitigation: "AC-008 위젯 UI는 fake 데이터로 선행 (이미 PR2a/2b), AC-020 통합 시 실데이터로 교체"
+
+    - ac: AC-013
+      depends_on: [AC-018, AC-019]
+      reason: "NPC lifecycle은 configuration storage(personaConfig)와 authentication token이 선행 필요"
+      severity: "strong"
+
+    - ac: AC-014
+      depends_on: [AC-013, AC-017, AC-019]
+      reason: "chat streaming은 lifecycle(agent 생성)·error mapping(연결 실패 처리)·auth(token)이 선행 필요"
+      severity: "strong"
+
+    - ac: AC-015
+      depends_on: [AC-013]
+      reason: "워크스페이스 .md mirror는 agent lifecycle 일부"
+      severity: "strong"
+
+    - ac: AC-016
+      depends_on: [AC-019]
+      reason: "Ed25519 pairing은 토큰 암호화 저장 매커니즘과 통합"
+      severity: "strong"
+
+    - ac: AC-020
+      depends_on: [AC-014]
+      reason: "telemetry는 chat streaming 호출 시점에 LLMUsageRecord 적재 — streaming(AC-014) 위에서 동작"
+      severity: "strong"
+
+    - ac: AC-021
+      depends_on: [AC-013, AC-014, AC-015, AC-016, AC-017, AC-018, AC-019, AC-020]
+      reason: "Provider abstraction hardening은 다른 8개 parity AC가 모두 nanobot 단일 경로로 동작 가능한 후에 openclaw dead code 제거"
+      severity: "strong"
+      mitigation: "마지막에 수행 — contract phase로서 자연스러운 순서"
+
+  recommended_execution_order:
+    description: "owner=m3_m4_gateway의 17 AC를 의존성 위배 없이 진행할 권고 순서. /decompose 시 참고용."
+    phases:
+      - phase: 1
+        name: "Foundation (다른 팀 의존 최소, 본인 단독 가능)"
+        acs: [AC-012, AC-018, AC-019]
+        rationale: "LPC 커스터마이징은 독립. Configuration·Auth는 다른 모든 parity AC의 기반."
+      - phase: 2
+        name: "Gateway core (parity 핵심)"
+        acs: [AC-013, AC-016, AC-017]
+        rationale: "NPC lifecycle + pairing + error mapping은 서로 약하게 결합, 병렬 가능."
+      - phase: 3
+        name: "Streaming + telemetry"
+        acs: [AC-014, AC-015, AC-020]
+        rationale: "chat streaming 위에서 telemetry + .md mirror"
+      - phase: 4
+        name: "AC-008 enforcement 완결 + 위젯 데이터 교체"
+        acs: [AC-008]
+        rationale: "AC-020 완료 후 위젯 데이터 소스 교체 + $60/$90 enforcement 추가"
+      - phase: 5
+        name: "Obsidian frontend + 단일 필터·메인 UI"
+        acs: [AC-006, AC-004, AC-012]
+        rationale: "다른 팀 산출물(AC-001/007) 완료 시점과 맞물려 진행"
+      - phase: 6
+        name: "Integration (다른 팀 산출물 통합)"
+        acs: [AC-002, AC-003, AC-011, AC-005]
+        rationale: "Regulation·Citation 실데이터 의존 — 다른 팀 완료 후 마지막 통합"
+      - phase: 7
+        name: "Contract phase (dead code 제거)"
+        acs: [AC-021]
+        rationale: "다른 모든 nanobot AC 완료 후 openclaw 경로 일괄 제거. parallel-change contract."
+
+# ─────────────────────────────────────────────────────────────────────
+# Risk Register — v8 carry-over + v9 신규 (R-19/R-20)
+# ─────────────────────────────────────────────────────────────────────
+risk_register:
+  # v8 carry-over
+  - id: R-18
+    title: "deskrpg/LPC 라이센스 위반 (Sustainable Use License 1.0 + CC-BY-SA)"
+    severity: "Low-Medium"
+    likelihood: "Low (학술 시연 범위 내)"
+    mitigation: "non_goal 명시 + must_not 명시 + LICENSE/LICENSE-assets.md 헤더 유지"
+
+  # v9 신규
+  - id: R-19
+    title: "openclaw → nanobot 대체 중 회귀 위험 (128+ 터치포인트, 18+ 파일)"
+    severity: "High"
+    likelihood: "Medium"
+    mitigation: |
+      (1) 9 functional category 각각 testable AC로 분리 (AC-013..021),
+      (2) PR을 category 단위로 분할 (한 PR에 9개 다 안 묶음),
+      (3) AC-021(contract phase, dead code 제거)을 마지막에 수행,
+      (4) Pair Mode + Test Designer 강제 (high complexity AC-013/014/016)
+    owner: m3_m4_gateway
+
+  - id: R-20
+    title: "Ed25519 페어링 구현 누락 시 시연 봉인 (UI 4상태 의존)"
+    severity: "High"
+    likelihood: "Low-Medium"
+    mitigation: |
+      (1) AC-016을 phase 2에 배치 (조기 발견),
+      (2) 시연 직전 페어링 dry-run 1회 강제 (process_governance.retrospective 안건),
+      (3) PairingStatusCard UI는 4상태 모두 시각적 테스트 (storybook 또는 수동)
+    owner: m3_m4_gateway
+
+  - id: R-21
+    title: "PostgreSQL docker-compose ready 전에 deskrpg/nanobot 컨테이너 기동 → connection refused"
+    severity: "Medium"
+    likelihood: "Medium"
+    mitigation: "docker-compose healthcheck + depends_on condition (constraints.should 참조)"
+    owner: m3_m4_gateway
+
+  - id: R-22
+    title: "SQLite 제거 과정에서 drizzle 마이그레이션 누락 → 부팅 시 schema 부재"
+    severity: "Medium"
+    likelihood: "Low"
+    mitigation: "PR 머지 전 fresh docker volume에서 migrate.js + seed 스크립트 통과 검증 (CI 추가)"
+    owner: m3_m4_gateway

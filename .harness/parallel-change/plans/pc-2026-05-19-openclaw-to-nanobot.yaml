@@ -1,0 +1,50 @@
+schema_version: 1
+id: pc-2026-05-19-openclaw-to-nanobot
+title: OpenClaw → Nanobot provider 단일화 (seed-v9 D-18/D-19)
+created_at: '2026-05-19T01:22:05Z'
+created_by: deukkyu
+target:
+  type: ''
+  description: ''
+old:
+  symbol: OpenClawGateway + AI_PROVIDER=openclaw
+  files: []
+  caller_pattern: (OpenClawGateway|AI_PROVIDER[^=]*===?[^"]*"openclaw"|openclaw-gateway)
+new:
+  symbol: nanobotAdapter + AI_PROVIDER=nanobot (single path)
+  files: []
+  caller_pattern: (nanobotAdapter|isNanobotProvider|createNanobotAdapter)
+caller_scan:
+  exclude_files: []
+  exclude_dirs:
+  - .git
+  - node_modules
+  - dist
+  - build
+  - .harness
+  - .next
+  - drizzle
+  scan_dirs:
+  - deskrpg/src
+  - deskrpg/server.js
+  - deskrpg/dev-server.ts
+  - deskrpg/scripts
+  - nanobot/nanobot
+phases:
+  current: expand
+  history:
+  - phase: expand
+    entered_at: '2026-05-19T01:22:05Z'
+expand_criteria:
+- Both old and new signatures exist in the codebase
+- Tests exist for new signature
+migrate_criteria:
+- All known callers switched to new signature
+contract_criteria:
+- Zero callers reference old signature
+last_check:
+  timestamp: '2026-05-19T01:25:16Z'
+  caller_count_old: 11
+  caller_count_new: 10
+  state_consistent: true
+notes: []
