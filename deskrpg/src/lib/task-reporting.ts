@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm/sql";
+import { isPostgres } from "../db/server-db.js";
 
 export interface TaskAutomationConfig {
   autoProgressNudgeEnabled: boolean;
@@ -108,8 +109,13 @@ const DEFAULT_TASK_AUTOMATION_CONFIG: TaskAutomationConfig = {
   reportWaitSeconds: 20,
 };
 
-function nowIso() {
+function nowIso(): string {
   return new Date().toISOString();
+}
+
+// Postgres timestamp columns expect Date, SQLite text columns expect ISO string.
+function dbNow(): Date | string {
+  return isPostgres ? new Date() : new Date().toISOString();
 }
 
 function normalizeTimestamp(value: string | Date | null | undefined) {
@@ -271,7 +277,7 @@ export function buildQueuedReportRow(input: QueuedReportRowInput) {
     ...input,
     kind: input.kind ?? "complete",
     status: "pending" as const,
-    createdAt: nowIso(),
+    createdAt: dbNow() as unknown as Date,
     deliveredAt: null,
     consumedAt: null,
   };
@@ -365,7 +371,7 @@ export async function markReportDelivered(
     .update(reports)
     .set({
       status: "delivered",
-      deliveredAt: nowIso() as unknown as Date,
+      deliveredAt: dbNow() as unknown as Date,
     })
     .where(eq(reports.id, reportId));
 }
@@ -382,7 +388,7 @@ export async function markReportConsumed(
     .update(reports)
     .set({
       status: "consumed",
-      consumedAt: nowIso() as unknown as Date,
+      consumedAt: dbNow() as unknown as Date,
     })
     .where(eq(reports.id, reportId));
 }

@@ -9,6 +9,7 @@ import TaskChatView, { type TaskMessage } from "./TaskChatView";
 import ChatInput from "./ChatInput";
 import Tab from "./ui/Tab";
 import ChatBubble from "./ui/ChatBubble";
+import TaskConfirmButtons, { isTaskConfirmPrompt } from "./TaskConfirmButtons";
 
 export interface ChannelChatMessage {
   id: string;
@@ -259,13 +260,20 @@ export default function ChatPanel({
                     </div>
                   )}
                   {npcMessages.map((msg, i) => (
-                    <ChatBubble
-                      key={i}
-                      sender={msg.role === "player" ? "player" : "npc"}
-                      streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
-                    >
-                      {msg.content}
-                    </ChatBubble>
+                    <div key={i}>
+                      <ChatBubble
+                        sender={msg.role === "player" ? "player" : "npc"}
+                        streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
+                      >
+                        {msg.content}
+                      </ChatBubble>
+                      {msg.role === "npc" && !isNpcStreaming && i === npcMessages.length - 1 && isTaskConfirmPrompt(msg.content) && (
+                        <TaskConfirmButtons
+                          onConfirm={() => onSend("등록해")}
+                          onCancel={() => onSend("취소")}
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
                 <ChatInput
