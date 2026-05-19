@@ -13,7 +13,7 @@ import {
   localizeNpcPromptDocument,
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
-import { deleteNanobotAgentWorkspace, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
+import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
 import { isNanobotProvider } from "@/lib/nanobot-client";
 
@@ -197,37 +197,54 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             soul: localizeNpcPromptDocument(newSoul, normalizedLocale, "soul"),
           };
 
-      // If NPC has an agent and identity/soul changed, update on gateway via RPC.
-      // nanobot mode: persona is re-read from DB on each chat call; gateway update is a no-op.
-      if (!isNanobotProvider() && existingAgentId) {
-        try {
-          if (personaConfig.identity) {
+      // If NPC has an agent and identity/soul changed, update on gateway.
+      // - openclaw mode: RPC agents.files.set (gateway side mounts the persona).
+      // - nanobot mode (T-028, AC-015): DB가 SoT (D-22)이므로 RPC는 no-op. 다만
+      //   ~/.nanobot/workspace-${agentId}/{IDENTITY,SOUL,AGENTS}.md를 write-only
+      //   mirror로 갱신해 디버깅·tail 가능하게 유지.
+      const meetingProtocol = hasNpcPresetDefaults(body.presetId)
+        ? getNpcPresetDefaults({
+            presetId: body.presetId,
+            npcName: nextName,
+            locale: normalizedLocale,
+          }).meetingProtocol
+        : getDefaultMeetingProtocol(normalizedLocale);
+
+      if (existingAgentId) {
+        if (isNanobotProvider()) {
+          try {
+            await setAgentFiles(existingAgentId, {
+              identity: personaConfig.identity || undefined,
+              soul: personaConfig.soul || undefined,
+              meetingProtocol,
+            });
+          } catch (err) {
+            console.warn("Failed to write nanobot persona mirror files:", err);
+          }
+        } else {
+          try {
+            if (personaConfig.identity) {
+              await internalRpc(npc.channelId, "agents.files.set", {
+                agentId: existingAgentId,
+                name: "IDENTITY.md",
+                content: personaConfig.identity,
+              });
+            }
+            if (personaConfig.soul) {
+              await internalRpc(npc.channelId, "agents.files.set", {
+                agentId: existingAgentId,
+                name: "SOUL.md",
+                content: personaConfig.soul,
+              });
+            }
             await internalRpc(npc.channelId, "agents.files.set", {
               agentId: existingAgentId,
-              name: "IDENTITY.md",
-              content: personaConfig.identity,
+              name: "AGENTS.md",
+              content: meetingProtocol,
             });
+          } catch (err) {
+            console.warn("Failed to update persona files on gateway:", err);
           }
-          if (personaConfig.soul) {
-            await internalRpc(npc.channelId, "agents.files.set", {
-              agentId: existingAgentId,
-              name: "SOUL.md",
-              content: personaConfig.soul,
-            });
-          }
-          await internalRpc(npc.channelId, "agents.files.set", {
-            agentId: existingAgentId,
-            name: "AGENTS.md",
-            content: hasNpcPresetDefaults(body.presetId)
-              ? getNpcPresetDefaults({
-                  presetId: body.presetId,
-                  npcName: nextName,
-                  locale: normalizedLocale,
-                }).meetingProtocol
-              : getDefaultMeetingProtocol(normalizedLocale),
-          });
-        } catch (err) {
-          console.warn("Failed to update persona files on gateway:", err);
         }
       }
 

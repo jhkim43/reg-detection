@@ -17,6 +17,7 @@ import {
   getNanobotHomeDir,
   getNanobotAgentWorkspaceDir,
   writeNanobotAgentFiles,
+  setAgentFiles,
   deleteNanobotAgentWorkspace,
   nanobotAgentWorkspaceExists,
 } from "./nanobot-agent-lifecycle";
@@ -138,4 +139,72 @@ test("nanobotAgentWorkspaceExists: false when workspace missing", async (t) => {
 
 test("nanobotAgentWorkspaceExists: false for empty agentId", async () => {
   assert.equal(await nanobotAgentWorkspaceExists(""), false);
+});
+
+// ─── T-028: setAgentFiles wrapper (AC-015 — updateNpcPersona side-effect) ───
+
+test("setAgentFiles: writes IDENTITY.md + SOUL.md + AGENTS.md when all provided", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  const result = await setAgentFiles(
+    "agent-100",
+    {
+      identity: "id-body",
+      soul: "soul-body",
+      meetingProtocol: "agents-body",
+    },
+    ctx.env,
+  );
+  assert.deepEqual(result.written.sort(), ["AGENTS.md", "IDENTITY.md", "SOUL.md"]);
+  const dir = getNanobotAgentWorkspaceDir("agent-100", ctx.env);
+  assert.equal(await fs.readFile(path.join(dir, "IDENTITY.md"), "utf8"), "id-body");
+  assert.equal(await fs.readFile(path.join(dir, "SOUL.md"), "utf8"), "soul-body");
+  assert.equal(await fs.readFile(path.join(dir, "AGENTS.md"), "utf8"), "agents-body");
+});
+
+test("setAgentFiles: identity only — partial update doesn't write SOUL/AGENTS", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  const result = await setAgentFiles("agent-101", { identity: "only-id" }, ctx.env);
+  assert.deepEqual(result.written, ["IDENTITY.md"]);
+  const dir = getNanobotAgentWorkspaceDir("agent-101", ctx.env);
+  assert.equal(await fs.readFile(path.join(dir, "IDENTITY.md"), "utf8"), "only-id");
+  await assert.rejects(() => fs.access(path.join(dir, "SOUL.md")));
+  await assert.rejects(() => fs.access(path.join(dir, "AGENTS.md")));
+});
+
+test("setAgentFiles: empty input — no files written, no error", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  const result = await setAgentFiles("agent-102", {}, ctx.env);
+  assert.deepEqual(result.written, []);
+});
+
+test("setAgentFiles: undefined values are skipped (not written as empty)", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  const result = await setAgentFiles(
+    "agent-103",
+    { identity: "id", soul: undefined, meetingProtocol: undefined },
+    ctx.env,
+  );
+  assert.deepEqual(result.written, ["IDENTITY.md"]);
+});
+
+test("setAgentFiles: empty string IS written (caller's explicit clear)", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  const result = await setAgentFiles("agent-104", { identity: "" }, ctx.env);
+  assert.deepEqual(result.written, ["IDENTITY.md"]);
+  const dir = getNanobotAgentWorkspaceDir("agent-104", ctx.env);
+  assert.equal(await fs.readFile(path.join(dir, "IDENTITY.md"), "utf8"), "");
+});
+
+test("setAgentFiles: re-write overwrites existing file content", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+  await setAgentFiles("agent-105", { identity: "v1" }, ctx.env);
+  await setAgentFiles("agent-105", { identity: "v2" }, ctx.env);
+  const dir = getNanobotAgentWorkspaceDir("agent-105", ctx.env);
+  assert.equal(await fs.readFile(path.join(dir, "IDENTITY.md"), "utf8"), "v2");
 });

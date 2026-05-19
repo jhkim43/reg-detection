@@ -55,6 +55,38 @@ export async function writeNanobotAgentFiles(
 }
 
 /**
+ * seed-v9 AC-015 T-028 — updateNpcPersona side-effect.
+ *
+ * 페르소나 update 시 mirror 파일도 갱신. writeNanobotAgentFiles 위의 typed
+ * wrapper로, identity/soul/meetingProtocol 중 제공된 것만 골라서 쓴다.
+ * undefined인 키는 건드리지 않음(부분 update 의미).
+ *
+ * - nanobot agent loop은 이 파일들을 read 하지 않는다 (D-22, DB가 SoT).
+ * - 디버깅·tail 용도 mirror — 파일은 단방향 write.
+ */
+export async function setAgentFiles(
+  agentId: string,
+  files: { identity?: string; soul?: string; meetingProtocol?: string },
+  env: Record<string, string | undefined> = process.env,
+): Promise<{ workspacePath: string; written: string[] }> {
+  const list: AgentFile[] = [];
+  if (typeof files.identity === "string") {
+    list.push({ name: "IDENTITY.md", content: files.identity });
+  }
+  if (typeof files.soul === "string") {
+    list.push({ name: "SOUL.md", content: files.soul });
+  }
+  if (typeof files.meetingProtocol === "string") {
+    list.push({ name: "AGENTS.md", content: files.meetingProtocol });
+  }
+  if (list.length === 0) {
+    const workspacePath = getNanobotAgentWorkspaceDir(agentId.trim(), env);
+    return { workspacePath, written: [] };
+  }
+  return writeNanobotAgentFiles(agentId, list, env);
+}
+
+/**
  * agent 삭제: workspace 디렉토리 cleanup.
  * DB persona 삭제는 호출자 책임 (route에서 npcs row DELETE).
  */
