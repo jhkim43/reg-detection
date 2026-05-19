@@ -666,7 +666,13 @@ function GamePageInner() {
 
       // Generic NPC chat responses should stay in the dialog.
       // Only explicit report-ready events should pull an NPC over to the player.
-      socketInstance.on("npc:response-complete", () => {});
+      // seed-v9 AC-014 T-026: server may emit {aborted:true} after chat:abort —
+      // clear streaming state so the input becomes usable again.
+      socketInstance.on("npc:response-complete", (data: { npcId?: string; aborted?: boolean }) => {
+        if (data?.aborted) {
+          setIsNpcStreaming(false);
+        }
+      });
 
       socketInstance.on("npc:returning", (data: { npcId: string }) => {
         EventBus.emit("npc:start-return", { npcId: data.npcId });
@@ -2241,6 +2247,9 @@ function GamePageInner() {
             npcChatInputDisabled={!socketConnected}
             npcChatDisabledPlaceholder={t("chat.disconnected")}
             onSend={handleDialogSend}
+            onAbort={(npcId) => {
+              if (socketRef.current) socketRef.current.emit("chat:abort", { npcId });
+            }}
             onClose={handleDialogClose}
             npcSelectList={npcSelectList}
             onSelectNpc={handleSelectNpc}

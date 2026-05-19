@@ -26,6 +26,8 @@ interface ChatPanelProps {
   npcChatInputDisabled?: boolean;
   npcChatDisabledPlaceholder?: string;
   onSend: (message: string, files?: File[]) => void;
+  /** seed-v9 AC-014 T-026 — in-flight NPC chat stream 중단 콜백 */
+  onAbort?: (npcId: string) => void;
   onClose: () => void;
   npcSelectList: { npcId: string; npcName: string }[] | null;
   onSelectNpc: (npcId: string, npcName: string) => void;
@@ -59,7 +61,7 @@ const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 320;
 
 export default function ChatPanel({
-  dialogNpc, npcMessages, isNpcStreaming, npcChatInputDisabled, npcChatDisabledPlaceholder, onSend, onClose,
+  dialogNpc, npcMessages, isNpcStreaming, npcChatInputDisabled, npcChatDisabledPlaceholder, onSend, onAbort, onClose,
   npcSelectList, onSelectNpc, isOwner, onEditNpc, onFireNpc, onResetNpcChat,
   channelMessages, channelChatOpen, channelChatInputDisabled, onSendChannelChat, currentPlayerName,
   npcMoveState, onReturnNpc, socket, onDeleteTask, onRequestReportTask, onResumeTask, onCompleteTask,
@@ -276,6 +278,18 @@ export default function ChatPanel({
                     </div>
                   ))}
                 </div>
+                {/* seed-v9 AC-014 T-026 — Abort 버튼: 응답 streaming 중에만 노출 */}
+                {isNpcStreaming && onAbort && dialogNpc && (
+                  <button
+                    type="button"
+                    onClick={() => onAbort(dialogNpc.npcId)}
+                    aria-label={t("chat.abort")}
+                    data-testid="npc-chat-abort"
+                    className="mb-2 self-start rounded-md border border-red-300 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 hover:text-red-800 focus:outline-none focus:ring-2 focus:ring-red-300"
+                  >
+                    {t("chat.abort")}
+                  </button>
+                )}
                 <ChatInput
                   onSend={onSend}
                   placeholder={t("chat.npcPlaceholder", { name: dialogNpc!.npcName })}

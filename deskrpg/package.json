@@ -36,6 +36,8 @@
     "pack:npm": "mkdir -p .artifacts/npm .artifacts/.npm-cache && npm_config_cache=.artifacts/.npm-cache npm pack --pack-destination .artifacts/npm",
     "start": "node server.js",
     "test": "tsx --test src/**/*.test.ts src/**/*.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
     "runtime:doctor": "node bin/deskrpg.js doctor",
     "tc": "bash scripts/tc",
     "prepack": "npm run build",
@@ -73,6 +75,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
