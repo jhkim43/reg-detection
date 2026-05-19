@@ -247,6 +247,18 @@ def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> flo
     return input_tokens * _DEFAULT_RATE[0] + output_tokens * _DEFAULT_RATE[1]
 
 
+def _classify_provider(model: str) -> str:
+    """seed-v9 AC-020 T-030 — model 문자열로부터 provider 라벨 결정.
+
+    'openrouter/...' prefix → 'openrouter' (upstream passthrough).
+    그 외 (NANOBOT_MODEL=qwen/... 같은 local 라우팅) → 'nanobot'.
+    빈 모델은 'nanobot' 기본값 (deskrpg/nanobot 내부 흐름이므로).
+    """
+    if not model:
+        return "nanobot"
+    return "openrouter" if model.lower().startswith("openrouter/") else "nanobot"
+
+
 def _extract_npc_id(session_key: str | None) -> str | None:
     if not session_key:
         return None
@@ -286,12 +298,18 @@ class LLMUsageRecordHook(AgentHook):
 
         # LLMResponse에는 model 필드가 없음. NANOBOT_MODEL env fallback (서버가 사용 중인 모델).
         model = ""
-        provider = "openrouter"
         if context.response is not None:
             model = getattr(context.response, "model", None) or ""
-            provider = getattr(context.response, "provider", None) or provider
         if not model:
             model = os.getenv("NANOBOT_MODEL", "")
+
+        # seed-v9 AC-020 T-030: provider 라벨은 model 문자열에서 분류.
+        # response가 명시적 provider 필드를 갖고 있으면 그것을 우선.
+        provider = (
+            getattr(context.response, "provider", None)
+            if context.response is not None
+            else None
+        ) or _classify_provider(model)
 
         phase = "llm_response"
         if context.tool_results:
@@ -304,7 +322,7 @@ class LLMUsageRecordHook(AgentHook):
         payload = {
             "sessionKey": context.session_key,
             "npcId": _extract_npc_id(context.session_key),
-            "provider": provider.upper() if provider else "OPENROUTER",
+            "provider": provider.upper() if provider else "NANOBOT",
             "model": model or "unknown",
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
