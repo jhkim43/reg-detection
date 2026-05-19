@@ -13,6 +13,7 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
 import { isNanobotProvider } from "@/lib/nanobot-client";
+import { writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
 
 export async function POST(req: NextRequest) {
   try {
@@ -70,10 +71,14 @@ export async function POST(req: NextRequest) {
           },
         ];
 
-    // nanobot mode: persona is stored in npcs.openclawConfig (set by POST /api/npcs).
-    // OpenClaw RPCs (agents.create / agents.files.set) are no-ops because nanobot's
-    // OpenAI-compatible API is stateless — system prompt is rebuilt per call from DB.
-    if (!isNanobotProvider()) {
+    // seed-v9 D-22: persona의 source of truth는 DB npcs.openclawConfig (POST /api/npcs에서 저장).
+    // nanobot mode (default): agents.create RPC는 no-op (stateless, system prompt를 매 호출 DB에서
+    //   재구성). 단 IDENTITY.md/SOUL.md는 write-only mirror로 워크스페이스에 같이 작성
+    //   (~/.nanobot/workspace-${agentId}/) — 인간 디버깅·tail 용도, nanobot loop은 read X.
+    // openclaw mode (deprecated): agents.create + agents.files.set RPC로 워크스페이스 동기화.
+    if (isNanobotProvider()) {
+      await writeNanobotAgentFiles(agentId.trim(), files);
+    } else {
       await internalRpc(channelId, "agents.create", {
         name: agentId.trim(),
         workspace: `~/.openclaw/workspace-${agentId.trim()}`,

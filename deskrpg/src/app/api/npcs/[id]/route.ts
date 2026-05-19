@@ -13,6 +13,7 @@ import {
   localizeNpcPromptDocument,
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
+import { deleteNanobotAgentWorkspace, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
 import { isNanobotProvider } from "@/lib/nanobot-client";
 
@@ -71,7 +72,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         sessionKeyPrefix: `ot-${id.slice(0, 8)}-${body.agentId}`,
       };
     } else if (body.agentAction === "create" && body.agentId) {
-      // nanobot mode skips OpenClaw agent CRUD — persona stays in npcs.openclawConfig only.
+      // seed-v9 D-22: nanobot mode는 agents.create RPC no-op + DB persona가 source of truth.
+      // 단 .md write-only mirror는 작성 (T-012). openclaw mode는 RPC + 워크스페이스 동기화.
       if (!isNanobotProvider()) {
         await internalRpc(npc.channelId, "agents.create", {
           name: body.agentId,
@@ -103,7 +105,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             },
           ];
 
-      if (!isNanobotProvider()) {
+      if (isNanobotProvider()) {
+        await writeNanobotAgentFiles(body.agentId, files);
+      } else {
         for (const file of files) {
           await internalRpc(npc.channelId, "agents.files.set", {
             agentId: body.agentId,
@@ -271,15 +275,25 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const { npc } = result;
 
-    // If NPC has an agent, remove it from the gateway via RPC
+    // If NPC has an agent, clean up workspace + remote gateway state.
     const openclawConfig = parseDbObject(npc.openclawConfig);
     const agentId = openclawConfig?.agentId as string | null;
 
-    if (agentId && !isNanobotProvider()) {
-      try {
-        await internalRpc(npc.channelId, "agents.delete", { agentId, deleteFiles: true });
-      } catch (err) {
-        console.warn(`Failed to remove agent ${agentId} from gateway (proceeding with NPC deletion):`, err);
+    if (agentId) {
+      if (isNanobotProvider()) {
+        // seed-v9 T-013: nanobot mode는 RPC 없이 워크스페이스 디렉토리 cleanup만.
+        // (DB의 npcs row 삭제는 아래에서 cascade로 처리)
+        try {
+          await deleteNanobotAgentWorkspace(agentId);
+        } catch (err) {
+          console.warn(`Failed to cleanup nanobot workspace for ${agentId} (proceeding with NPC deletion):`, err);
+        }
+      } else {
+        try {
+          await internalRpc(npc.channelId, "agents.delete", { agentId, deleteFiles: true });
+        } catch (err) {
+          console.warn(`Failed to remove agent ${agentId} from gateway (proceeding with NPC deletion):`, err);
+        }
       }
     }
 
