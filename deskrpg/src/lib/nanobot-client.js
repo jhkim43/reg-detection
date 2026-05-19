@@ -153,7 +153,7 @@ function createNanobotAdapter(deps) {
       }
       return {
         name: rows[0].name,
-        persona: oc.personaConfig || (oc.persona ? { identity: oc.persona, soul: "" } : null),
+        persona: oc.personaConfig || null,
       };
     } catch (_e) {
       return { name: "NPC", persona: null };

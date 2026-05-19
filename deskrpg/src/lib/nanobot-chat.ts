@@ -38,14 +38,11 @@ function loadPersonaFromNpc(openclawConfig: Record<string, unknown> | null): {
   const personaConfig = openclawConfig.personaConfig as
     | { identity?: string; soul?: string }
     | undefined;
-  if (personaConfig) {
-    return {
-      identity: typeof personaConfig.identity === "string" ? personaConfig.identity : "",
-      soul: typeof personaConfig.soul === "string" ? personaConfig.soul : "",
-    };
-  }
-  const legacyPersona = typeof openclawConfig.persona === "string" ? openclawConfig.persona : "";
-  return { identity: legacyPersona, soul: "" };
+  if (!personaConfig) return { identity: "", soul: "" };
+  return {
+    identity: typeof personaConfig.identity === "string" ? personaConfig.identity : "",
+    soul: typeof personaConfig.soul === "string" ? personaConfig.soul : "",
+  };
 }
 
 async function getNpcPersona(npcId: string, npcName: string): Promise<string> {
