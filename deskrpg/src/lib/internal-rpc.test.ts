@@ -13,10 +13,10 @@ import assert from "node:assert/strict";
 const internalTransport = require("./internal-transport.js") as {
   INTERNAL_SECRET_HEADER: string;
   buildInternalAuthHeaders: (secret?: string) => Record<string, string>;
-  getInternalSecret: (env?: NodeJS.ProcessEnv) => string;
-  getInternalSocketBaseUrl: (env?: NodeJS.ProcessEnv) => string;
-  getInternalSocketHostname: (env?: NodeJS.ProcessEnv) => string;
-  getInternalSocketPort: (env?: NodeJS.ProcessEnv) => string;
+  getInternalSecret: (env?: Record<string, string | undefined>) => string;
+  getInternalSocketBaseUrl: (env?: Record<string, string | undefined>) => string;
+  getInternalSocketHostname: (env?: Record<string, string | undefined>) => string;
+  getInternalSocketPort: (env?: Record<string, string | undefined>) => string;
   isInternalRequestAuthorized: (headers: Record<string, string> | Headers, secret?: string) => boolean;
 };
 

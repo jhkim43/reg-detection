@@ -29,6 +29,13 @@
       "when": 1779484200000,
       "tag": "0003_v9_cleanup_legacy_persona",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779487800000,
+      "tag": "0004_v9_nanobot_agent_sessions",
+      "breakpoints": true
     }
   ]
 }

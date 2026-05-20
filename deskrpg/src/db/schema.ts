@@ -377,3 +377,22 @@ export const llmUsageRecords = pgTable("llm_usage_records", {
   index("idx_llm_usage_created").on(table.createdAt),
   index("idx_llm_usage_npc").on(table.npcId),
 ]);
+
+// seed-v9 AC-013/AC-014 — nanobot 게이트웨이의 chat 세션 추적 (chatSend/chatAbort 단위).
+// session_key 형식: 'agent:<agentId>:<sessionName>' (openclaw parity).
+// nanobot은 stateless이지만 streaming chunk 시각 + timeout 감시 + 호출 토큰 집계용.
+export const nanobotAgentSessions = pgTable("nanobot_agent_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull(),  // npcs.openclawConfig.agentId 미러 (nanobot 모드는 npcId와 동일)
+  sessionKey: text("session_key").notNull(),  // 'agent:<id>:<name>'
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  lastChunkAt: timestamp("last_chunk_at", { withTimezone: true }),
+  abortedAt: timestamp("aborted_at", { withTimezone: true }),
+  timeoutMs: integer("timeout_ms").notNull().default(180000),  // 180s, openclaw parity
+  totalTokens: integer("total_tokens"),  // LLMUsageRecord와 join 후 집계
+}, (table) => [
+  uniqueIndex("nanobot_agent_sessions_agent_session_unique").on(table.agentId, table.sessionKey),
+  index("idx_nanobot_agent_sessions_started").on(table.startedAt),
+  index("idx_nanobot_agent_sessions_npc").on(table.npcId),
+]);
