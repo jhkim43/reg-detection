@@ -64,9 +64,5 @@ assets/lpc-office-tilesets/
 public/assets/built-in/downloads/
 tmp/*
 !tmp/.gitkeep
-tests/
-*.test.js
-*.test.ts
-*.test.tsx
 deploy/
 deploy/pre-deploy-checklist.md

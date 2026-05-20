@@ -22,6 +22,13 @@
       "when": 1779016800000,
       "tag": "0002_llm_usage_records",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779484200000,
+      "tag": "0003_v9_cleanup_legacy_persona",
+      "breakpoints": true
     }
   ]
 }
