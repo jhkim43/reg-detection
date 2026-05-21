@@ -20,8 +20,10 @@ import {
   transitionPairingState,
   getPairingMode,
   normalizeForUi,
+  attemptGatewayPairing,
   PairingState,
   PairingChallenge,
+  GatewayPairingProbeFetcher,
 } from "./pairing-manager";
 
 async function makeIsolatedHome(): Promise<{ env: Record<string, string | undefined>; cleanup: () => Promise<void> }> {
@@ -248,4 +250,176 @@ test("getPairingMode: 'auto' for any other value (auto/'' /'something')", () => 
   assert.equal(getPairingMode({ PAIRING_MODE: "auto" }), "auto");
   assert.equal(getPairingMode({ PAIRING_MODE: "" }), "auto");
   assert.equal(getPairingMode({ PAIRING_MODE: "anything" }), "auto");
+});
+
+// ─── T-022: attemptGatewayPairing (gateway pairing probe) ───
+
+function makeFetcher(handler: Parameters<GatewayPairingProbeFetcher>[1] extends infer _ ?
+  (url: string, init: Parameters<GatewayPairingProbeFetcher>[1]) => Awaited<ReturnType<GatewayPairingProbeFetcher>> | Error : never): GatewayPairingProbeFetcher {
+  return async (url, init) => {
+    const result = handler(url, init);
+    if (result instanceof Error) throw result;
+    return result;
+  };
+}
+
+test("attemptGatewayPairing: happy path (200 OK) → state=connected + httpStatus=200 + deviceId", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  let calledUrl: string | null = null;
+  let calledAuth: string | null = null;
+  const fetcher = makeFetcher((url, init) => {
+    calledUrl = url;
+    calledAuth = init.headers.Authorization;
+    return { ok: true, status: 200 };
+  });
+
+  const result = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "tok-valid",
+    env: ctx.env,
+    fetcher,
+  });
+
+  assert.equal(result.state, "connected");
+  assert.equal(result.httpStatus, 200);
+  assert.equal(typeof result.deviceId, "string");
+  assert.equal(result.deviceId.length, 64);
+  assert.equal(calledUrl, "http://127.0.0.1:8080/v1/models");
+  assert.equal(calledAuth, "Bearer tok-valid");
+  assert.equal(result.errorCode, undefined);
+});
+
+test("attemptGatewayPairing: invalid token (401) → state=pairing_required + 409 + errorCode=PAIRING_REQUIRED", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => ({ ok: false, status: 401, statusText: "Unauthorized" }));
+  const result = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "tok-bad",
+    env: ctx.env,
+    fetcher,
+  });
+
+  assert.equal(result.state, "pairing_required");
+  assert.equal(result.httpStatus, 409);
+  assert.equal(result.errorCode, "PAIRING_REQUIRED");
+  assert.match(result.error ?? "", /HTTP 401/);
+  assert.ok(result.instructions);
+  assert.match(result.instructions!, /^nanobot devices approve [0-9a-f]{64}$/);
+  assert.equal(result.instructions, `nanobot devices approve ${result.deviceId}`);
+});
+
+test("attemptGatewayPairing: forbidden (403) also maps to pairing_required", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => ({ ok: false, status: 403 }));
+  const result = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "tok-bad",
+    env: ctx.env,
+    fetcher,
+  });
+
+  assert.equal(result.state, "pairing_required");
+  assert.equal(result.httpStatus, 409);
+  assert.equal(result.errorCode, "PAIRING_REQUIRED");
+});
+
+test("attemptGatewayPairing: 5xx → state=error + 502 + errorCode=gateway_unreachable", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => ({ ok: false, status: 500, statusText: "Internal Server Error" }));
+  const result = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "tok-x",
+    env: ctx.env,
+    fetcher,
+  });
+
+  assert.equal(result.state, "error");
+  assert.equal(result.httpStatus, 502);
+  assert.equal(result.errorCode, "gateway_unreachable");
+  assert.match(result.error ?? "", /HTTP 500/);
+});
+
+test("attemptGatewayPairing: network throw → state=error + 502", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => new Error("ECONNREFUSED"));
+  const result = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "tok-x",
+    env: ctx.env,
+    fetcher,
+  });
+
+  assert.equal(result.state, "error");
+  assert.equal(result.httpStatus, 502);
+  assert.equal(result.errorCode, "gateway_unreachable");
+  assert.match(result.error ?? "", /ECONNREFUSED/);
+});
+
+test("attemptGatewayPairing: identityKey defaults to baseUrl + persistent deviceId across calls", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => ({ ok: true, status: 200 }));
+  const first = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "t",
+    env: ctx.env,
+    fetcher,
+  });
+  const second = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "t",
+    env: ctx.env,
+    fetcher,
+  });
+  assert.equal(first.deviceId, second.deviceId, "same identity key → same deviceId");
+});
+
+test("attemptGatewayPairing: different baseUrl → different deviceId (isolation)", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  const fetcher = makeFetcher(() => ({ ok: true, status: 200 }));
+  const a = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "t",
+    env: ctx.env,
+    fetcher,
+  });
+  const b = await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:9090",
+    token: "t",
+    env: ctx.env,
+    fetcher,
+  });
+  assert.notEqual(a.deviceId, b.deviceId);
+});
+
+test("attemptGatewayPairing: trailing slash in baseUrl is normalized in probe URL", async (t) => {
+  const ctx = await makeIsolatedHome();
+  t.after(ctx.cleanup);
+
+  let calledUrl: string | null = null;
+  const fetcher = makeFetcher((url) => {
+    calledUrl = url;
+    return { ok: true, status: 200 };
+  });
+
+  await attemptGatewayPairing({
+    baseUrl: "http://127.0.0.1:8080///",
+    token: "t",
+    env: ctx.env,
+    fetcher,
+  });
+  assert.equal(calledUrl, "http://127.0.0.1:8080/v1/models");
 });

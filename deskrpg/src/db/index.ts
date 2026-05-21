@@ -49,6 +49,7 @@ export const npcs = activeSchema.npcs;
 export const npcReports = activeSchema.npcReports;
 export const chatMessages = activeSchema.chatMessages;
 export const llmUsageRecords = (activeSchema as typeof pgSchema).llmUsageRecords;
+export const nanobotAgentSessions = (activeSchema as typeof pgSchema).nanobotAgentSessions;
 export const meetingMinutes = activeSchema.meetingMinutes;
 export const tasks = activeSchema.tasks;
 export const mapTemplates = activeSchema.mapTemplates;

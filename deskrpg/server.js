@@ -87,6 +87,14 @@ async function main() {
 
   const { db, schema } = require("./src/db/server-db.js");
   const { eq, and } = require("drizzle-orm");
+
+  // seed-v9 AC-014 T-026 production wiring — in-flight NPC chat 추적.
+  // socketId:npcId → { gateway, agentId, sessionKey }. chat:abort 이벤트가
+  // 이 맵을 lookup해 gateway.chatAbort 호출.
+  const pendingNpcChats = new Map();
+  function pendingNpcChatKey(socketId, npcId) {
+    return socketId + ":" + npcId;
+  }
   const { parseJson } = require("./src/db/normalize.js");
   const taskManager = new TaskManager(db, schema);
   const { MeetingBroker } = require("./src/lib/meeting-broker.js");
@@ -530,6 +538,10 @@ async function main() {
 
     const sessionKey = sessionKeyOverride || `${npcConfig.sessionKeyPrefix || npcId}-dm-${userId}`;
 
+    // seed-v9 AC-014 T-026 — pendingNpcChats 등록 (chat:abort 핸들러가 lookup).
+    const pendKey = pendingNpcChatKey(socket.id, npcId);
+    pendingNpcChats.set(pendKey, { gateway, agentId, sessionKey });
+
     try {
       const response = await gateway.chatSend(agentId, sessionKey, message, (delta) => {
         socket.emit(eventName, { npcId, chunk: delta, done: false });
@@ -540,6 +552,8 @@ async function main() {
       console.error("[npc] Chat error:", err.message);
       socket.emit(eventName, { npcId, chunk: "[AI Gateway error]", done: true });
       return "";
+    } finally {
+      pendingNpcChats.delete(pendKey);
     }
   }
 
@@ -957,6 +971,25 @@ ${transcript}
       const player = players.get(socket.id);
       if (!player || !npcId || !player.characterId) return;
       await chatHistory.resetHistory(player.characterId, npcId);
+    });
+
+    // seed-v9 AC-014 T-026 — in-flight NPC chat 중단 (HTTP-level abort).
+    // 사용자 "중단" 클릭 → 이 이벤트 → AbortController.abort()로
+    // deskrpg ↔ nanobot SSE 연결 종료. nanobot 내부 LLM은 별 cancel endpoint
+    // 도입 전까지는 자기 cancel 안 함 (backlog 4).
+    socket.on("chat:abort", async ({ npcId }) => {
+      if (!npcId) return;
+      const pendKey = pendingNpcChatKey(socket.id, npcId);
+      const entry = pendingNpcChats.get(pendKey);
+      if (!entry || !entry.gateway || typeof entry.gateway.chatAbort !== "function") return;
+      try {
+        await entry.gateway.chatAbort(entry.agentId, entry.sessionKey);
+        socket.emit("npc:response-complete", { npcId, aborted: true });
+      } catch (err) {
+        console.error("[npc:abort] chatAbort failed for", npcId, ":", err && err.message);
+      } finally {
+        pendingNpcChats.delete(pendKey);
+      }
     });
 
     socket.on("npc:report-consumed", async ({ reportId }) => {

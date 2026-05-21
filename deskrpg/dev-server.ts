@@ -50,6 +50,22 @@ const app = next({ dev: true, hostname, port: preferredPort });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
+  // seed-v9 AC-015 T-029: 첫 부팅 시 legacy openclaw 디렉토리를 nanobot으로 이동.
+  // 멱등 — 이미 마이그레이션됐거나 legacy가 없으면 no-op. 실패해도 부팅은 계속.
+  try {
+    const { migrateLegacyOpenClawPaths } = await import("./src/lib/nanobot-path-migration");
+    const result = await migrateLegacyOpenClawPaths();
+    for (const step of result.steps) {
+      if (step.action === "moved") {
+        console.log(`✓ [migrate] ${step.from} → ${step.to}`);
+      } else if (step.action === "error") {
+        console.warn(`⚠ [migrate] ${step.from} → ${step.to} failed: ${step.error}`);
+      }
+    }
+  } catch (err) {
+    console.warn("[migrate] legacy path migration encountered an error:", err);
+  }
+
   const port = await findAvailablePort(preferredPort);
   if (port !== preferredPort) {
     console.log(`⚠ Port ${preferredPort} in use, using ${port} instead`);

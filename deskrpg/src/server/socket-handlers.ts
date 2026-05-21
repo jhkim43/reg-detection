@@ -22,7 +22,13 @@ function chatLog(...args: unknown[]) { if (DEBUG_CHAT) console.log("[npc:chat]",
 import { parseDbObject } from "../lib/db-json";
 import { getGatewayRuntimeConfigForChannel } from "../lib/gateway-resources";
 import { isNanobotProvider } from "../lib/nanobot-client";
-import { nanobotChatSend, nanobotChatPlain } from "../lib/nanobot-chat";
+import { nanobotChatSend, nanobotChatPlain, buildNanobotChatPrompt } from "../lib/nanobot-chat";
+import { chatSendStream, chatAbortStream } from "../lib/nanobot-chat-streaming";
+import {
+  defaultNanobotChatStreamRepo,
+  ensureNanobotAgentSession,
+} from "../lib/nanobot-chat-streaming-repo";
+import { env } from "../lib/env";
 import {
   buildChannelAccessDeniedPayload,
   type ChannelAccessDeniedReason,
@@ -146,6 +152,38 @@ function getSocketLocale(socket: Socket) {
   const cookieHeader = socket.handshake.headers.cookie || "";
   const localeMatch = cookieHeader.match(/(?:^|;\s*)deskrpg-locale=([^;]+)/);
   return normalizeTaskPromptLocale(localeMatch?.[1]);
+}
+
+// seed-v9 AC-014 T-026 — in-flight chat 추적. socketId:npcId → {agentId, sessionKey, gateway}.
+// chat:abort socket 이벤트가 들어오면 이 맵에서 lookup해 gateway.chatAbort 호출.
+type PendingChatEntry = {
+  agentId: string;
+  sessionKey: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  gateway: { chatAbort?: (agentId: string, sessionKey: string) => Promise<void> } & any;
+};
+const pendingChats = new Map<string, PendingChatEntry>();
+function pendingChatKey(socketId: string, npcId: string): string {
+  return `${socketId}:${npcId}`;
+}
+function registerPendingChat(socketId: string, npcId: string, entry: PendingChatEntry) {
+  pendingChats.set(pendingChatKey(socketId, npcId), entry);
+}
+function clearPendingChat(socketId: string, npcId: string) {
+  pendingChats.delete(pendingChatKey(socketId, npcId));
+}
+async function abortPendingChat(socketId: string, npcId: string): Promise<boolean> {
+  const entry = pendingChats.get(pendingChatKey(socketId, npcId));
+  if (!entry?.gateway?.chatAbort) return false;
+  try {
+    await entry.gateway.chatAbort(entry.agentId, entry.sessionKey);
+    return true;
+  } catch (err) {
+    console.error(`[npc:abort] chatAbort failed for ${npcId}:`, err);
+    return false;
+  } finally {
+    pendingChats.delete(pendingChatKey(socketId, npcId));
+  }
 }
 
 type ManagedTask = {
@@ -478,6 +516,14 @@ async function scanProgressNudges(io: Server) {
 
 // nanobot adapter: same chatSend signature as OpenClawGateway so meeting-broker
 // and other consumers can call it without knowing the difference.
+//
+// seed-v9 AC-014 (T-023/024/025): chatSend는 180s timeout + SSE chunk onDelta +
+// nanobotAgentSessions row 추적. chatAbort는 in-flight abortController를 lookup해
+// 실제 cancel + DB aborted_at 기록.
+
+const nanobotAbortControllers = new Map<string, AbortController>();
+const nanobotSessionKey = (agentId: string, sessionKey: string) => `${agentId}::${sessionKey}`;
+
 function buildNanobotGatewayAdapter() {
   return {
     isConnected: () => true,
@@ -488,16 +534,43 @@ function buildNanobotGatewayAdapter() {
       message: string,
       onDelta?: (delta: string) => void,
     ) => {
-      // agentId in nanobot mode is the NPC id (set in getNpcConfig).
-      return nanobotChatSend({
-        npcId: agentId,
-        npcName: agentId,
-        message,
-        onDelta,
-        sessionId: sessionKey,
-      });
+      // nanobot 모드에서 agentId == npcId (AC-013 D-22 mirror).
+      const key = nanobotSessionKey(agentId, sessionKey);
+      const ac = new AbortController();
+      nanobotAbortControllers.set(key, ac);
+      try {
+        await ensureNanobotAgentSession({ npcId: agentId, agentId, sessionKey });
+      } catch (err) {
+        // FK 위반 등은 무시 — 세션 추적은 best-effort.
+        console.warn("[nanobot:chat] ensureSession failed:", err);
+      }
+      try {
+        const result = await chatSendStream({
+          agentId,
+          sessionKey,
+          message,
+          baseUrl: env.NANOBOT_API_URL,
+          onDelta: onDelta ?? (() => {}),
+          abortController: ac,
+          repo: defaultNanobotChatStreamRepo,
+        });
+        return result.fullText;
+      } finally {
+        nanobotAbortControllers.delete(key);
+      }
     },
-    chatAbort: async () => {},
+    chatAbort: async (agentId: string, sessionKey: string) => {
+      const key = nanobotSessionKey(agentId, sessionKey);
+      const ac = nanobotAbortControllers.get(key);
+      if (!ac) return;
+      await chatAbortStream({
+        agentId,
+        sessionKey,
+        abortController: ac,
+        repo: defaultNanobotChatStreamRepo,
+      });
+      nanobotAbortControllers.delete(key);
+    },
   };
 }
 
@@ -643,24 +716,37 @@ async function streamNpcResponse(
   const sessionKey = sessionKeyOverride || `${sessionKeyPrefix || npcId}-dm-${userId}`;
 
   if (isNanobotProvider()) {
+    // seed-v9 AC-014 T-023/024/025/026: nanobot 모드 DM은 gateway adapter를 통해
+    // chatSendStream 파이프라인을 거친다 → 180s timeout + DB session 추적 + abort 지원.
+    const gateway = await getOrConnectGateway(_channelId);
+    if (!gateway) {
+      emitNpcSystemResponse(socket, npcId, "gateway_not_connected");
+      return "";
+    }
     try {
-      const response = await nanobotChatSend({
+      const foldedPrompt = await buildNanobotChatPrompt({
         npcId,
         npcName: npcConfig._name,
         message,
-        history: npcChatHistory.get(`${_channelId}:${npcId}`),
         attachments,
-        sessionId: sessionKey,
-        onDelta: (delta: string) => {
+      });
+      registerPendingChat(socket.id, npcId, { agentId, sessionKey, gateway });
+      const response = await gateway.chatSend(
+        agentId,
+        sessionKey,
+        foldedPrompt,
+        (delta: string) => {
           socket.emit(responseEvent, { npcId, chunk: delta, done: false });
         },
-      });
+      );
       socket.emit(responseEvent, { npcId, chunk: "", done: true });
       return response || "";
     } catch (err) {
       console.error(`[npc] nanobot chat error for ${npcId}:`, err);
       emitNpcSystemResponse(socket, npcId, "gateway_error");
       return "";
+    } finally {
+      clearPendingChat(socket.id, npcId);
     }
   }
 
@@ -1302,6 +1388,15 @@ export function setupSocketHandlers(io: Server) {
       const player = players.get(socket.id);
       const historyKey = `${player?.mapId || ""}:${npcId}`;
       npcChatHistory.delete(historyKey);
+    });
+
+    // seed-v9 AC-014 T-026 — in-flight chat stream 중단.
+    socket.on("chat:abort", async ({ npcId }: { npcId: string }) => {
+      if (!npcId) return;
+      const aborted = await abortPendingChat(socket.id, npcId);
+      if (aborted) {
+        socket.emit("npc:response-complete", { npcId, aborted: true });
+      }
     });
 
     socket.on("npc:report-consumed", async ({ reportId }: { reportId?: string }) => {

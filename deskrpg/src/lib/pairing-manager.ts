@@ -218,6 +218,100 @@ export function verifyModernDeviceAuth(args: {
   }
 }
 
+// ─── T-022: gateway pairing probe ───
+//
+// 게이트웨이에 인증 토큰으로 probe HTTP 요청을 보내 현재 페어링 상태를 판정한다.
+// nanobot API 서버는 현재 인증 미적용(seed-v9 D-19)이므로 probe는 reachability +
+// future-proof auth header만 보낸다. 강제 실패(invalid token) 시뮬레이션은
+// fetcher mock으로 검증한다.
+
+export type PairingAttemptResult = {
+  state: "connected" | "pairing_required" | "error";
+  deviceId: string;
+  httpStatus: number;
+  errorCode?: string;
+  error?: string;
+  /** "nanobot devices approve {deviceId}" — pairing_required일 때만 */
+  instructions?: string;
+};
+
+export type GatewayPairingProbeFetcher = (
+  url: string,
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    signal?: AbortSignal;
+  },
+) => Promise<{ ok: boolean; status: number; statusText?: string }>;
+
+export async function attemptGatewayPairing(args: {
+  baseUrl: string;
+  token: string;
+  /** device identity 키. 미지정 시 baseUrl 사용 (게이트웨이별 키 분리). */
+  identityKey?: string;
+  env?: Record<string, string | undefined>;
+  fetcher?: GatewayPairingProbeFetcher;
+  timeoutMs?: number;
+}): Promise<PairingAttemptResult> {
+  const env = args.env ?? process.env;
+  const identityKey = args.identityKey ?? args.baseUrl;
+  const identity = loadOrCreateDeviceIdentity(identityKey, env);
+  const deviceId = identity.id;
+
+  const fetcher: GatewayPairingProbeFetcher =
+    args.fetcher ??
+    (async (url, init) => {
+      const res = await fetch(url, init as RequestInit);
+      return { ok: res.ok, status: res.status, statusText: res.statusText };
+    });
+
+  const probeUrl = `${args.baseUrl.replace(/\/+$/, "")}/v1/models`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), args.timeoutMs ?? 10_000);
+
+  try {
+    const res = await fetcher(probeUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${args.token}` },
+      signal: controller.signal,
+    });
+
+    if (res.ok) {
+      return { state: "connected", deviceId, httpStatus: 200 };
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      return {
+        state: "pairing_required",
+        deviceId,
+        httpStatus: 409,
+        errorCode: "PAIRING_REQUIRED",
+        error: `Gateway rejected credentials (HTTP ${res.status}). Pair this device first.`,
+        instructions: `nanobot devices approve ${deviceId}`,
+      };
+    }
+
+    return {
+      state: "error",
+      deviceId,
+      httpStatus: 502,
+      errorCode: "gateway_unreachable",
+      error: `Gateway probe failed: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      state: "error",
+      deviceId,
+      httpStatus: 502,
+      errorCode: "gateway_unreachable",
+      error: `Gateway probe failed: ${message}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ─── 4-state machine transitions (T-019) ───
 /**
  * 허용된 전이만 통과. 불법 전이는 error로 강제.

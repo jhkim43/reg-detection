@@ -71,6 +71,26 @@ function defaultSystemPrompt(npcName: string): string {
   return `You are ${npcName}, an NPC in a virtual office RPG. Respond in the user's language.`;
 }
 
+/**
+ * seed-v9 AC-014 T-026 — gateway adapter용 folded prompt 빌더.
+ *
+ * nanobot은 messages 길이가 정확히 1이어야 하므로 [system, ...history, user]를
+ * 하나의 user content로 접는다. 기존 nanobotChatSend가 내부적으로 하던 일을
+ * 외부 caller(streamNpcResponse via gateway adapter)에 노출.
+ */
+export async function buildNanobotChatPrompt(input: {
+  npcId: string;
+  npcName: string;
+  message: string;
+  attachments?: OpenClawAttachment[];
+  systemPromptOverride?: string;
+}): Promise<string> {
+  const system = input.systemPromptOverride
+    || (await getNpcPersona(input.npcId, input.npcName));
+  const augmentedMessage = input.message + attachmentsToText(input.attachments);
+  return `${system}\n\n${augmentedMessage}`;
+}
+
 function attachmentsToText(attachments: OpenClawAttachment[] | undefined): string {
   if (!attachments || attachments.length === 0) return "";
   const sections: string[] = [];

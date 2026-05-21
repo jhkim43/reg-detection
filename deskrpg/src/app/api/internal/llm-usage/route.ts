@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db, llmUsageRecords } from "@/db";
+import { buildLlmUsageUpdatePayload } from "@/lib/llm-usage-event";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const internalTransport = require("@/lib/internal-transport.js") as {
   isInternalRequestAuthorized: (headers: Headers) => boolean;
@@ -87,19 +88,7 @@ async function emitLlmUsageUpdate(record: typeof llmUsageRecords.$inferSelect) {
       body: JSON.stringify({
         event: "llm-usage:update",
         room: null,
-        payload: {
-          id: record.id,
-          sessionKey: record.sessionKey,
-          npcId: record.npcId,
-          provider: record.provider,
-          model: record.model,
-          inputTokens: record.inputTokens,
-          outputTokens: record.outputTokens,
-          cachedTokens: record.cachedTokens,
-          costUsd: record.costUsd,
-          phase: record.phase,
-          createdAt: record.createdAt,
-        },
+        payload: buildLlmUsageUpdatePayload(record),
       }),
     });
   } catch (err) {
