@@ -1,0 +1,235 @@
+# Decomposition v9 follow-up — Phase 3 smoke test에서 발견된 backlog 일부의 task화
+# Source: .harness/ouroboros/seeds/seed-v9.yaml post_creation_amendments[1].non_blocking_backlog
+# Created: 2026-05-19T17:30:00
+# Amended: 2026-05-19T18:30:00 (backlog-4 RFC Accepted → T-F06/T-F07 추가)
+# Scope: backlog-2/3/4/5 포함. backlog-1/6은 seed-v10 interview 필요로 분리.
+
+decomposition:
+  seed_ref: "seed-v9.yaml"
+  amendment_ref: "post_creation_amendments[1] (2026-05-19T17:00:00)"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-19-v9-m3m4.md"
+  rfc_refs:
+    - "docs/rfc/RFC-nanobot-cancel-endpoint.md (Accepted 2026-05-19, Option A)"
+  owner: "m3_m4_gateway"
+  created: "2026-05-19T17:30:00"
+
+  amendments:
+    - date: "2026-05-19T18:30:00"
+      trigger: "backlog-4 RFC가 Option A로 Accepted — nanobot/api/server.py에 thin route wrapper 추가 + deskrpg adapter 호출 보강이 명세화됨"
+      changes:
+        - "T-F06 신설 (logic, nanobot): handle_chat_abort + /v1/chat/abort/{session_id} route + pytest"
+        - "T-F07 신설 (logic, deskrpg): nanobot-client.js chatAbort에 nanobotPostAbort 호출 추가 + unit test"
+        - "total_tasks 5 → 7"
+        - "execution_order에 Phase 4.5 신설 — RFC 머지 후 T-F06 → T-F07 순"
+
+  scope: |
+    seed-v9 amendment 두 번째 블록의 non_blocking_backlog 중 spec이 충분히 명확하여
+    즉시 task화 가능한 항목. 각 task는 기존 decomposition-2026-05-19-v9-m3m4.yaml과
+    동일한 layer 구조를 따른다.
+
+    포함:
+      - backlog-2 (T-F01/F02/F03): production wiring + CJS schema parity
+      - backlog-3 (T-F04): NANOBOT_HOME named volume + Dockerfile chown
+      - backlog-4 (T-F06/F07): nanobot cancel endpoint — RFC Accepted Option A
+      - backlog-5 (T-F05): NanobotPairingStatusCard UI mount
+
+    제외:
+      - backlog-1 (task → nanobot tool API): seed-v10 interview 필요 → interviews/2026-05-19-seed-v10-candidates.md
+      - backlog-6 (chat 첨부파일 multimodal): seed-v10 interview 필요 (모델 multimodal 지원 사전 조사 + AC-014 확장 여부) → interviews/2026-05-19-seed-v10-candidates.md
+
+  total_tasks: 7
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 2 — T-029 migrateLegacyOpenClawPaths가 production server.js에 미와이어링
+  #             + nanobotAgentSessions schema가 CJS server-db.js에 미정의
+  # ─────────────────────────────────────────────────────────────────────
+  tasks:
+    - id: T-F01
+      backlog_ref: backlog-2
+      ac_ref: AC-015
+      layer: logic
+      description: |
+        server.js 부팅 흐름에 migrateLegacyOpenClawPaths() 호출 추가.
+        dev-server.ts의 app.prepare().then() 안에 있는 호출과 동일 의미.
+        호출 위치는 io 초기화 전 (한 번만 실행되는 boot section).
+      test: |
+        - fixture: HOME/.openclaw + HOME/.openclaw-devices 디렉토리 존재 상태에서 server.js boot
+        - expect: 로그에 [migrate] 출력 + HOME/.nanobot + HOME/.nanobot-devices 생성됨
+        - 동시: 두 번째 boot에선 source_missing no-op (idempotent)
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-015]
+        actions: [migrateLegacyOpenClawPaths]
+        files:
+          - "deskrpg/server.js (boot section)"
+          - "deskrpg/src/lib/nanobot-path-migration.ts (이미 존재)"
+
+    - id: T-F02
+      backlog_ref: backlog-2
+      ac_ref: AC-014
+      layer: data
+      description: |
+        deskrpg/server-db.js (CJS)에 nanobotAgentSessions schema 정의 추가.
+        현재 schema.ts (TS) 정의는 dev-server.ts path에서만 사용됨 — production
+        server.js는 CJS여서 schema.ts 직접 import 불가, server-db.js의 별 정의 필요.
+        Drizzle CJS API로 schema.ts와 동일 컬럼 shape 재선언 + named export.
+      test: |
+        - server.js 부팅 후 schema export 확인
+        - chatSend 호출 → DB INSERT 성공 + columns(agent_id, session_key, started_at, last_chunk_at, aborted_at, timeout_ms) 모두 채워짐
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-014]
+        entities: [NanobotAgentSession]
+        files:
+          - "deskrpg/server-db.js (CJS schema 추가)"
+          - "deskrpg/src/db/schema.ts (parity 참조)"
+
+    - id: T-F03
+      backlog_ref: backlog-2
+      ac_ref: AC-014
+      layer: logic
+      description: |
+        nanobot-client.js (CJS adapter)의 chatSend가 T-F02에서 추가한 schema를 사용하여
+        chat:abort, chunk 도착, timeout 이벤트를 nanobot_agent_sessions row에 기록.
+        현재는 module-level Map에만 abort controller 추적 — DB row tracking 누락.
+      test: |
+        - chatSend 후 → row.started_at, last_chunk_at 갱신 확인
+        - chatAbort 후 → row.aborted_at 채워짐
+        - 180s timeout → row.aborted_at + 사유 컬럼 (있다면) 정확
+      depends_on: [T-F02]
+      estimated_minutes: 30
+      references:
+        ac: [AC-014]
+        entities: [NanobotAgentSession]
+        files:
+          - "deskrpg/src/lib/nanobot-client.js"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 3 — NANOBOT_HOME named volume + chown
+  # ─────────────────────────────────────────────────────────────────────
+    - id: T-F04
+      backlog_ref: backlog-3
+      layer: data
+      description: |
+        Dockerfile에서 nextjs(uid 1001) user에게 home dir 부여 + named volume mount.
+        선택 옵션 (T-F04 진행 전 결정 필요):
+          (a) Dockerfile: useradd -m -d /home/nextjs → mkdir -p /home/nextjs/.nanobot
+              + chown nextjs:nextjs. NANOBOT_HOME env 불필요.
+          (b) docker-compose-integration.yml: named volume + entrypoint chown.
+              컨테이너 재시작 후에도 mirror 영속.
+        권고: (a) — Dockerfile 변경이 일회성이고 deploy 단순.
+        현재 임시 fix(NANOBOT_HOME=/tmp/nanobot)는 제거.
+      test: |
+        - docker compose up → /home/nextjs/.nanobot 디렉토리 존재 + nextjs 소유
+        - 컨테이너 재시작 → mirror 파일 유지
+        - NANOBOT_HOME env 없이 정상 동작
+      depends_on: []
+      estimated_minutes: 30
+      references:
+        files:
+          - "deskrpg/Dockerfile"
+          - "docker-compose-integration.yml"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 5 — NanobotPairingStatusCard UI mount
+  # ─────────────────────────────────────────────────────────────────────
+    - id: T-F05
+      backlog_ref: backlog-5
+      ac_ref: AC-016
+      layer: presentation
+      description: |
+        NanobotPairingStatusCard.tsx (Phase 2 commit 1f5adb15에서 생성, mount X)를
+        settings/gateways 페이지에 mount. AI_PROVIDER=nanobot 일 때 기존
+        OpenClawPairingStatusCard 대신 NanobotPairingStatusCard 렌더.
+        AC-016 verification "UI 카드는 pairingRequired 상태로 전환"이 user-observable
+        형태로 검증 가능해진다.
+      test: |
+        - Playwright: AI_PROVIDER=nanobot 환경에서 settings/gateways 진입 → NanobotPairingStatusCard 노출
+        - gateway 강제 unpaired 상태 → 카드 "pairingRequired" 표시
+        - POST /api/gateways/:id/pair 성공 → 카드 "connected"로 전환
+      depends_on: []
+      estimated_minutes: 35
+      references:
+        ac: [AC-016]
+        files:
+          - "deskrpg/src/components/NanobotPairingStatusCard.tsx (이미 존재)"
+          - "deskrpg/src/app/settings/gateways/page.tsx (또는 적절한 mount point — Phase 1 확인 필요)"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Backlog 4 — nanobot-side cancel endpoint (RFC Accepted Option A)
+  # ─────────────────────────────────────────────────────────────────────
+    - id: T-F06
+      backlog_ref: backlog-4
+      ac_ref: AC-014
+      layer: logic
+      description: |
+        nanobot/api/server.py에 handle_chat_abort 추가 + POST /v1/chat/abort/{session_id}
+        route 등록. agent_loop._cancel_active_tasks(session_key) thin wrapper.
+        session_lock과 독립적이어야 함 (chat completions 진행 중에도 abort 가능).
+        응답 shape: { session_id, status: "cancelled"|"no_active", cancelled_count }.
+        구현 참조: docs/rfc/RFC-nanobot-cancel-endpoint.md §4.1.
+      test: |
+        - pytest: active task 1건 cancel → status="cancelled", cancelled_count=1
+        - pytest: 활성 task 없음 → status="no_active", cancelled_count=0 (idempotent)
+        - pytest: session_lock 점유 중에도 abort route 응답 < 100ms (independent lock)
+      depends_on: []
+      estimated_minutes: 35
+      references:
+        ac: [AC-014]
+        rfc: ["docs/rfc/RFC-nanobot-cancel-endpoint.md"]
+        files:
+          - "nanobot/nanobot/api/server.py (handle_chat_abort + route 등록)"
+          - "nanobot/tests/api/test_chat_abort.py (신설)"
+
+    - id: T-F07
+      backlog_ref: backlog-4
+      ac_ref: AC-014
+      layer: logic
+      description: |
+        deskrpg/src/lib/nanobot-client.js chatAbort에 nanobotPostAbort() 호출 추가.
+        기존 HTTP-level abort(AbortController) 후 best-effort로 nanobot에
+        POST /v1/chat/abort/{sessionKey} 호출. fetch 실패는 비치명 (chatAbort 흐름 유지).
+        구현 참조: docs/rfc/RFC-nanobot-cancel-endpoint.md §4.2.
+      test: |
+        - unit: chatAbort 후 nanobotPostAbort 1회 호출됨 (fetch mock으로 검증)
+        - unit: nanobotPostAbort가 throw해도 chatAbort 자체는 정상 종료 (silent failure)
+      depends_on: [T-F06]
+      estimated_minutes: 25
+      references:
+        ac: [AC-014]
+        rfc: ["docs/rfc/RFC-nanobot-cancel-endpoint.md"]
+        files:
+          - "deskrpg/src/lib/nanobot-client.js"
+          - "deskrpg/src/lib/nanobot-chat-streaming.test.ts (test 확장)"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 실행 순서 권고
+  # ─────────────────────────────────────────────────────────────────────
+  execution_order:
+    - phase: 4
+      label: "Production wiring + DB schema parity"
+      tasks: [T-F01, T-F02, T-F03]
+      rationale: "T-F02는 데이터 정의, T-F03가 그 위에 build. T-F01은 독립적."
+    - phase: 4.5
+      label: "Cancel endpoint (backlog-4 RFC)"
+      tasks: [T-F06, T-F07]
+      rationale: |
+        T-F06(nanobot) 머지 후 T-F07(deskrpg)이 본 endpoint를 호출.
+        404 fallback 가능하나 정상 path 확보 위해 순서 강제.
+        Phase 4 task와 독립적이므로 병행 가능.
+    - phase: 5
+      label: "Deployment 정리"
+      tasks: [T-F04]
+      rationale: "T-F04는 인프라성 변경이며 production deploy 시점에 함께."
+    - phase: 6
+      label: "Cross-team UI integration"
+      tasks: [T-F05]
+      rationale: "settings/gateways 페이지 소유자(다른 팀)와 협업 필요."
+
+  notes:
+    - "본 followup decomposition은 seed-v9 amendment의 non_blocking_backlog 4건(2/3/4/5)을 task화한 것. backlog-1/6은 별 interview artifact로 진입한다."
+    - "각 T-F##은 기존 T-###(v9-m3m4)과 ID 충돌 없음 (F prefix)."
+    - "/run을 본 파일에 대고 실행하려면 명시적으로 decomposition 파일을 지정하거나, 본 파일을 main decomposition에 inline merge 한 후 실행."
+    - "T-F06/F07은 RFC docs/rfc/RFC-nanobot-cancel-endpoint.md의 §3.2 Acceptance Criteria 6개 항목과 1:1 매핑된다 (구현 시 RFC §4 sketch 직접 활용)."
