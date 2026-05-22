@@ -135,10 +135,12 @@ async function nanobotChatStream(messages, onDelta, opts) {
  *   - chatSend: 등록 + signal 전달 + 180s timeout watchdog
  *   - chatAbort: lookup + ac.abort() (HTTP-level — nanobot 연결 종료)
  *
- * NOTE: DB row tracking (nanobotAgentSessions)은 server-db.js schema 동기화가
- * 필요하므로 Phase 4 testcontainers 시점에 추가. 현재는 UI-level abort만.
+ * seed-v9 AC-014 T-F03 (Phase 4 follow-up): DB row tracking 추가.
+ *   server-db.js (CJS)에 nanobotAgentSessions schema가 들어온 뒤(T-F02) chatSend
+ *   시작/첫 chunk/abort/timeout 시각을 row에 영속화한다. 모든 DB 호출은
+ *   silent-fail (chat 흐름을 깨뜨리지 않는다).
  *
- * @param {{ db: any, schema: any, eq: Function }} deps
+ * @param {{ db: any, schema: any, eq: Function, and?: Function }} deps
  */
 
 const nanobotAbortControllers = new Map();
@@ -146,6 +148,13 @@ const NANOBOT_DEFAULT_TIMEOUT_MS = 180_000;
 function nanobotAbortKey(agentId, sessionKey) {
   return String(agentId) + "::" + String(sessionKey);
 }
+
+// T-F03: row tracking helpers — 별도 파일에 분리해 단위 테스트 가능.
+const {
+  recordSessionStart,
+  recordChunkArrival,
+  recordSessionAbort,
+} = require("./nanobot-session-recorder.js");
 
 function createNanobotAdapter(deps) {
   const { db, schema, eq } = deps || {};
@@ -184,6 +193,8 @@ function createNanobotAdapter(deps) {
     async chatAbort(npcId, sessionKey) {
       const key = nanobotAbortKey(npcId, sessionKey);
       const ac = nanobotAbortControllers.get(key);
+      // T-F03: ac가 없어도 row에는 aborted_at을 남긴다 — race 안전.
+      await recordSessionAbort(deps, npcId, sessionKey);
       if (!ac) return;
       try {
         ac.abort();
@@ -202,6 +213,9 @@ function createNanobotAdapter(deps) {
       const ac = new AbortController();
       nanobotAbortControllers.set(key, ac);
 
+      // T-F03: 세션 시작을 row로 영속 (upsert — 같은 키 재호출 시 reset).
+      await recordSessionStart(deps, npcId, sessionKey, NANOBOT_DEFAULT_TIMEOUT_MS);
+
       // 180s timeout watchdog (seed-v9 AC-014 T-024).
       let timedOut = false;
       const timer = setTimeout(() => {
@@ -209,21 +223,35 @@ function createNanobotAdapter(deps) {
         try { ac.abort(); } catch (_e) {}
       }, NANOBOT_DEFAULT_TIMEOUT_MS);
 
+      // T-F03: 첫 chunk 도착 시 last_chunk_at 1회 update (throttle 단순화).
+      let firstChunkRecorded = false;
+      const wrappedOnDelta = typeof onDelta === "function"
+        ? (delta) => {
+            if (!firstChunkRecorded) {
+              firstChunkRecorded = true;
+              recordChunkArrival(deps, npcId, sessionKey).catch(() => {});
+            }
+            onDelta(delta);
+          }
+        : undefined;
+
       const opts = { sessionId: sessionKey, signal: ac.signal };
       try {
         if (typeof onDelta === "function") {
-          return await nanobotChatStream(messages, onDelta, opts);
+          return await nanobotChatStream(messages, wrappedOnDelta, opts);
         }
         return await nanobotChat(messages, opts);
       } catch (err) {
         if (timedOut) {
+          await recordSessionAbort(deps, npcId, sessionKey);
           const timeoutErr = new Error("nanobot chatSend: timeout after " + NANOBOT_DEFAULT_TIMEOUT_MS + "ms");
           timeoutErr.name = "TimeoutError";
           throw timeoutErr;
         }
         if (err && (err.name === "AbortError" || /aborted/i.test(String(err.message || "")))) {
-          // External chatAbort — partial text lost in nanobotChatStream's local var;
-          // caller (streamNpcResponse) emits done:true regardless.
+          // External chatAbort — chatAbort()에서 이미 aborted_at을 기록했지만
+          // race(타이밍에 따라 chatAbort 호출 전에 catch 진입)에 대비해 멱등 update.
+          await recordSessionAbort(deps, npcId, sessionKey);
           return "";
         }
         console.error("[nanobot] chat error npcId=" + String(npcId).slice(0, 8) + ":", err && err.message);
