@@ -372,6 +372,35 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
+async def handle_chat_abort(request: web.Request) -> web.Response:
+    """POST /v1/chat/abort/{session_id} — cancel in-flight task for session.
+
+    seed-v9 backlog-4 / RFC-nanobot-cancel-endpoint Option A.
+
+    `_cancel_active_tasks(session_key)` thin wrapper. session_lock과 독립적으로
+    동작하므로 in-flight chat completions와 race 가능하다 (점유 중에도 즉시 응답).
+
+    응답: { session_id, status: "cancelled"|"no_active", cancelled_count }.
+    호출은 idempotent — 이미 종료된 session도 200 OK + status="no_active".
+    """
+    session_id = request.match_info.get("session_id") or ""
+    session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
+
+    agent_loop = request.app["agent_loop"]
+    try:
+        cancelled = await agent_loop._cancel_active_tasks(session_key)
+    except Exception:
+        logger.exception("chat:abort failed for session {}", session_key)
+        return _error_json(500, "abort failed", err_type="server_error")
+
+    logger.info("API abort session_key={} cancelled={}", session_key, cancelled)
+    return web.json_response({
+        "session_id": session_id,
+        "status": "cancelled" if cancelled > 0 else "no_active",
+        "cancelled_count": cancelled,
+    })
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -394,6 +423,7 @@ def create_app(
     app["session_locks"] = {}  # per-user locks, keyed by session_key
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    app.router.add_post("/v1/chat/abort/{session_id}", handle_chat_abort)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
     return app
