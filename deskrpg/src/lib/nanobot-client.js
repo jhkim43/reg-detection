@@ -156,6 +156,9 @@ const {
   recordSessionAbort,
 } = require("./nanobot-session-recorder.js");
 
+// T-F07: nanobot 내부 task cancel (best-effort POST /v1/chat/abort/{sessionKey}).
+const { postNanobotChatAbort } = require("./nanobot-remote-abort.js");
+
 function createNanobotAdapter(deps) {
   const { db, schema, eq } = deps || {};
 
@@ -195,11 +198,15 @@ function createNanobotAdapter(deps) {
       const ac = nanobotAbortControllers.get(key);
       // T-F03: ac가 없어도 row에는 aborted_at을 남긴다 — race 안전.
       await recordSessionAbort(deps, npcId, sessionKey);
-      if (!ac) return;
-      try {
-        ac.abort();
-      } catch (_e) { /* idempotent */ }
-      nanobotAbortControllers.delete(key);
+      if (ac) {
+        try {
+          ac.abort();
+        } catch (_e) { /* idempotent */ }
+        nanobotAbortControllers.delete(key);
+      }
+      // T-F07: nanobot 내부 task까지 취소 (HTTP-level abort만으로는 LLM 계산이 계속됨).
+      // best-effort — 실패해도 chatAbort 흐름 비차단.
+      await postNanobotChatAbort(getApiUrl(), sessionKey);
     },
     async chatSend(npcId, sessionKey, message, onDelta) {
       const npc = await loadNpc(npcId);
