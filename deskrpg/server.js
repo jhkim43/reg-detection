@@ -85,6 +85,23 @@ async function main() {
     registerMeetingDiscussionHandlers,
   } = meetingDiscussion;
 
+  // seed-v9 AC-015 T-F01: 첫 부팅 시 legacy ~/.openclaw 디렉토리를 ~/.nanobot으로
+  // 이동. dev-server.ts의 동일 호출과 parity. 멱등 — 이미 마이그레이션됐거나
+  // legacy가 없으면 no-op. 실패해도 부팅은 계속한다.
+  try {
+    const { migrateLegacyOpenClawPaths } = await import("./src/lib/nanobot-path-migration.ts");
+    const migrationResult = await migrateLegacyOpenClawPaths();
+    for (const step of migrationResult.steps) {
+      if (step.action === "moved") {
+        console.log(`✓ [migrate] ${step.from} → ${step.to}`);
+      } else if (step.action === "error") {
+        console.warn(`⚠ [migrate] ${step.from} → ${step.to} failed: ${step.error}`);
+      }
+    }
+  } catch (err) {
+    console.warn("[migrate] legacy path migration encountered an error:", err);
+  }
+
   const { db, schema } = require("./src/db/server-db.js");
   const { eq, and } = require("drizzle-orm");
 
@@ -482,7 +499,7 @@ async function main() {
   async function getOrConnectGateway(channelId) {
     if (isNanobotProvider()) {
       // nanobot adapter is stateless — no need to cache per channel.
-      return createNanobotAdapter({ db, schema, eq });
+      return createNanobotAdapter({ db, schema, eq, and });
     }
 
     if (channelGateways.has(channelId)) {
