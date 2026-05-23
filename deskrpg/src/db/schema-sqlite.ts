@@ -279,6 +279,8 @@ export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   channelId: text("channel_id").notNull().references(() => channels.id),
   npcId: text("npc_id").references(() => npcs.id, { onDelete: "cascade" }),
+  // seed-v10 backlog-1 (A): NPC 삭제 시 작업자 attribution 보존용 snapshot.
+  npcNameSnapshot: text("npc_name_snapshot"),
   assignerId: text("assigner_id").notNull().references(() => characters.id),
   npcTaskId: text("npc_task_id").notNull(),
   title: text("title").notNull(),

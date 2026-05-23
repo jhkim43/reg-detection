@@ -229,6 +229,7 @@ function ensureSqliteBaseSchema(sqlite) {
       id TEXT PRIMARY KEY NOT NULL,
       channel_id TEXT NOT NULL REFERENCES channels(id),
       npc_id TEXT REFERENCES npcs(id) ON DELETE CASCADE,
+      npc_name_snapshot TEXT,
       assigner_id TEXT NOT NULL REFERENCES characters(id),
       npc_task_id TEXT NOT NULL,
       title TEXT NOT NULL,

@@ -17,7 +17,8 @@ function nowForDb(): Date {
 }
 
 export type TaskAction = "create" | "update" | "complete" | "cancel";
-export type TaskStatus = "backlog" | "in_progress" | "completed" | "cancelled";
+// deskrpg TaskBoard 기존 enum과 정합. "complete"는 단수형(과거형 "completed" 아님).
+export type TaskStatus = "backlog" | "in_progress" | "complete" | "cancelled";
 
 export type TaskMetadata = {
   started_at?: string;
@@ -137,7 +138,7 @@ export async function handleTaskEvent(
   }
 
   const [npc] = await dbHandle
-    .select({ id: npcs.id })
+    .select({ id: npcs.id, name: npcs.name })
     .from(npcs)
     .where(eq(npcs.id, input.npcId))
     .limit(1);
@@ -146,7 +147,7 @@ export async function handleTaskEvent(
   }
 
   if (input.action === "create") {
-    return runCreate(input, dbHandle, deps.emit);
+    return runCreate(input, dbHandle, deps.emit, npc.name);
   }
   return runMutation(input, dbHandle, deps.emit);
 }
@@ -155,15 +156,17 @@ async function runCreate(
   input: TaskEventInput,
   dbHandle: typeof defaultDb,
   emit: TaskEmit,
+  npcName: string,
 ): Promise<TaskEventResult> {
   const now = nowForDb();
-  const completedAt = input.action === "create" && input.status === "completed" ? now : null;
+  const completedAt = input.action === "create" && input.status === "complete" ? now : null;
 
   const [row] = await dbHandle
     .insert(tasks)
     .values({
       channelId: input.channelId,
       npcId: input.npcId,
+      npcNameSnapshot: npcName,
       assignerId: input.assignerCharacterId,
       npcTaskId: input.npcTaskId,
       title: input.title,
@@ -179,6 +182,7 @@ async function runCreate(
         title: input.title,
         summary: input.summary ?? null,
         status: input.status,
+        npcNameSnapshot: npcName,
         updatedAt: now,
       },
     })
@@ -217,7 +221,7 @@ async function runMutation(
   const now = nowForDb();
   const nextStatus: TaskStatus =
     input.action === "complete"
-      ? "completed"
+      ? "complete"
       : input.action === "cancel"
         ? "cancelled"
         : input.status;

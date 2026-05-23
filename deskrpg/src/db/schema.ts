@@ -281,6 +281,10 @@ export const tasks = pgTable("tasks", {
   id: uuid("id").defaultRandom().primaryKey(),
   channelId: uuid("channel_id").notNull().references(() => channels.id),
   npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "cascade" }),
+  // seed-v10 backlog-1 (A): NPC 삭제 시 task 이력의 작업자 attribution을 보존하기
+  // 위한 snapshot. handleTaskEvent(create) 시 npcs.name을 캡처하여 저장.
+  // UI는 npcs.name(LEFT JOIN으로 NULL일 수 있음) ?? npcNameSnapshot 으로 fallback.
+  npcNameSnapshot: varchar("npc_name_snapshot", { length: 100 }),
   assignerId: uuid("assigner_id").notNull().references(() => characters.id),
   npcTaskId: varchar("npc_task_id", { length: 64 }).notNull(),
   title: varchar("title", { length: 200 }).notNull(),

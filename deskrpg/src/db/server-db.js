@@ -306,6 +306,8 @@ function ensureSqliteCompatibility(sqlite) {
     "ALTER TABLE tasks ADD COLUMN last_reported_at TEXT",
     "ALTER TABLE tasks ADD COLUMN stalled_at TEXT",
     "ALTER TABLE tasks ADD COLUMN stalled_reason TEXT",
+    // seed-v10 backlog-1 (A): NPC 삭제 시 task 작업자 이름 보존용 snapshot.
+    "ALTER TABLE tasks ADD COLUMN npc_name_snapshot TEXT",
   ]);
   // seed-v10 AC-005: npcs.parent_agent_id 컬럼 추가 (멱등 ALTER).
   applySqliteAlterStatements(sqlite, "npcs", [
@@ -562,6 +564,8 @@ if (isPostgres) {
     id: uuid("id").defaultRandom().primaryKey(),
     channelId: uuid("channel_id").notNull().references(() => channels.id),
     npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    // seed-v10 backlog-1 (A) snapshot.
+    npcNameSnapshot: varchar("npc_name_snapshot", { length: 100 }),
     assignerId: uuid("assigner_id").notNull().references(() => characters.id),
     npcTaskId: varchar("npc_task_id", { length: 64 }).notNull(),
     title: varchar("title", { length: 200 }).notNull(),
@@ -885,6 +889,8 @@ if (isPostgres) {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     channelId: text("channel_id").notNull().references(() => channels.id),
     npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    // seed-v10 backlog-1 (A) snapshot.
+    npcNameSnapshot: text("npc_name_snapshot"),
     assignerId: text("assigner_id").notNull().references(() => characters.id),
     npcTaskId: text("npc_task_id").notNull(),
     title: text("title").notNull(),
