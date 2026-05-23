@@ -25,5 +25,4 @@ RUN npm ci
 EXPOSE 3000 3001
 
 # 개발 서버 실행
-# HMR이 외부에서 접근 가능하도록 호스트 바인딩 추가
-CMD ["npx", "next", "dev", "-H", "0.0.0.0", "-p", "3000"]
+CMD ["node", "server-dev.js"]
