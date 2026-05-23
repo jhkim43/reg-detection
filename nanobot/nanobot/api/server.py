@@ -285,12 +285,41 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 await queue.put(None)
 
         task = asyncio.create_task(_run())
+
+        # seed-v9 phase 4.5 follow-up: process_direct를 감싸는 _run task를
+        # agent_loop._active_tasks[session_key]에 등록한다.  message bus 경로의
+        # _dispatch task(agent/loop.py:768)와 동일 dict에 들어가야 POST
+        # /v1/chat/abort/{session_id}가 호출하는 _cancel_active_tasks가
+        # HTTP API path의 task도 cancel 할 수 있다. 미등록 시 cancelled_count=0이
+        # 항상 반환되어 RFC §3.2-2 ("session_key의 in-flight task cancel")가 미달성.
+        agent_loop._active_tasks.setdefault(session_key, []).append(task)
+
+        def _cleanup_active_task(t: asyncio.Task, k: str = session_key) -> None:
+            tasks = agent_loop._active_tasks.get(k, [])
+            if t in tasks:
+                tasks.remove(t)
+
+        task.add_done_callback(_cleanup_active_task)
+
         try:
             while True:
                 token = await queue.get()
                 if token is None:
                     break
-                await resp.write(_sse_chunk(token, model_name, chunk_id))
+                try:
+                    await resp.write(_sse_chunk(token, model_name, chunk_id))
+                except ConnectionResetError:
+                    # seed-v9 phase 4.5 follow-up: deskrpg "중단" 버튼이
+                    # AbortController.abort()를 호출하면 TCP 연결이 끊겨 다음
+                    # write 시도가 ClientConnectionResetError를 raise. 이를
+                    # traceback으로 노출하지 않고 정상 close로 처리한다 —
+                    # abort는 기능적으로 정상 흐름이고 운영 로그 위생만 해친다.
+                    logger.info(
+                        "Client disconnected during stream — abort treated as normal close (session_key={})",
+                        session_key,
+                    )
+                    stream_failed = True
+                    break
         finally:
             if not task.done():
                 task.cancel()
@@ -298,8 +327,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                     await task
 
         if not stream_failed:
-            await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
-            await resp.write(_SSE_DONE)
+            with contextlib.suppress(ConnectionResetError):
+                await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
+                await resp.write(_SSE_DONE)
         return resp
 
     # -- non-streaming path (original logic) --
@@ -372,6 +402,35 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
+async def handle_chat_abort(request: web.Request) -> web.Response:
+    """POST /v1/chat/abort/{session_id} — cancel in-flight task for session.
+
+    seed-v9 backlog-4 / RFC-nanobot-cancel-endpoint Option A.
+
+    `_cancel_active_tasks(session_key)` thin wrapper. session_lock과 독립적으로
+    동작하므로 in-flight chat completions와 race 가능하다 (점유 중에도 즉시 응답).
+
+    응답: { session_id, status: "cancelled"|"no_active", cancelled_count }.
+    호출은 idempotent — 이미 종료된 session도 200 OK + status="no_active".
+    """
+    session_id = request.match_info.get("session_id") or ""
+    session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
+
+    agent_loop = request.app["agent_loop"]
+    try:
+        cancelled = await agent_loop._cancel_active_tasks(session_key)
+    except Exception:
+        logger.exception("chat:abort failed for session {}", session_key)
+        return _error_json(500, "abort failed", err_type="server_error")
+
+    logger.info("API abort session_key={} cancelled={}", session_key, cancelled)
+    return web.json_response({
+        "session_id": session_id,
+        "status": "cancelled" if cancelled > 0 else "no_active",
+        "cancelled_count": cancelled,
+    })
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -394,6 +453,7 @@ def create_app(
     app["session_locks"] = {}  # per-user locks, keyed by session_key
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    app.router.add_post("/v1/chat/abort/{session_id}", handle_chat_abort)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
     return app

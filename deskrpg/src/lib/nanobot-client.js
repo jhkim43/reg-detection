@@ -150,11 +150,16 @@ function nanobotAbortKey(agentId, sessionKey) {
 }
 
 // T-F03: row tracking helpers — 별도 파일에 분리해 단위 테스트 가능.
+// Phase 4.5 follow-up: hasNanobotSessionStarted (first-turn-only system 판단).
 const {
   recordSessionStart,
   recordChunkArrival,
   recordSessionAbort,
+  hasNanobotSessionStarted,
 } = require("./nanobot-session-recorder.js");
+
+// T-F07: nanobot 내부 task cancel (best-effort POST /v1/chat/abort/{sessionKey}).
+const { postNanobotChatAbort } = require("./nanobot-remote-abort.js");
 
 function createNanobotAdapter(deps) {
   const { db, schema, eq } = deps || {};
@@ -195,25 +200,39 @@ function createNanobotAdapter(deps) {
       const ac = nanobotAbortControllers.get(key);
       // T-F03: ac가 없어도 row에는 aborted_at을 남긴다 — race 안전.
       await recordSessionAbort(deps, npcId, sessionKey);
-      if (!ac) return;
-      try {
-        ac.abort();
-      } catch (_e) { /* idempotent */ }
-      nanobotAbortControllers.delete(key);
+      if (ac) {
+        try {
+          ac.abort();
+        } catch (_e) { /* idempotent */ }
+        nanobotAbortControllers.delete(key);
+      }
+      // T-F07: nanobot 내부 task까지 취소 (HTTP-level abort만으로는 LLM 계산이 계속됨).
+      // best-effort — 실패해도 chatAbort 흐름 비차단.
+      await postNanobotChatAbort(getApiUrl(), sessionKey);
     },
     async chatSend(npcId, sessionKey, message, onDelta) {
       const npc = await loadNpc(npcId);
-      const system = buildSystemPrompt(npc.name, npc.persona);
-      const messages = [
-        { role: "system", content: system },
-        { role: "user", content: String(message || "") },
-      ];
+
+      // Phase 4.5 follow-up — Option A: nanobot session jsonl에 system 누적되는
+      // 비효율 해소. nanobot_agent_sessions row가 이미 있으면 nanobot 측 session이
+      // 첫 turn의 system을 conversation context로 보유 중이라 user 메시지만 보낸다.
+      // DB 호출 실패 시 false 반환 — 안전 fallback으로 system 포함.
+      const sessionAlreadyStarted = await hasNanobotSessionStarted(deps, npcId, sessionKey);
+      const messages = sessionAlreadyStarted
+        ? [
+            { role: "user", content: String(message || "") },
+          ]
+        : [
+            { role: "system", content: buildSystemPrompt(npc.name, npc.persona) },
+            { role: "user", content: String(message || "") },
+          ];
 
       const key = nanobotAbortKey(npcId, sessionKey);
       const ac = new AbortController();
       nanobotAbortControllers.set(key, ac);
 
-      // T-F03: 세션 시작을 row로 영속 (upsert — 같은 키 재호출 시 reset).
+      // T-F03: 세션 시작을 row로 영속 (upsert — 같은 키 재호출 시 startedAt reset).
+      // 다음 호출의 hasNanobotSessionStarted는 row 존재 여부만 보므로 true 반환.
       await recordSessionStart(deps, npcId, sessionKey, NANOBOT_DEFAULT_TIMEOUT_MS);
 
       // 180s timeout watchdog (seed-v9 AC-014 T-024).
