@@ -154,6 +154,7 @@ services:
       # PR 2a — /api/llm-usage/account-balance가 OpenRouter 잔여 fetch에 사용.
       # 미설정 시 위젯의 '팀 잔여' 줄이 hide. 메타데이터 endpoint라 과금 0.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
       WDS_SOCKET_PORT: 3102  # Tells HMR to use the host-mapped port
       WATCHPACK_POLLING: "true" # Highly recommended for Docker volumes to detect file changes
       NEXT_TURBOPACK: "false"
