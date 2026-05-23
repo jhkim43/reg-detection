@@ -25,4 +25,7 @@ RUN npm ci
 EXPOSE 3000 3001
 
 # 개발 서버 실행
-CMD ["node", "server-dev.js"]
+# [핵심 변경 사항]
+# 1. node migrate.js 로 Drizzle 마이그레이션을 먼저 실행합니다.
+# 2. 성공하면(&&) node --import tsx server-dev.js 로 개발 서버를 실행합니다.
+CMD ["sh", "-c", "node migrate.js && node --import tsx server-dev.js"]
