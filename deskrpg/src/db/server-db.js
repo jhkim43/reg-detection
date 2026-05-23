@@ -277,6 +277,20 @@ function ensureSqliteCompatibility(sqlite) {
     CREATE INDEX IF NOT EXISTS idx_npc_reports_channel ON npc_reports(channel_id);
     CREATE INDEX IF NOT EXISTS idx_npc_reports_target_user ON npc_reports(target_user_id);
     CREATE INDEX IF NOT EXISTS idx_npc_reports_status ON npc_reports(status);
+    CREATE TABLE IF NOT EXISTS nanobot_agent_sessions (
+      id TEXT PRIMARY KEY NOT NULL,
+      npc_id TEXT NOT NULL REFERENCES npcs(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      last_chunk_at TEXT,
+      aborted_at TEXT,
+      timeout_ms INTEGER NOT NULL DEFAULT 180000,
+      total_tokens INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS nanobot_agent_sessions_agent_session_unique ON nanobot_agent_sessions(agent_id, session_key);
+    CREATE INDEX IF NOT EXISTS idx_nanobot_agent_sessions_started ON nanobot_agent_sessions(started_at);
+    CREATE INDEX IF NOT EXISTS idx_nanobot_agent_sessions_npc ON nanobot_agent_sessions(npc_id);
   `);
 
   applySqliteAlterStatements(sqlite, "users", [
@@ -584,6 +598,23 @@ if (isPostgres) {
     index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
   ]);
 
+  // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
+  const nanobotAgentSessions = pgTable("nanobot_agent_sessions", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    sessionKey: text("session_key").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    lastChunkAt: timestamp("last_chunk_at", { withTimezone: true }),
+    abortedAt: timestamp("aborted_at", { withTimezone: true }),
+    timeoutMs: integer("timeout_ms").notNull().default(180000),
+    totalTokens: integer("total_tokens"),
+  }, (table) => [
+    uniqueIndex("nanobot_agent_sessions_agent_session_unique").on(table.agentId, table.sessionKey),
+    index("idx_nanobot_agent_sessions_started").on(table.startedAt),
+    index("idx_nanobot_agent_sessions_npc").on(table.npcId),
+  ]);
+
   schema = {
     users,
     characters,
@@ -603,6 +634,7 @@ if (isPostgres) {
     tasks,
     npcReports,
     chatMessages,
+    nanobotAgentSessions,
   };
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -886,6 +918,23 @@ if (isPostgres) {
     index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
   ]);
 
+  // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
+  const nanobotAgentSessions = sqliteTable("nanobot_agent_sessions", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    sessionKey: text("session_key").notNull(),
+    startedAt: text("started_at").notNull().$defaultFn(() => new Date().toISOString()),
+    lastChunkAt: text("last_chunk_at"),
+    abortedAt: text("aborted_at"),
+    timeoutMs: integer("timeout_ms").notNull().default(180000),
+    totalTokens: integer("total_tokens"),
+  }, (table) => [
+    uniqueIndex("nanobot_agent_sessions_agent_session_unique").on(table.agentId, table.sessionKey),
+    index("idx_nanobot_agent_sessions_started").on(table.startedAt),
+    index("idx_nanobot_agent_sessions_npc").on(table.npcId),
+  ]);
+
   schema = {
     users,
     characters,
@@ -905,6 +954,7 @@ if (isPostgres) {
     tasks,
     npcReports,
     chatMessages,
+    nanobotAgentSessions,
   };
 
   const sqlite = new Database(dbPath);
