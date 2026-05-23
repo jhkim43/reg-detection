@@ -1,0 +1,677 @@
+# Decomposition v10 — Task push 모델 전환
+# Source: seed-v10.yaml + docs/trd/TRD-RegTrack-2026-05-23-v10-task-push.md
+# Created: 2026-05-23T16:00:00
+# Owner: 본인 (deskrpg owner). 다른 팀원의 nanobot fork 작업은 references만.
+# Scope: seed-v10의 10개 AC를 atomic task로 분해. 본 cycle 머지 후 다음 PR에서 실 구현.
+
+decomposition:
+  seed_ref: "seed-v10.yaml"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-23-v10-task-push.md"
+  owner: "deskrpg"
+  parallel_actor: "nanobot fork (다른 팀원) — AC-010 contract 공유 후 별 PR"
+  created: "2026-05-23T16:00:00"
+
+  total_tasks: 32
+
+  scope: |
+    seed-v10의 AC 10개를 30분 이내 atomic 단위로 분해. 모든 task는
+    Presentation / Logic / Data 단일 layer + 단일 AC에 매핑.
+
+    다른 팀원(nanobot fork)의 작업은 본 decomposition scope 외:
+      - nanobot agent loop emission hook (TaskEventHook)
+      - nanobot이 deskrpg /api/internal/tasks · /api/internal/npcs 호출하는 흐름
+      - nanobot /v1/agents/{agentId}/cleanup endpoint 신설
+      - body.metadata 수신 + session 저장 + push 시 forward
+      - cancel 후 task event status=cancelled push (TRD-D-36)
+    → 위 작업은 AC-010 contract 문서(`docs/api/internal-events-contract.md`)를
+      통해 본인 작업과 sync.
+
+  tasks:
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 1 — Data + Contract (먼저)
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V01
+      ac_ref: AC-005
+      layer: data
+      description: |
+        deskrpg/src/db/schema.ts의 npcs 테이블에 `parentAgentId: text("parent_agent_id")`
+        컬럼 추가 (nullable, FK 아님 — string). index("idx_npcs_parent_agent_id")
+        추가. TRD-D-33에 따라 npcs.id UUID FK가 아닌 string으로.
+      test: "schema.ts에 parentAgentId field 존재 + 인덱스 정의 확인 (정적 inspect 또는 ts type check)"
+      depends_on: []
+      estimated_minutes: 15
+      files:
+        - "deskrpg/src/db/schema.ts"
+
+    - id: T-V02
+      ac_ref: AC-005
+      layer: data
+      description: |
+        deskrpg/src/db/server-db.js의 PostgreSQL 모드 npcs 정의에 parent_agent_id
+        컬럼 + 인덱스 추가. schema.ts와 parity.
+      test: "PostgreSQL pgTable 정의에 parent_agent_id 존재 검증"
+      depends_on: [T-V01]
+      estimated_minutes: 15
+      files:
+        - "deskrpg/src/db/server-db.js"
+
+    - id: T-V03
+      ac_ref: AC-005
+      layer: data
+      description: |
+        deskrpg/src/db/server-db.js의 SQLite 모드 npcs sqliteTable 정의 + index 추가.
+        ensureSqliteCompatibility에 `ALTER TABLE npcs ADD COLUMN parent_agent_id TEXT`
+        멱등 ALTER 추가 (applySqliteAlterStatements 패턴).
+      test: "SQLite in-memory에서 ensureSqliteCompatibility 후 PRAGMA table_info(npcs)에 parent_agent_id 포함"
+      depends_on: [T-V01]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/db/server-db.js"
+
+    - id: T-V04
+      ac_ref: AC-005
+      layer: data
+      description: |
+        Drizzle migration `drizzle/0005_v10_npcs_parent_agent.sql` 신설.
+        ALTER TABLE npcs ADD COLUMN + CREATE INDEX. _journal.json 업데이트.
+      test: "migration SQL 파일 존재 + _journal에 등록됨"
+      depends_on: [T-V01]
+      estimated_minutes: 10
+      files:
+        - "deskrpg/drizzle/0005_v10_npcs_parent_agent.sql"
+        - "deskrpg/drizzle/meta/_journal.json"
+
+    - id: T-V05
+      ac_ref: AC-005
+      layer: data
+      description: |
+        npcs parent_agent_id 단위 테스트 신설:
+        - schema.ts → server-db.js (PostgreSQL + SQLite) parity 검증
+        - ensureSqliteCompatibility 멱등성 (2회 호출 시 ALTER 충돌 X)
+        - INSERT + parent_agent_id 채워진 row 조회
+      test: "node:test 5건 (parity 2 + 멱등 1 + INSERT/SELECT 2)"
+      depends_on: [T-V02, T-V03]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/db/server-db.npcs-parent.test.ts (신설)"
+
+    - id: T-V06
+      ac_ref: AC-010
+      layer: docs
+      description: |
+        `docs/api/internal-events-contract.md` 신설. ToolExecutionEvent + sub-agent
+        spawn/delete event의 stable shape를 JSON schema + 예시로 명문화. 다른
+        팀원(nanobot fork)이 본 문서 참조하여 hook 작성.
+        섹션: (1) 인증 헤더 (x-deskrpg-internal-secret), (2) POST /api/internal/tasks
+        body schema + action별 흐름, (3) POST /api/internal/npcs body schema,
+        (4) DELETE /api/internal/npcs/{id} path, (5) error codes (401/400/404/409),
+        (6) Cancel propagation (TRD-D-36): nanobot이 cancel 시 action="cancel" push,
+        (7) body.metadata schema (AC-006 reference).
+      test: "문서 작성 후 다른 팀원에게 공유 → 1차 피드백 받음"
+      depends_on: []
+      estimated_minutes: 35
+      files:
+        - "docs/api/internal-events-contract.md (신설)"
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 2 — Presentation (internal endpoints)
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V07
+      ac_ref: AC-001
+      layer: logic
+      description: |
+        deskrpg/src/lib/internal-task-handler.ts 신설.
+        `handleTaskEvent(input)` 함수: action별 분기 (create/update/complete/cancel).
+        - create: db.insert(tasks).onConflictDoUpdate (npcTaskId unique key)
+        - update: db.update set status + metadata
+        - complete: status="completed" + completedAt
+        - cancel: status="cancelled"
+        Socket.io io.to(channelId).emit("task:event", payload) — io 인스턴스는
+        인자로 받음 또는 module-level (server.js 패턴).
+        권한 검증: channel.ownerId == ownerUserId 또는 channel members lookup.
+      test: "별 task T-V08에서 unit test"
+      depends_on: [T-V05]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/lib/internal-task-handler.ts (신설)"
+
+    - id: T-V08
+      ac_ref: AC-001
+      layer: logic
+      description: |
+        internal-task-handler.test.ts — 5 unit tests (db + io mock):
+        (1) action=create → tasks insert + socket emit
+        (2) action=create + npcTaskId 중복 → onConflictDoUpdate (또는 409)
+        (3) action=update → status 갱신
+        (4) action=complete → completedAt + socket emit
+        (5) ownerUserId가 channel.ownerId 아니면 권한 reject
+      test: "5/5 pass"
+      depends_on: [T-V07]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/lib/internal-task-handler.test.ts (신설)"
+
+    - id: T-V09
+      ac_ref: AC-001
+      layer: presentation
+      description: |
+        deskrpg/src/app/api/internal/tasks/route.ts 신설. POST handler.
+        - `isInternalRequestAuthorized(req.headers)` 검증 (401 if not)
+        - body parse + 필수 field 검증 (400 if missing)
+        - handleTaskEvent 호출
+        - 201 (create) 또는 200 (update/complete/cancel) 응답
+        - error 시 적절한 상태 코드
+      test: "별 task T-V10에서 route test"
+      depends_on: [T-V07]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/app/api/internal/tasks/route.ts (신설)"
+
+    - id: T-V10
+      ac_ref: AC-001
+      layer: presentation
+      description: |
+        route.ts test — 4 cases:
+        (1) no x-deskrpg-internal-secret → 401
+        (2) missing required field → 400
+        (3) action=create 정상 → 201 + body shape
+        (4) handleTaskEvent throw → 500
+        mock으로 internal-task-handler 격리.
+      test: "4/4 pass"
+      depends_on: [T-V09]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/app/api/internal/tasks/route.test.ts (신설)"
+
+    - id: T-V11
+      ac_ref: AC-002
+      layer: logic
+      description: |
+        deskrpg/src/lib/internal-npc-handler.ts 신설.
+        `spawnSubAgent(input)` 함수:
+        - 권한 + channel + parent NPC 검증 (parent_agent_id로 lookup)
+        - positionX/Y default 채우기 (parent NPC 근처, Phase 6 디자인 미정 시 임시 좌표)
+        - npcs row insert (parentAgentId 포함)
+        - writeNanobotAgentFiles(agentId, [IDENTITY.md, SOUL.md, AGENTS.md])
+        - socket.io io.to(channelId).emit("npc:spawned", {npc})
+      test: "T-V13에서 unit test"
+      depends_on: [T-V05]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/lib/internal-npc-handler.ts (신설)"
+
+    - id: T-V12
+      ac_ref: AC-002
+      layer: logic
+      description: |
+        internal-npc-handler.ts에 `deleteNpcInternal(npcId)` 함수 추가.
+        - npcs row 조회 + agentId + channelId 추출
+        - 같은 channel에서 parent_agent_id == 본 NPC의 agentId 인 sub-agent 자식들 재귀
+          삭제 (application layer cascade)
+        - db.delete(npcs).where(eq(id, npcId)) — PostgreSQL cascade로 chat_messages,
+          tasks, nanobot_agent_sessions 자동 정리
+        - deleteNanobotAgentWorkspace(agentId)
+        - postNanobotAgentCleanup(agentId) — best-effort (T-V20 의존)
+        - socket.io io.to(channelId).emit("npc:deleted", {npcId})
+      test: "T-V13에서 unit test"
+      depends_on: [T-V11, T-V20]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/internal-npc-handler.ts"
+
+    - id: T-V13
+      ac_ref: AC-002
+      layer: logic
+      description: |
+        internal-npc-handler.test.ts — 6 unit tests (db + io + helper mock):
+        (1) spawnSubAgent → npcs insert + parent_agent_id 포함 + socket emit
+        (2) spawnSubAgent + writeNanobotAgentFiles 호출 검증
+        (3) parent NPC 없으면 error
+        (4) deleteNpcInternal → cascade (sub-agent 자식 함께 삭제)
+        (5) deleteNpcInternal → deleteNanobotAgentWorkspace + postNanobotAgentCleanup 호출
+        (6) deleteNpcInternal → socket npc:deleted emit
+      test: "6/6 pass"
+      depends_on: [T-V12]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/lib/internal-npc-handler.test.ts (신설)"
+
+    - id: T-V14
+      ac_ref: AC-002
+      layer: presentation
+      description: |
+        deskrpg/src/app/api/internal/npcs/route.ts 신설. POST handler (sub-agent spawn).
+        - isInternalRequestAuthorized 검증
+        - body parse + 필수 field
+        - spawnSubAgent 호출 → 201 + {npc} 응답
+      test: "T-V16에서 route test"
+      depends_on: [T-V11]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/app/api/internal/npcs/route.ts (신설)"
+
+    - id: T-V15
+      ac_ref: AC-002
+      layer: presentation
+      description: |
+        deskrpg/src/app/api/internal/npcs/[id]/route.ts 신설. DELETE handler.
+        - isInternalRequestAuthorized 검증
+        - params.id 추출
+        - deleteNpcInternal 호출 → 200 + {success, deleted_count}
+      test: "T-V16에서 route test"
+      depends_on: [T-V12]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/app/api/internal/npcs/[id]/route.ts (신설)"
+
+    - id: T-V16
+      ac_ref: AC-002
+      layer: presentation
+      description: |
+        npcs route test 5 cases:
+        (1) POST 401 (no secret)
+        (2) POST 201 (정상 spawn)
+        (3) POST 404 (parent 없음)
+        (4) DELETE 401
+        (5) DELETE 200 (cascade 호출 검증)
+      test: "5/5 pass"
+      depends_on: [T-V14, T-V15]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/app/api/internal/npcs/route.test.ts (신설)"
+        - "deskrpg/src/app/api/internal/npcs/[id]/route.test.ts (신설)"
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 3 — Logic (cleanup + metadata)
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V17
+      ac_ref: AC-006
+      layer: logic
+      description: |
+        deskrpg/src/lib/nanobot-client.js 수정:
+        - createNanobotAdapter.chatSend 시그니처에 metadata 인자 추가
+        - buildNanobotRequestBody가 opts.metadata를 body.metadata에 포함
+        - nanobotChat / nanobotChatStream의 opts 인터페이스 확장
+      test: "T-V18에서 unit test"
+      depends_on: []
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/nanobot-client.js"
+
+    - id: T-V18
+      ac_ref: AC-006
+      layer: logic
+      description: |
+        nanobot-client.metadata.test.ts — 3 tests:
+        (1) buildNanobotRequestBody가 opts.metadata 받으면 body.metadata에 포함
+        (2) opts.metadata 없으면 body에 field 자체 없음
+        (3) chatSend가 4번째 onDelta + 5번째 metadata 둘 다 받음 — 인자 순서 OK
+      test: "3/3 pass"
+      depends_on: [T-V17]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/lib/nanobot-client.metadata.test.ts (신설)"
+
+    - id: T-V19
+      ac_ref: AC-006
+      layer: logic
+      description: |
+        deskrpg/server.js의 streamNpcResponse에서 chatSend 호출 시 metadata 전달.
+        metadata = {user_id, character_id, channel_id, parent_npc_id?}.
+        다른 호출처(meeting/poll/summary 등)도 같은 패턴 적용.
+      test: "wiring guard test — server.js에 metadata 전달 grep"
+      depends_on: [T-V17]
+      estimated_minutes: 20
+      files:
+        - "deskrpg/server.js"
+        - "deskrpg/src/lib/nanobot-client.metadata-wiring.test.ts (신설, lint-like)"
+
+    - id: T-V20
+      ac_ref: AC-007
+      layer: logic
+      description: |
+        deskrpg/src/lib/nanobot-cleanup.ts 신설.
+        postNanobotAgentCleanup(agentId) 함수:
+        - POST {getApiUrl()}/agents/{encodeURIComponent(agentId)}/cleanup
+        - headers: x-deskrpg-internal-secret + Content-Type: application/json
+        - try/catch silent-fail (nanobot 측 endpoint 미구현 시 404 받아도 OK)
+      test: "T-V21에서 unit test"
+      depends_on: []
+      estimated_minutes: 20
+      files:
+        - "deskrpg/src/lib/nanobot-cleanup.ts (신설)"
+
+    - id: T-V21
+      ac_ref: AC-007
+      layer: logic
+      description: |
+        nanobot-cleanup.test.ts — 4 tests (fetch spy):
+        (1) URL encoding (agentId의 ':' 등) 정확
+        (2) header x-deskrpg-internal-secret 포함
+        (3) fetch network error → silent (throw X)
+        (4) 404 (nanobot endpoint 미구현) → silent
+      test: "4/4 pass"
+      depends_on: [T-V20]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/nanobot-cleanup.test.ts (신설)"
+
+    - id: T-V22
+      ac_ref: AC-007
+      layer: logic
+      description: |
+        deskrpg/src/app/api/npcs/[id]/route.ts의 DELETE handler에 postNanobotAgentCleanup
+        호출 추가. nanobot mode일 때만 호출 (isNanobotProvider).
+        deleteNanobotAgentWorkspace 후 postNanobotAgentCleanup 호출 순서.
+        실패는 silent — NPC 삭제 흐름 비차단.
+      test: "wiring guard — DELETE 핸들러에 postNanobotAgentCleanup 호출 grep"
+      depends_on: [T-V20]
+      estimated_minutes: 15
+      files:
+        - "deskrpg/src/app/api/npcs/[id]/route.ts"
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 4 — Legacy 제거
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V23
+      ac_ref: AC-003
+      layer: logic
+      description: |
+        deskrpg/src/lib/task-parser.js 완전 삭제 + server.js의 import 라인 + 호출처
+        5곳 정리 (L303 isValidTaskAction, L375 parseNpcResponse, L742 parseNpcResponse,
+        L843 parseNpcResponse 등). socket 흐름에서 task action 처리 블록 자체 제거
+        (nanobot push가 대체).
+      test: "task-parser.js 파일 부재 + server.js의 parseNpcResponse 호출 0건 (grep)"
+      depends_on: [T-V09]  # task push endpoint 안착 후 안전
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/lib/task-parser.js (삭제)"
+        - "deskrpg/server.js"
+
+    - id: T-V24
+      ac_ref: AC-003
+      layer: logic
+      description: |
+        deskrpg/src/lib/task-prompt.ts에서 withTaskReminder, buildTaskReminder 함수
+        제거. server.js 호출처 정리 (L372, L734, L828 etc — withTaskReminder 호출
+        삭제 + messageToSend 단순화). buildTaskSessionPrompt, injectTaskPrompt,
+        normalizeTaskPromptLocale는 유지 (다른 용도).
+      test: "task-prompt.ts에서 withTaskReminder export 0 (grep) + server.js 호출 0"
+      depends_on: [T-V23]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/task-prompt.ts"
+        - "deskrpg/server.js"
+
+    - id: T-V25
+      ac_ref: AC-003
+      layer: logic
+      description: |
+        deskrpg/src/lib/task-block-utils.js의 sanitizeNpcResponseText 단순화:
+        task block 제거 로직 빼고 raw text 그대로 반환 (또는 함수 자체 deprecated).
+        server.js L252의 호출처에서 sanitize 호출 제거 — content 그대로 chat_messages
+        에 적재.
+      test: "server.js L252 부근에 sanitizeNpcResponseText 호출 0 (grep)"
+      depends_on: [T-V24]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/task-block-utils.js"
+        - "deskrpg/server.js"
+
+    - id: T-V26
+      ac_ref: AC-004
+      layer: logic
+      description: |
+        deskrpg/src/lib/task-prompt.ts에 TASK_HINT (locale별 30~50 tokens) 추가.
+        buildTaskCorePrompt를 단순한 hint return으로 교체. injectTaskPrompt는 그대로
+        유지 (Identity prepend 흐름은 짧은 hint로 동작).
+        npc-agent-defaults.ts의 buildPersonaConfig에서 사용 흐름 검증 (변경 없어도 OK).
+      test: "task-prompt.test.ts — TASK_HINT가 locale별 적절히 반환 (ko/en/ja/zh 4건)"
+      depends_on: [T-V24]
+      estimated_minutes: 25
+      files:
+        - "deskrpg/src/lib/task-prompt.ts"
+        - "deskrpg/src/lib/task-prompt.test.ts (확장 또는 신설)"
+
+    - id: T-V27
+      ac_ref: AC-003
+      layer: presentation
+      description: |
+        deskrpg/src/components/ChatPanel.tsx의 TaskConfirmButtons 호출 제거.
+        L272 부근의 `isTaskConfirmPrompt(msg.content) && <TaskConfirmButtons ... />`
+        블록 삭제. import 라인도 정리. TaskConfirmButtons 컴포넌트 파일 자체 삭제는
+        v10-backlog-4로 (다른 호출처 확인 후 별 PR).
+      test: "ChatPanel.tsx에 TaskConfirmButtons import 0 + 호출 0 (grep)"
+      depends_on: []
+      estimated_minutes: 15
+      files:
+        - "deskrpg/src/components/ChatPanel.tsx"
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 5 — UI (sub-agent visual + socket listener)
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V28
+      ac_ref: AC-001 / AC-002
+      layer: presentation
+      description: |
+        deskrpg/src/app/game/GamePageClient.tsx에 3개 socket listener 추가:
+        - socket.on("task:event", ...) → TaskBoard state 갱신 (이미 board가 react
+          state로 관리되면 setState; 아니면 react-query invalidate)
+        - socket.on("npc:spawned", ...) → npcs state에 동적 추가 → 맵에 spawn
+        - socket.on("npc:deleted", ...) → npcs state에서 제거 → 맵에서 사라짐
+      test: "wiring guard test — listener 3개 등록 grep + state update 검증"
+      depends_on: [T-V09, T-V14, T-V15]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/app/game/GamePageClient.tsx"
+        - "deskrpg/src/app/game/internal-event-listener.wiring.test.ts (신설)"
+
+    - id: T-V29
+      ac_ref: AC-008
+      layer: presentation
+      description: |
+        sub-agent NPC의 시각 마크 — 임시: NpcSprite 또는 맵 렌더링 layer에서
+        parent_agent_id가 있으면 🤖 뱃지 또는 sprite tint 적용. 디자인 미정이라
+        Phase 6의 임시 placeholder. 정식 디자인은 별 PR.
+      test: "맵에서 parent_agent_id 있는 NPC가 시각적으로 구분되는지 manual"
+      depends_on: [T-V01]  # parent_agent_id 컬럼 존재 가정
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/components/NpcSprite.tsx (또는 적절한 렌더링 컴포넌트)"
+
+    - id: T-V30
+      ac_ref: AC-008
+      layer: presentation
+      description: |
+        NpcHireModal.tsx에서 sub-agent type 옵션 노출 안 함 검증. 현재 모달에 그런
+        옵션이 있는지 확인 후 있으면 제거. 사용자가 직접 sub-agent를 hire 못 함.
+      test: "manual — UI에서 NpcHireModal 열어 sub-agent option 0 확인"
+      depends_on: []
+      estimated_minutes: 10
+      files:
+        - "deskrpg/src/components/NpcHireModal.tsx"
+
+    # ───────────────────────────────────────────────────────────────
+    # Phase 6 — 검증
+    # ───────────────────────────────────────────────────────────────
+
+    - id: T-V32
+      ac_ref: AC-001 / TRD-D-37
+      layer: presentation
+      description: |
+        TaskBoard에 task 단위 "취소" 버튼 추가 (사용자가 task board에서 진행 중
+        task를 cancel 가능). 클릭 시:
+        1. deskrpg가 POST /api/internal/tasks (action="cancel", npcTaskId)
+           로 자기 자신 호출 — DB tasks.status="cancelled" + completedAt
+        2. 동시에 그 task의 session_key 찾아서 nanobot에 chatAbort 호출
+           (phase 4.5 endpoint 재사용) — in-flight tool cancel
+        3. nanobot측 cancel hook이 status="cancelled" push (TRD-D-36) →
+           UI 자동 정합 (중복이지만 멱등)
+
+        cancel granularity 한계: 같은 session의 다른 in-flight 작업도 함께 멈춤
+        (TRD-D-37). 사용자에게 UI tooltip으로 안내 검토.
+      test: "task board의 cancel 버튼 클릭 시 DB status 전환 + nanobot chatAbort 호출 wiring guard"
+      depends_on: [T-V09]
+      estimated_minutes: 30
+      files:
+        - "deskrpg/src/components/TaskBoard.tsx (또는 적절한 컴포넌트)"
+        - "deskrpg/src/app/game/GamePageClient.tsx"
+
+    - id: T-V31
+      ac_ref: AC-009
+      layer: test
+      description: |
+        토큰 절감 smoke test 시나리오 작성 + 결과 기록:
+        - 깨끗한 baseline (chat_messages + nanobot session jsonl 정리)
+        - 새 NPC와 14턴 대화 + abort 없이 full 응답
+        - TokenTrackingHook 로그 + nanobot session token.json 누적 prompt_tokens 측정
+        - Phase 4.5 baseline (~12000~15000 누적) → v10 적용 후 (~6500~9000 예상)
+        - 결과를 `.harness/ouroboros/evaluations/v10-token-savings-smoke.md` 기록
+      test: "manual 측정 + 결과 문서화 (정량 비교표)"
+      depends_on: [T-V26]  # legacy 제거 후 의미 있음
+      estimated_minutes: 30
+      files:
+        - ".harness/ouroboros/evaluations/v10-token-savings-smoke.md (신설)"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Execution Order (의존성 graph 기반)
+  # ─────────────────────────────────────────────────────────────────
+  execution_order:
+    - phase: 1
+      label: "Data + Contract"
+      tasks: [T-V01, T-V02, T-V03, T-V04, T-V05, T-V06]
+      rationale: |
+        T-V01(schema.ts) → T-V02/V03(server-db.js parity) → T-V05(test).
+        T-V04(migration SQL)은 독립 병행. T-V06(contract doc)도 독립 병행 —
+        다른 팀원에게 spec 공유.
+
+    - phase: 2
+      label: "Presentation — internal endpoints"
+      tasks: [T-V07, T-V08, T-V09, T-V10, T-V11, T-V12, T-V13, T-V14, T-V15, T-V16]
+      rationale: |
+        Phase 1 완료 후. T-V07(task handler) → T-V08(test) + T-V09(route) →
+        T-V10(route test). 병행: T-V11(npc spawn handler) → T-V12(delete) →
+        T-V13(test) → T-V14/V15(route) → T-V16(route test). T-V12는 T-V20에도
+        의존 (cleanup) — Phase 3 일부와 교차.
+
+    - phase: 3
+      label: "Logic — cleanup + metadata"
+      tasks: [T-V17, T-V18, T-V19, T-V20, T-V21, T-V22]
+      rationale: |
+        Phase 2와 병행 가능. T-V17(nanobot-client metadata) → T-V18(test) +
+        T-V19(server.js wiring). T-V20(cleanup helper) → T-V21(test) +
+        T-V22(DELETE NPC 흐름 wiring).
+
+    - phase: 4
+      label: "Legacy 제거"
+      tasks: [T-V23, T-V24, T-V25, T-V26, T-V27]
+      rationale: |
+        Phase 2 안착 후 (push 흐름 동작 확인 후 legacy 제거). T-V23(parser
+        삭제) → T-V24(reminder 제거) → T-V25(sanitize 단순화) → T-V26(hint 추가).
+        T-V27(UI confirm button 제거)은 독립.
+
+    - phase: 5
+      label: "UI (sub-agent visual + socket listener)"
+      tasks: [T-V28, T-V29, T-V30]
+      rationale: |
+        Phase 2 endpoint 완료 + Phase 4 legacy 제거 후. T-V28(socket listener)
+        가 핵심, T-V29(시각 마크)/T-V30(modal)은 부수. T-V29는 디자인 미정으로
+        placeholder.
+
+    - phase: 6
+      label: "검증 + 측정"
+      tasks: [T-V31]
+      rationale: "Phase 4 legacy 제거 후 실 토큰 절감 검증."
+
+  # ─────────────────────────────────────────────────────────────────
+  # 다른 팀원(nanobot fork) parallel 작업 (references only)
+  # ─────────────────────────────────────────────────────────────────
+  parallel_actor_tasks:
+    note: |
+      본 decomposition scope 외. T-V06 (AC-010 contract doc) 머지 후 다른 팀원이
+      별 PR로 진행. 본인 작업과의 동기는 contract 문서로만.
+
+    references:
+      - id: "P-NB01"
+        layer: "nanobot logic"
+        description: "nanobot agent loop에 TaskEventHook 추가 (LLMUsageRecordHook 패턴 모사). tool start/end/cancel 시점에 ToolExecutionEvent 발화 + deskrpg /api/internal/tasks POST"
+        ac_ref: "AC-001 (consumer side)"
+
+      - id: "P-NB02"
+        layer: "nanobot logic"
+        description: "sub-agent spawn 시 deskrpg /api/internal/npcs POST. sub-agent 종료 시 DELETE 호출"
+        ac_ref: "AC-002 (consumer side)"
+
+      - id: "P-NB03"
+        layer: "nanobot api"
+        description: "POST /v1/agents/{agentId}/cleanup endpoint 신설. sessions/api_{sessionKey 매칭}.* + workspace-{agentId} 정리"
+        ac_ref: "AC-007 (consumer side)"
+
+      - id: "P-NB04"
+        layer: "nanobot logic"
+        description: "body.metadata 수신 + session 메모리 저장 + push 시점에 internal endpoint body로 forward"
+        ac_ref: "AC-006 (consumer side)"
+
+      - id: "P-NB05"
+        layer: "nanobot logic"
+        description: "_cancel_active_tasks 호출 시 cancelled task의 status='cancelled' event push (TRD-D-36)"
+        ac_ref: "TRD-D-36 (consumer side)"
+
+      - id: "P-NB06"
+        layer: "nanobot logic"
+        description: "(future) qwen delta.reasoning forward — v10-backlog-1, 본인이 owner. 별 PR/별 cycle"
+        ac_ref: "v10-backlog-1"
+
+  # ─────────────────────────────────────────────────────────────────
+  # 누적 예상 시간
+  # ─────────────────────────────────────────────────────────────────
+  estimated_total:
+    phase_1: "90 minutes (T-V01~V06)"
+    phase_2: "245 minutes (T-V07~V16)"
+    phase_3: "125 minutes (T-V17~V22)"
+    phase_4: "120 minutes (T-V23~V27)"
+    phase_5: "70 minutes (T-V28~V30)"
+    phase_6: "30 minutes (T-V31)"
+    total: "680 minutes (~11.5 hours, 테스트 작성 포함)"
+    note: "병렬 가능 task를 활용하면 실측은 더 짧을 수 있음. /run 시 Direct 흐름 (모든 AC가 low/medium이라 Pair Mode 없이 진행 가능)."
+
+  # ─────────────────────────────────────────────────────────────────
+  # Validation
+  # ─────────────────────────────────────────────────────────────────
+  validation:
+    total_tasks: 32
+    by_layer:
+      data: 5  # T-V01~V05
+      docs: 1  # T-V06
+      logic: 15  # T-V07/V08/V11/V12/V13/V17/V18/V19/V20/V21/V22/V23/V24/V25/V26
+      presentation: 9  # T-V09/V10/V14/V15/V16/V27/V28/V29/V30
+      test: 1  # T-V31
+    ac_coverage:
+      AC-001: [T-V07, T-V08, T-V09, T-V10]
+      AC-002: [T-V11, T-V12, T-V13, T-V14, T-V15, T-V16]
+      AC-003: [T-V23, T-V24, T-V25, T-V27]
+      AC-004: [T-V26]
+      AC-005: [T-V01, T-V02, T-V03, T-V04, T-V05]
+      AC-006: [T-V17, T-V18, T-V19]
+      AC-007: [T-V20, T-V21, T-V22]
+      AC-008: [T-V29, T-V30]
+      AC-009: [T-V31]
+      AC-010: [T-V06]
+    all_atomic: true  # 모두 30분 이내, 단일 layer + 단일 AC
+    all_testable: true
+    dependency_graph_valid: true
+    anti_patterns: "none detected"
+
+  notes:
+    - "각 task는 30분 이내 atomic. /run에서 Direct 모드로 진행 (AC complexity 모두 low/medium, Pair Mode 자동 OFF)."
+    - "T-V12는 T-V20에 의존 (postNanobotAgentCleanup 사용) — Phase 2+3 교차 단계."
+    - "T-V29 sub-agent 시각 마크는 디자인 미정 → placeholder. 정식 디자인은 별 PR."
+    - "T-V31은 manual 측정 + 문서 기록. 자동 회귀 가드는 별 cycle."
+    - "다른 팀원(nanobot fork) 작업은 contract 문서(T-V06) 머지 후 별 PR. 본 cycle와 parallel 진행 가능."
+    - "T-V23/V24/V25 (legacy 제거)는 Phase 2(push endpoint 안착) 완료 후 안전. 그 전에 제거하면 task 등록 기능 부재."
