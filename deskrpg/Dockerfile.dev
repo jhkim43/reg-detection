@@ -10,6 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# 기본 환경 변수 설정
+ENV NODE_ENV=development
+ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
+
 # 패키지 파일만 먼저 복사하여 의존성 설치 (캐싱 활용)
 COPY package.json package-lock.json ./
 RUN npm ci
