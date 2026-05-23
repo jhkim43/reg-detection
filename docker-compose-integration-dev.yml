@@ -141,7 +141,7 @@ services:
       - reg-detection-net
     ports:
       - "3102:3000"
-      - "3103:3001"
+      # - "3103:3001" # 포트 삭제 (HMR은 3000 포트만 사용)
     volumes:
       # - ./deskrpg/public/assets:/app/public/assets
       - ./deskrpg:/app
