@@ -1,0 +1,171 @@
+# =============================================================================
+# reg-detection — 통합 Docker Compose
+# =============================================================================
+# nanobot + deskrpg + PostgreSQL를 단일 Docker 네트워크로 통합 관리
+#
+# 사용법:
+#   ./scripts/start.sh          # 전체 시작
+#   ./scripts/stop.sh           # 전체 중지
+#   ./scripts/status.sh         # 컨테이너 상태 확인
+#   ./scripts/init-env.sh       # .env.integration 생성 가이드
+#
+# 또는 직접:
+#   docker compose -f docker-compose-integration.yml up -d --build
+# =============================================================================
+
+networks:
+  reg-detection-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.32.0.0/16
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL (deskrpg 전용)
+  # ─────────────────────────────────────────────
+  deskrpg-db:
+    image: postgres:16-alpine
+    container_name: reg-detection-db
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    environment:
+      POSTGRES_DB: deskrpg
+      POSTGRES_USER: deskrpg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - deskrpg-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deskrpg -d deskrpg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  # ─────────────────────────────────────────────
+  # nanobot-gateway (Telegram, Discord, etc.)
+  # ─────────────────────────────────────────────
+  nanobot-gateway:
+    build:
+      context: ./nanobot
+      dockerfile: Dockerfile
+    container_name: reg-detection-nanobot-gw
+    command: ["gateway"]
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "18790:18790"
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
+      - ./nanobot/nanobot:/app/nanobot
+    environment:
+      - DEV_MODE=1
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ─────────────────────────────────────────────
+  # nanobot-api (OpenAI-compatible, deskrpg용)
+  # ─────────────────────────────────────────────
+  nanobot-api:
+    build:
+      context: ./nanobot
+      dockerfile: Dockerfile
+    container_name: reg-detection-nanobot-api
+    command: ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace", "--verbose"]
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "8900:8900"
+    volumes:
+      - ~/.nanobot:/home/nanobot/.nanobot
+      - ./nanobot/nanobot:/app/nanobot
+    environment:
+      - DEV_MODE=1
+      # RegTrack AC-008 — LLMUsageRecordHook가 deskrpg로 usage POST.
+      # 설정되지 않으면 hook이 등록되지 않고 token-tracker.json만 기록됨.
+      - REGTRACK_INTERNAL_URL=http://deskrpg-app:3000
+      - INTERNAL_RPC_SECRET=${JWT_SECRET}
+      # LLMResponse에 model 필드가 없을 때 hook이 위 모델명을 fallback으로 기록.
+      - NANOBOT_MODEL=${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ─────────────────────────────────────────────
+  # deskrpg-app (OpenClaw → nanobot API로 교체)
+  # ─────────────────────────────────────────────
+  # 우리 fork(./deskrpg)를 빌드해야 nanobot 분기 패치가 적용됨.
+  # DESKRPG_IMAGE 환경변수로 외부 이미지 override 가능 (CI 캐시용).
+  deskrpg-app:
+    build:
+      context: ./deskrpg
+      dockerfile: Dockerfile.dev
+    image: ${DESKRPG_IMAGE:-regtrack/deskrpg:nanobot}
+    container_name: reg-detection-deskrpg
+    restart: unless-stopped
+    networks:
+      - reg-detection-net
+    ports:
+      - "3102:3000"
+      - "3103:3001"
+    volumes:
+      # - ./deskrpg/public/assets:/app/public/assets
+      - ./deskrpg:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # PR 2a — /api/llm-usage/account-balance가 OpenRouter 잔여 fetch에 사용.
+      # 미설정 시 위젯의 '팀 잔여' 줄이 hide. 메타데이터 endpoint라 과금 0.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # OpenClaw 대체: nanobot OpenAI-compatible API
+      AI_PROVIDER: nanobot
+      NANOBOT_API_URL: http://nanobot-api:8900/v1
+      NANOBOT_MODEL: ${NANOBOT_MODEL:-qwen/qwen3.6-35b-a3b}
+      # seed-v9 D-21 — nanobot mirror workspace 경로.
+      # 컨테이너 nextjs user(uid 1001)는 system user라 home이 /nonexistent.
+      # /tmp은 world-writable이라 EACCES 회피. 컨테이너 재시작 시 사라지므로
+      # production에서는 named volume + chown 필요 (Phase 4+ follow-up).
+      NANOBOT_HOME: /tmp/nanobot
+    depends_on:
+      deskrpg-db:
+        condition: service_healthy
+      nanobot-api:
+        condition: service_started
+
+volumes:
+  deskrpg-pgdata:
