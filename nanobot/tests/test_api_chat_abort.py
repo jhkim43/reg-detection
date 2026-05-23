@@ -163,3 +163,26 @@ async def test_chat_abort_returns_500_on_cancel_error(aiohttp_client) -> None:
     # _error_json shape: { error: { message, type } }
     assert "error" in body
     assert body["error"]["message"] == "abort failed"
+
+
+def test_handle_chat_completions_catches_connection_reset_during_stream() -> None:
+    """seed-v9 phase 4.5 follow-up — SSE write가 ConnectionResetError를 catch.
+
+    deskrpg "중단" 버튼이 TCP 연결을 끊을 때 ClientConnectionResetError가
+    traceback으로 노출되던 문제 (smoke test 2026-05-23). 실제 streaming 중
+    client disconnect 시나리오는 aiohttp test_utils로 simulate하기 까다로워
+    정적 검사로 회귀 방지한다.
+    """
+    import inspect
+    from nanobot.api import server as api_server
+
+    src = inspect.getsource(api_server.handle_chat_completions)
+    assert "ConnectionResetError" in src, (
+        "handle_chat_completions must catch ConnectionResetError "
+        "around resp.write to avoid abort traceback noise"
+    )
+    # chunk write 루프 + [DONE] terminator write 양쪽 모두 가드 (최소 2회 등장).
+    assert src.count("ConnectionResetError") >= 2, (
+        "both the chunk write loop AND the [DONE] terminator write "
+        "must guard against ConnectionResetError"
+    )

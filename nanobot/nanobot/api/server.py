@@ -290,7 +290,20 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 token = await queue.get()
                 if token is None:
                     break
-                await resp.write(_sse_chunk(token, model_name, chunk_id))
+                try:
+                    await resp.write(_sse_chunk(token, model_name, chunk_id))
+                except ConnectionResetError:
+                    # seed-v9 phase 4.5 follow-up: deskrpg "중단" 버튼이
+                    # AbortController.abort()를 호출하면 TCP 연결이 끊겨 다음
+                    # write 시도가 ClientConnectionResetError를 raise. 이를
+                    # traceback으로 노출하지 않고 정상 close로 처리한다 —
+                    # abort는 기능적으로 정상 흐름이고 운영 로그 위생만 해친다.
+                    logger.info(
+                        "Client disconnected during stream — abort treated as normal close (session_key={})",
+                        session_key,
+                    )
+                    stream_failed = True
+                    break
         finally:
             if not task.done():
                 task.cancel()
@@ -298,8 +311,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                     await task
 
         if not stream_failed:
-            await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
-            await resp.write(_SSE_DONE)
+            with contextlib.suppress(ConnectionResetError):
+                await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
+                await resp.write(_SSE_DONE)
         return resp
 
     # -- non-streaming path (original logic) --
