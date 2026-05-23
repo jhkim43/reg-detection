@@ -1134,6 +1134,14 @@ function GamePageInner() {
         );
       }
 
+      // seed-v9 phase 4.5 follow-up: 메시지 전송 시점에 streaming 상태 진입.
+      // 기존엔 첫 chunk 도착 시(L692)에만 setIsNpcStreaming(true)이라 reasoning
+      // 모델(qwen3.6-35b-a3b 등)에서 첫 chunk가 30~120초 늦어지면 사용자가 abort
+      // 버튼을 못 본다. 메시지 보낸 직후부터 "응답 대기 중" 상태로 인식해
+      // 사용자가 즉시 "중단" 가능하게 한다. 응답 완료/abort/error 시 false 처리는
+      // 기존 npc:response-* 이벤트 핸들러(L515/522/527/624/632/638/673)가 유지.
+      setIsNpcStreaming(true);
+
       socket.emit("npc:chat", {
         npcId: dialogNpc.npcId,
         message,

@@ -186,3 +186,36 @@ def test_handle_chat_completions_catches_connection_reset_during_stream() -> Non
         "both the chunk write loop AND the [DONE] terminator write "
         "must guard against ConnectionResetError"
     )
+
+
+def test_handle_chat_completions_registers_streaming_task_in_active_tasks() -> None:
+    """seed-v9 phase 4.5 follow-up — HTTP API path의 streaming task가
+    agent_loop._active_tasks[session_key]에 등록되어야 POST /v1/chat/abort/...가
+    호출하는 _cancel_active_tasks가 그 task도 cancel 할 수 있다.
+
+    smoke test 2026-05-23 진단 결과:
+    - process_direct → _process_message는 직접 await (message bus 경로 _dispatch는
+      asyncio.create_task로 wrap + _active_tasks 등록되지만, HTTP API path는 미등록).
+    - 따라서 cancelled_count=0이 항상 반환되어 RFC §3.2-2가 사실상 미달성.
+    - 본 follow-up이 streaming _run task를 _active_tasks에 등록 + done_callback으로
+      정리하여 _cancel_active_tasks(session_key)가 잡을 수 있게 한다.
+
+    실제 streaming 중 abort race는 aiohttp test_utils로 simulate하기 까다로워
+    정적 inspect 가드로 회귀 방지.
+    """
+    import inspect
+    from nanobot.api import server as api_server
+
+    src = inspect.getsource(api_server.handle_chat_completions)
+    assert "_active_tasks" in src, (
+        "handle_chat_completions must register streaming task into "
+        "agent_loop._active_tasks for cancel propagation"
+    )
+    assert "agent_loop._active_tasks.setdefault" in src, (
+        "must use setdefault(session_key, []).append(task) pattern to "
+        "match message bus path (agent/loop.py)"
+    )
+    assert "add_done_callback" in src, (
+        "must register done_callback to remove task from _active_tasks "
+        "after completion (otherwise dict leaks tasks)"
+    )

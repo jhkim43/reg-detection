@@ -285,6 +285,22 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 await queue.put(None)
 
         task = asyncio.create_task(_run())
+
+        # seed-v9 phase 4.5 follow-up: process_direct를 감싸는 _run task를
+        # agent_loop._active_tasks[session_key]에 등록한다.  message bus 경로의
+        # _dispatch task(agent/loop.py:768)와 동일 dict에 들어가야 POST
+        # /v1/chat/abort/{session_id}가 호출하는 _cancel_active_tasks가
+        # HTTP API path의 task도 cancel 할 수 있다. 미등록 시 cancelled_count=0이
+        # 항상 반환되어 RFC §3.2-2 ("session_key의 in-flight task cancel")가 미달성.
+        agent_loop._active_tasks.setdefault(session_key, []).append(task)
+
+        def _cleanup_active_task(t: asyncio.Task, k: str = session_key) -> None:
+            tasks = agent_loop._active_tasks.get(k, [])
+            if t in tasks:
+                tasks.remove(t)
+
+        task.add_done_callback(_cleanup_active_task)
+
         try:
             while True:
                 token = await queue.get()
