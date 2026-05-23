@@ -1,0 +1,511 @@
+# Seed Specification v10 — RegTrack
+# Generated: 2026-05-23
+# Supersedes: seed-v9.yaml (의 backlog-1 + Candidate 3 + Candidate 4 진화)
+# Source Interview: .harness/ouroboros/interviews/2026-05-19-seed-v10-candidates.md (ambiguity 0.145)
+# WARNING: This file is IMMUTABLE once merged to dev. To change after merge, create seed-v11.yaml.
+#          (Pre-merge amendments are tracked in `post_creation_amendments` below.)
+# 작성 원칙: 한국어 주 + 영어 기술 용어 병기. TODO/TBD 금지.
+
+version: 10
+created: "2026-05-23T15:30:00"
+interview_ref: ".harness/ouroboros/interviews/2026-05-19-seed-v10-candidates.md"
+supersedes: "seed-v9.yaml"
+
+# ─────────────────────────────────────────────────────────────────────
+# Post-creation Amendments — PR 머지 전 정정 (현재 빈 list)
+# ─────────────────────────────────────────────────────────────────────
+post_creation_amendments: []
+
+# ─────────────────────────────────────────────────────────────────────
+# Goal — north star
+# ─────────────────────────────────────────────────────────────────────
+goal:
+  summary: |
+    자율형 agent(nanobot)가 무엇을 하는지 사용자가 deskrpg UI에서 본다 — task
+    생성/진행/완료, sub-agent spawn/종료를 nanobot이 원천(source of truth)으로
+    push하고 deskrpg가 UI 가시화 + lifecycle 관리.
+
+  detail: |
+    seed-v9까지 deskrpg는 nanobot이 응답한 본문에 박힌 ```json:task``` 코드블록을
+    정규식으로 parse하여 task를 등록했고, NPC의 system prompt에 task protocol을
+    매번 prepend (withTaskReminder, injectTaskPrompt) 하여 LLM에게 형식을 강제했다.
+    구조적 결함:
+      (1) LLM이 형식을 빠뜨리면 task 등록 누락 (parser miss, 2026-05-19 smoke
+          test: "등록해" 2회 → 1건만 반영)
+      (2) reasoning 모델(qwen3.6-35b-a3b 등)에서 task block 출력에 LLM의
+          출력 예산을 낭비 → 자연어 응답이 빈 박스로 보이는 UX 결함
+      (3) 본문 prepend로 인한 매 turn 200~700 tokens 누적 → 응답 지연
+      (4) sub-agent 흐름이 아예 부재 — nanobot이 자체적으로 child agent를
+          spawn해도 deskrpg UI에는 안 보임
+
+    seed-v10은 이 흐름을 뒤집는다:
+      - **nanobot이 원천**: tool execution event(시작/진행/완료/중단)와
+        sub-agent lifecycle(spawn/delete)을 nanobot이 deskrpg internal API로 push
+      - **deskrpg는 수신 + UI 렌더링**: legacy task-parser/withTaskReminder/
+        injectTaskPrompt 흐름 전체 제거 → 자연어 응답만 chat_messages 적재
+      - **observability 우선**: 사용자가 board(task tab) + 맵(NPC) 둘 다에서
+        agent 활동을 실시간 본다
+
+  non_goals:
+    - "nanobot fork 자체를 deskrpg가 대체 — 본 cycle은 push contract만 정의"
+    - "qwen reasoning 모델 자체의 응답 속도 개선 — Candidate 4로 트래킹"
+    - "multimodal chat input(이미지/PDF) 지원 — Candidate 2로 트래킹"
+    - "chat history의 모든 메시지를 nanobot이 매 호출마다 DB에서 reload — 본 cycle은 PostgreSQL을 canonical로 두되 nanobot session jsonl은 ephemeral cache로 유지"
+    - "기존 NPC 사용자 hire 흐름(POST /api/npcs) 폐기 — 사용자 hire와 sub-agent 둘 다 공존"
+
+# ─────────────────────────────────────────────────────────────────────
+# Constraints
+# ─────────────────────────────────────────────────────────────────────
+constraints:
+  must:
+    - "nanobot이 task 생성/진행/완료/중단 event의 단일 source of truth가 된다 (LLM 응답 본문 parsing 의존 금지)"
+    - "deskrpg internal endpoint는 INTERNAL_RPC_SECRET 헤더(`x-deskrpg-internal-secret`) + body의 ownerUserId/channelId로 인증·식별 — `x-user-id` 헤더 불요"
+    - "sub-agent의 agentId는 nanobot이 발급 (deskrpg는 그 ID를 그대로 npcs.openclawConfig.agentId에 저장, mapping table 불필요)"
+    - "sub-agent NPC는 npcs.parent_agent_id FK로 parent 추적, parent 삭제 시 ON DELETE CASCADE"
+    - "chat_messages 테이블이 chat 본문의 canonical source — nanobot session jsonl은 ephemeral cache (NPC 삭제 시 cleanup endpoint로 정리)"
+    - "deskrpg → nanobot chatSend body.metadata 필드로 user 식별 정보 전달: {user_id, character_id, channel_id, parent_npc_id?}. nanobot은 이 metadata를 session 단위로 저장 후 push 시점에 internal endpoint body에 그대로 forward"
+    - "NPC 삭제 시 deskrpg 측만 정리 (chat_messages cascade + deskrpg mirror workspace 정리). nanobot 측 sessions/workspace 파일은 nanobot 자체 lifecycle로 유지 (layer 경계 명확성 우선, 2026-05-23 다른 팀원 합의)"
+    - "legacy task 흐름 완전 제거 — task-parser.js / task-prompt.js의 withTaskReminder + buildTaskReminder / server.js의 parseNpcResponse 호출 전체 삭제"
+    - "본 cycle = parallel-change 흐름의 migrate 단계 — expand는 phase 4.5에서 완료됨 (cancel endpoint + DB tracking + Option A)"
+    - "task가 실행 중일 때 사용자 abort → nanobot이 _cancel_active_tasks로 in-flight tool 중단 (phase 4.5에서 인프라 안착) + nanobot cancel hook이 task event status='cancelled' push (다른 팀원 작업) → deskrpg가 board UI 즉시 반영. cancel granularity는 session 단위 (개별 tool granular cancel은 nanobot 미지원, 본 cycle 수용)"
+
+  must_not:
+    - "LLM 응답 본문에서 task action을 정규식 parsing (task-parser.js 흐름 부활 금지)"
+    - "매 user 메시지에 task protocol reminder prepend (withTaskReminder 부활 금지)"
+    - "NPC persona의 Identity 문서에 task protocol 본문 prepend (injectTaskPrompt 부활 금지 — 단 short hint 1~2줄은 허용 검토)"
+    - "sub-agent NPC를 사용자가 직접 hire/delete (UI에서 hire 모달이 sub-agent type을 노출하면 안 됨 — parent agent만 lifecycle 제어)"
+    - "nanobot session jsonl을 chat history의 canonical로 사용 (deskrpg UI 표시용 메시지는 항상 PostgreSQL chat_messages 기반)"
+    - "internal endpoint를 사용자 인증(x-user-id)으로 노출 — internal-secret 전용"
+    - "nanobot이 발급한 agentId를 deskrpg가 재발급(별 UUID로 변환)하여 매핑"
+
+  should:
+    - "tool execution event push 실패 시 nanobot 측에서 at-least-once retry — deskrpg internal endpoint는 npcTaskId(idempotency key)로 dedup"
+    - "sub-agent NPC는 일반 NPC와 시각 구분되는 UI 마크 (예: 🤖 뱃지 또는 별 sprite 톤) — 사용자가 자율형 child임을 인식 가능"
+    - "Candidate 4 (qwen reasoning_content forward)는 backlog로 트래킹 — seed-v10 backlog-1/2/3 머지 후 자연 해소 검증 → 잔존 시 별 PR"
+    - "다른 팀원(nanobot fork)과 본인(deskrpg)의 작업은 API contract만 명확하면 parallel 진행 가능"
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance Criteria
+# ─────────────────────────────────────────────────────────────────────
+acceptance_criteria:
+  - id: "AC-001"
+    description: |
+      deskrpg에 `POST /api/internal/tasks` endpoint 신설. `INTERNAL_RPC_SECRET`
+      헤더 인증. body: {channelId, npcId, npcTaskId, title, summary?, status,
+      assignerCharacterId, ownerUserId, action: "create"|"update"|"complete"|
+      "cancel"}. action별 적절한 DB op (insert / update set status). npcTaskId
+      idempotency key로 중복 호출 방지.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-002"
+    description: |
+      deskrpg에 `POST /api/internal/npcs` (sub-agent create) + `DELETE
+      /api/internal/npcs/{id}` (sub-agent delete) endpoint 신설.
+      INTERNAL_RPC_SECRET 인증. body: {ownerUserId, channelId, name, agentId
+      (nanobot 발급), parentAgentId, identity, soul, appearance?, position?}.
+      nanobot이 발급한 agentId를 그대로 npcs.openclawConfig.agentId로 저장.
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-003"
+    description: |
+      legacy task 흐름 완전 제거: `task-parser.js`(parseNpcResponse,
+      isValidTaskAction) 파일 삭제 + `task-prompt.js`의 withTaskReminder /
+      buildTaskReminder 제거 + server.js의 호출처(L303/372/375/734/742/843)
+      단순화. NPC 응답 본문은 그대로 chat_messages에 적재, task action은 별
+      channel(push)로만 처리.
+    verification: "both"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-004"
+    description: |
+      `injectTaskPrompt` + `buildTaskCorePrompt` 제거 검토. NPC persona의
+      Identity에서 task protocol 본문(~500 tokens 1회) 빠짐. 단순 hint 1~2줄
+      (예: "사용자가 업무 지시 시 nanobot이 자동으로 task 등록한다") 정도는
+      유지 가능. 결정은 /trd 단계에서.
+    verification: "manual"
+    priority: "should"
+    complexity: "low"
+
+  - id: "AC-005"
+    description: |
+      Drizzle migration 신설: `npcs.parent_agent_id` 컬럼 추가 (text, nullable,
+      ON DELETE CASCADE references npcs.id). NULL이면 사용자가 hire한 일반 NPC,
+      NOT NULL이면 sub-agent. schema.ts + server-db.js (CJS PostgreSQL + SQLite
+      모두 + ensureSqliteCompatibility) parity. 인덱스 idx_npcs_parent_agent_id.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+
+  - id: "AC-006"
+    description: |
+      deskrpg `nanobot-client.js` chatSend가 nanobot HTTP body에 metadata 필드
+      포함: {user_id, character_id, channel_id, parent_npc_id?}. nanobot이 이
+      metadata를 session 메모리에 저장 후 push 시점에 internal endpoint body로
+      forward 가능. deskrpg 측은 body schema 확장 + server.js에서 metadata 인자
+      추가 + nanobot-client.js buildNanobotRequestBody에 metadata field 처리.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+
+  - id: "AC-007"
+    description: |
+      [2026-05-23 정책 변경] NPC 삭제 시 nanobot 측 파일 cleanup 흐름 **제거**.
+      사용자 + 다른 팀원 합의: deskrpg가 외부에서 nanobot file system을 정리하는
+      것은 layer 경계 침범. nanobot 측 sessions/workspace는 nanobot 자체 lifecycle
+      로 유지 (운영자 수동 또는 future cron sweep).
+
+      deskrpg 측 동작 (확정):
+        - PostgreSQL chat_messages/tasks/nanobot_agent_sessions cascade (DB)
+        - deskrpg 컨테이너 내 workspace-{agentId}/ mirror 정리 (T-F03 기존 흐름)
+        - nanobot 컨테이너 내 파일은 미정리 (nanobot 자체 관리)
+
+      AC-007은 본 cycle scope에서 **제거**. 단 AC ID 번호는 보존 (history 추적용).
+    verification: "manual"
+    priority: "nice"
+    complexity: "low"
+    removed_reason: "layer 경계 침범 회피. nanobot 측 파일은 nanobot이 자체 관리."
+
+  - id: "AC-008"
+    description: |
+      sub-agent NPC가 UI에 동적으로 등장/사라짐. 맵에서 일반 NPC와 시각적으로
+      구분 (🤖 뱃지 또는 별 sprite tint). 사용자는 sub-agent를 직접 hire 못 함
+      (NpcHireModal에 sub-agent 옵션 노출 X). 사용자는 sub-agent와 대화는 가능
+      하나 lifecycle 제어는 parent agent (또는 nanobot)만 수행.
+    verification: "both"
+    priority: "should"
+    complexity: "medium"
+
+  - id: "AC-009"
+    description: |
+      legacy 흐름 제거 후 prompt_tokens 측정: 깨끗한 NPC와 14턴 대화에서
+      누적 prompt_tokens가 phase 4.5(Option A 후) baseline ~12000~15000 →
+      v10 적용 후 ~6500~9000으로 추가 감소 확인. (withTaskReminder ~200
+      tokens × N + injectTaskPrompt ~500 tokens × 1 절감 추정)
+    verification: "manual"
+    priority: "should"
+    complexity: "low"
+
+  - id: "AC-010"
+    description: |
+      tool execution event push contract 정의: nanobot이 deskrpg에 보낼 event
+      shape를 docs/api/internal-tasks-events.md (또는 OpenAPI 스펙)으로 명문화.
+      다른 팀원(nanobot fork) + 본인(deskrpg)이 같은 contract 참조. event
+      status: "started" | "progressing" | "completed" | "cancelled". optional
+      metadata: timing, error_message, partial_result_summary.
+    verification: "manual"
+    priority: "must"
+    complexity: "low"
+
+# ─────────────────────────────────────────────────────────────────────
+# Ontology — 도메인 모델
+# ─────────────────────────────────────────────────────────────────────
+ontology:
+  entities:
+    - name: "NPC"
+      table: "npcs"
+      fields:
+        - { name: "id", type: "uuid", required: true }
+        - { name: "channelId", type: "uuid (reference Channel)", required: true }
+        - { name: "name", type: "string", required: true }
+        - { name: "appearance", type: "jsonb", required: true }
+        - { name: "openclawConfig", type: "jsonb (agentId, personaConfig, sessionKeyPrefix, locale)", required: true }
+        - { name: "parentAgentId", type: "string nullable (NEW v10)", required: false }
+        - { name: "positionX", type: "int", required: true }
+        - { name: "positionY", type: "int", required: true }
+      relationships:
+        - { target: "Channel", type: "belongs_to" }
+        - { target: "ChatMessage", type: "has_many (cascade)" }
+        - { target: "Task", type: "has_many (cascade)" }
+        - { target: "NanobotAgentSession", type: "has_many (cascade, phase 4)" }
+        - { target: "NPC (self via parent_agent_id)", type: "has_many sub-agents" }
+
+    - name: "Task"
+      table: "tasks"
+      fields:
+        - { name: "id", type: "uuid", required: true }
+        - { name: "channelId", type: "uuid (reference Channel)", required: true }
+        - { name: "npcId", type: "uuid (reference NPC)", required: true }
+        - { name: "assignerId", type: "uuid (reference Character)", required: true }
+        - { name: "npcTaskId", type: "string (nanobot 발급 idempotency key)", required: true }
+        - { name: "title", type: "string", required: true }
+        - { name: "summary", type: "text", required: false }
+        - { name: "status", type: "enum (backlog|in_progress|completed|cancelled)", required: true }
+      relationships:
+        - { target: "NPC", type: "belongs_to" }
+        - { target: "Channel", type: "belongs_to" }
+      note: "v10에서 row 생성·갱신은 100% /api/internal/tasks를 통해서만 (nanobot push)"
+
+    - name: "ChatMessage"
+      table: "chat_messages"
+      fields:
+        - { name: "id", type: "uuid", required: true }
+        - { name: "characterId", type: "uuid (reference Character)", required: true }
+        - { name: "npcId", type: "uuid (reference NPC)", required: true }
+        - { name: "role", type: "enum (user|assistant)", required: true }
+        - { name: "content", type: "text (raw 자연어, task block 제거 X)", required: true }
+      relationships:
+        - { target: "NPC", type: "belongs_to" }
+        - { target: "Character", type: "belongs_to" }
+      note: "v10에서 canonical source. content는 LLM 자연어 응답 그대로 (task-parser sanitize 제거)"
+
+    - name: "NanobotSession (ephemeral cache)"
+      storage: "filesystem (~/.nanobot/api-workspace/sessions/api_{sessionKey}.{jsonl|token.json})"
+      lifecycle: "nanobot이 첫 chat 시 자동 생성, NPC 삭제 시 cleanup endpoint로 deskrpg가 명시 정리 (AC-007)"
+      role: "nanobot agent loop의 working set — LLM prompt 재구성용. UI 표시용 X."
+
+    - name: "ToolExecutionEvent"
+      shape: |
+        {
+          event_type: "task" | "sub_agent",
+          action: "create" | "update" | "complete" | "cancel",
+          status: "started" | "progressing" | "completed" | "cancelled",
+          npc_id: uuid,
+          npc_task_id?: string (task event only),
+          agent_id?: string (sub_agent event only),
+          parent_agent_id?: string,
+          metadata: {
+            user_id, character_id, channel_id,
+            timing: {started_at, completed_at?},
+            error_message?
+          }
+        }
+      transport: "POST /api/internal/tasks 또는 /api/internal/npcs (event_type별)"
+      role: "nanobot → deskrpg push 이벤트의 단일 stable shape (AC-010)"
+
+  actions:
+    - name: "send_chat (사용자 → NPC)"
+      actor: "user (via deskrpg UI)"
+      input: "message text + npcId"
+      output: "NPC 자연어 응답 stream"
+      side_effects:
+        - "chat_messages 2 rows insert (user + assistant)"
+        - "nanobot이 자동으로 tool 실행 시 → tool_execution_event push"
+        - "(필요시) sub-agent spawn event push"
+
+    - name: "push_task_event (nanobot → deskrpg)"
+      actor: "nanobot agent loop emission hook (다른 팀원 작업)"
+      input: "ToolExecutionEvent + INTERNAL_RPC_SECRET"
+      output: "tasks 테이블 row 생성/갱신"
+      side_effects:
+        - "socket.io 'task:event' broadcast → UI 즉시 업데이트"
+
+    - name: "spawn_sub_agent (nanobot → deskrpg)"
+      actor: "nanobot agent loop"
+      input: "{ownerUserId, channelId, parentAgentId, agentId, name, identity, soul}"
+      output: "npcs row 생성 + UI에 NPC 등장"
+      side_effects:
+        - "deskrpg가 writeNanobotAgentFiles로 mirror 작성 (T-F03 helper 재사용)"
+        - "socket.io 'npc:spawned' broadcast"
+
+    - name: "delete_npc (사용자 또는 cascade)"
+      actor: "user (UI) 또는 cascade(parent_agent_id ON DELETE)"
+      input: "npcId"
+      output: "npcs row 삭제 + 자식 sub-agents cascade"
+      side_effects:
+        - "PostgreSQL: chat_messages, tasks, nanobot_agent_sessions cascade"
+        - "deskrpg: deleteNanobotAgentWorkspace (mirror 정리, T-F03)"
+        - "nanobot: POST /v1/agents/{agentId}/cleanup (AC-007)"
+        - "socket.io 'npc:deleted' broadcast"
+
+# ─────────────────────────────────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────────────────────────────────
+scope:
+  mvp:
+    - "AC-001: /api/internal/tasks endpoint 신설"
+    - "AC-002: /api/internal/npcs (POST/DELETE) endpoint 신설"
+    - "AC-003: legacy task-parser/withTaskReminder 전체 제거"
+    - "AC-005: npcs.parent_agent_id FK migration"
+    - "AC-006: chatSend body.metadata 확장"
+    - "AC-010: ToolExecutionEvent contract 문서화"
+    # AC-007 (cleanup endpoint) — 2026-05-23 정책 변경으로 제거. D-29 참조.
+
+  future:
+    - "AC-008: sub-agent UI 시각 구분 (🤖 뱃지) — 디자인 미정"
+    - "AC-009: 토큰 절감 측정 (smoke test로 확인)"
+    - "AC-004: injectTaskPrompt 결정 (/trd에서)"
+
+  out_of_scope_explicit:
+    - "nanobot fork의 emission hook 구현 — 다른 팀원 작업 (contract만 정의)"
+    - "Candidate 4 (qwen reasoning_content forward) — backlog로 트래킹"
+    - "Candidate 2 (multimodal chat input) — 별 cycle"
+    - "nanobot stale session cron sweep — Phase 5+"
+
+# ─────────────────────────────────────────────────────────────────────
+# Technical Decisions (D-23 ~ D-30, v9의 D-22까지 이어서)
+# ─────────────────────────────────────────────────────────────────────
+tech_decisions:
+  - decision: "D-23: task/sub-agent event는 nanobot이 원천 (push 모델)"
+    reason: |
+      v9까지의 LLM 응답 본문 parsing 흐름은 LLM이 형식을 빠뜨릴 때 등록 누락
+      (smoke test에서 실제 발생). nanobot의 agent loop이 tool을 실제로 실행
+      하는 시점이 유일하게 정확한 trigger이므로 그 시점에 deskrpg에 push하는
+      모델로 전환.
+    alternatives_considered:
+      - "Pull 모델 (deskrpg가 nanobot에 GET 폴링) — polling cost + 지연 + race"
+      - "Hybrid (push 1st-class + parser fallback) — 결정 사항 단순화 우선 reject"
+
+  - decision: "D-24: chat history의 canonical source = PostgreSQL chat_messages"
+    reason: |
+      DB가 영속성·UI 쿼리·NPC 삭제 cascade에 최적. nanobot session jsonl은
+      nanobot agent loop의 working set이라 nanobot이 자체 관리하되 NPC 삭제
+      시 deskrpg가 cleanup endpoint로 정리 trigger.
+    alternatives_considered:
+      - "nanobot jsonl을 canonical로 — UI 쿼리 비효율 + DB cascade 못 씀"
+      - "Dual write 그대로 유지 — 누구 정리하나 모호, NPC 삭제 시 누수"
+
+  - decision: "D-25: sub-agent 권한 = parent_agent_id FK + cascade"
+    reason: |
+      사용자 hire NPC와 nanobot spawn sub-agent를 명확히 구분. parent 삭제 시
+      자식도 같이 정리 (orphan 방지). 사용자가 sub-agent를 직접 삭제 못 함
+      (lifecycle은 parent agent만 제어).
+    alternatives_considered:
+      - "동등 1급 시민 (구분 X) — orphan 위험 + 사용자가 자율형 child를 임의 삭제 가능"
+      - "별 sub_agents 테이블 — JOIN 복잡, 본질적으로 같은 NPC 모델"
+
+  - decision: "D-26: agentId 발급자 = nanobot"
+    reason: |
+      nanobot이 자신의 agent 식별자를 자유롭게 정함 → deskrpg는 그 ID를 그대로
+      받아 npcs.openclawConfig.agentId에 저장. mapping table 불필요. nanobot
+      입장에서 self-consistent, debug 시 ID 한 종류만 추적.
+    alternatives_considered:
+      - "deskrpg가 발급 (nanobot 미리 요청 후 ID 받음) — round-trip 비용 + 두 ID mapping 추적"
+
+  - decision: "D-27: internal endpoint 인증 = INTERNAL_RPC_SECRET (x-deskrpg-internal-secret 헤더)"
+    reason: |
+      nanobot은 server-to-server 호출이라 user-auth(x-user-id) 부적합. 기존
+      /api/internal/llm-usage 패턴 재사용. ownerUserId/channelId는 body로 명시
+      전달.
+    alternatives_considered:
+      - "기존 /api/npcs를 x-user-id 헤더로 호출 — nanobot이 사용자 UUID 알아야 함, brittle"
+      - "mTLS — 인프라 복잡 + 본 cycle scope 외"
+
+  - decision: "D-28: chatSend body.metadata로 user context 명시 전달"
+    reason: |
+      현재 session_id에 userUUID가 임베드되어 있으나 (ot-{ch8}-{agentId}-dm-{user})
+      meeting/poll/summary 타입에선 마지막 segment가 user 아님. type별 분기 brittle.
+      body.metadata 필드로 structured 전달이 모든 type 통일 + 확장성.
+    alternatives_considered:
+      - "session_id parse (단기 우회) — brittle, meeting 흐름 미지원"
+      - "HTTP 헤더로 (x-deskrpg-user-id 등) — body가 더 structured"
+
+  - decision: "D-29: NPC 삭제 시 nanobot 측 파일 cleanup = **하지 않음** (2026-05-23 정책 변경)"
+    reason: |
+      당초 push 모델로 즉시 정리 흐름을 채택했으나, 사용자 + 다른 팀원 합의로
+      방향 전환 (2026-05-23):
+        - nanobot의 sessions/workspace는 nanobot agent loop의 working set + 자체
+          운영 history. deskrpg가 외부에서 그 file system을 정리하는 것은
+          **layer 경계 침범** (deskrpg는 nanobot 내부 구현 모름).
+        - 사용자 NPC 삭제는 deskrpg 측 정리만 의미 (chat_messages cascade,
+          deskrpg mirror dir cleanup, DB row 삭제). nanobot 측은 자체 lifecycle.
+        - 운영 위생 차원의 디스크 누수는 future cron sweep 또는 운영자 수동
+          (v10-backlog-3 트래킹).
+    alternatives_considered:
+      - "(이전 채택) push 모델 즉시 정리 — layer 경계 침범, 거절됨"
+      - "nanobot 측 cron sweep — future 옵션 (v10-backlog-3)"
+      - "Hybrid (push + cron backup) — 코드 두 곳, 본 cycle scope 외"
+
+  - decision: "D-30: ToolExecutionEvent shape를 stable contract로 문서화"
+    reason: |
+      다른 팀원(nanobot fork)와 본인(deskrpg)이 별 PR로 parallel 작업 가능
+      해지려면 API contract가 미리 fixed되어야 함. OpenAPI 또는 markdown spec
+      으로 단일 진실원천 유지.
+    alternatives_considered:
+      - "TypeScript type만으로 — Python(nanobot) 쪽에서 사용 어려움"
+      - "Protobuf — overkill, JSON으로 충분"
+
+# ─────────────────────────────────────────────────────────────────────
+# Non-blocking Backlog (post-merge 트래킹 — Candidate 4 등)
+# ─────────────────────────────────────────────────────────────────────
+non_blocking_backlog:
+  - id: "v10-backlog-1"
+    title: "qwen `delta.reasoning` forward (Candidate 4)"
+    priority: "medium"
+    owner: "본인 (사용자)"
+    detail: |
+      nanobot LLM provider parser가 OpenAI-compat SSE의 delta.reasoning 필드를
+      drop. reasoning 모델에서 첫 chunk 30~120초 늦거나 빈 응답 발생.
+      옵션 (A) forward + UI indicator / (B) heartbeat / (C) OpenRouter parameter
+      / (D) seed-v10 작업 후 자연 해소 검증 후 결정.
+    spec_ref: ".harness/ouroboros/interviews/2026-05-19-seed-v10-candidates.md (Candidate 4)"
+
+  - id: "v10-backlog-2"
+    title: "multimodal chat input (이미지/PDF) — Candidate 2"
+    priority: "low"
+    owner: "미정"
+    detail: |
+      qwen3.6-35b-a3b의 multimodal capability + server.js의 `files` destructure
+      누락 fix + UI/저장/수명 정책 결정 필요. 별 cycle 권장.
+    spec_ref: ".harness/ouroboros/interviews/2026-05-19-seed-v10-candidates.md (Candidate 2)"
+
+  - id: "v10-backlog-3"
+    title: "nanobot stale session cron sweep"
+    priority: "low"
+    owner: "미정 (인프라)"
+    detail: |
+      D-29의 push 모델이 실패(network err 등) 시 nanobot 측에 stale sessions/
+      api_*.jsonl 잔존 가능. 주기적 sweep job으로 보정. Phase 5+ 또는 운영
+      필요 시점.
+
+  - id: "v10-backlog-4"
+    title: "ChatPanel TaskConfirmButtons UI 정리"
+    priority: "low"
+    owner: "본인 (사용자)"
+    detail: |
+      legacy task 흐름 제거 후 TaskConfirmButtons 컴포넌트도 의미 잃을 가능성.
+      v10 구현 후 dead code 정리 검토.
+
+  - id: "v10-backlog-5"
+    title: "task-level granular cancel (nanobot tool 단위 cancel)"
+    priority: "medium"
+    owner: "다른 팀원 (nanobot fork) — 검토 필요"
+    detail: |
+      현재 nanobot의 cancel은 session_key 단위만 (개별 tool granular cancel X).
+      task board에서 task 한 건만 취소 시 같은 session의 다른 in-flight 작업도
+      함께 멈춤 (TRD-D-37). 일반적 시나리오엔 문제 없으나, multi-tool chain
+      동시 진행 케이스에서 정확한 control 위해 nanobot에 task_id ↔ asyncio.Task
+      mapping + POST /v1/tools/{task_id}/cancel endpoint 신설 검토.
+    detail_extra: |
+      v10 머지 후 실 사용에서 multi-tool 동시 진행 빈도 측정 → 필요성 결정.
+
+# ─────────────────────────────────────────────────────────────────────
+# Migration Strategy from v9
+# ─────────────────────────────────────────────────────────────────────
+migration_strategy:
+  phase: "migrate (parallel-change)"
+  precondition: "expand 단계 완료 — phase 4.5에서 cancel endpoint + DB tracking + Option A 안착"
+  steps:
+    - "1. /trd로 layer mapping + interface design"
+    - "2. /decompose로 atomic task 분해"
+    - "3. AC-005 (parent_agent_id FK migration) — DB 변경 먼저"
+    - "4. AC-001/002 (internal endpoint 신설) — push 받을 곳 준비"
+    - "5. AC-006 (chatSend metadata 확장) — 다른 팀원이 활용할 spec 안착"
+    - "6. AC-010 (event contract 문서화) — 다른 팀원과 sync"
+    - "7. AC-003 (legacy 제거) — push 흐름 동작 확인 후"
+    - "8. AC-004 (injectTaskPrompt 결정 및 적용)"
+    - "9. AC-008 (sub-agent UI) — Phase 6"
+    # AC-007 (nanobot cleanup endpoint) — 2026-05-23 정책 변경으로 제거. D-29 참조.
+  rollback: "AC-003 머지 전까지는 legacy 흐름 그대로 동작 (parallel-change expand가 새 흐름 enable 후 contract). 머지 후 회귀 시 revert 가능."
+
+# ─────────────────────────────────────────────────────────────────────
+# Glossary — 본 cycle 핵심 용어
+# ─────────────────────────────────────────────────────────────────────
+glossary:
+  tool_execution_event:
+    definition: "nanobot의 agent loop이 tool을 실제로 실행한 시점에 발화하는 lifecycle event (started/progressing/completed/cancelled)"
+    not_to_be_confused_with: "LLM 응답 본문의 task action 코드블록 (v10에서 제거됨)"
+
+  sub_agent:
+    definition: "nanobot이 자체적으로 spawn한 child agent. deskrpg의 npcs 테이블에 parent_agent_id NOT NULL인 row로 표현"
+    not_to_be_confused_with: "사용자가 hire한 일반 NPC (parent_agent_id NULL)"
+
+  canonical:
+    definition: "데이터 신뢰의 단일 진실 원천 (single source of truth). 충돌 시 canonical 이 정답"
+
+  ephemeral_cache:
+    definition: "canonical 데이터의 derivative — nanobot이 자체 관리하지만 NPC 삭제 시 cleanup endpoint로 정리"
