@@ -8,7 +8,13 @@
 // Socket emit은 deps.emit으로 inject — route layer가 _internal/emit forward 담당.
 
 import { and, eq } from "drizzle-orm";
-import { db as defaultDb, channels, npcs, tasks } from "@/db";
+import { db as defaultDb, channels, npcs, tasks, isPostgres } from "@/db";
+
+// PG timestamptz는 Date 객체, SQLite text는 ISO string을 기대.
+// drizzle ORM의 dialect 차이를 흡수하는 단일 헬퍼.
+function nowForDb(): Date {
+  return (isPostgres ? new Date() : new Date().toISOString()) as unknown as Date;
+}
 
 export type TaskAction = "create" | "update" | "complete" | "cancel";
 export type TaskStatus = "backlog" | "in_progress" | "completed" | "cancelled";
@@ -150,8 +156,7 @@ async function runCreate(
   dbHandle: typeof defaultDb,
   emit: TaskEmit,
 ): Promise<TaskEventResult> {
-  // Dialect-agnostic timestamp: PG timestamp + SQLite text 둘 다 ISO string accept.
-  const now = new Date().toISOString() as unknown as Date;
+  const now = nowForDb();
   const completedAt = input.action === "create" && input.status === "completed" ? now : null;
 
   const [row] = await dbHandle
@@ -209,7 +214,7 @@ async function runMutation(
   dbHandle: typeof defaultDb,
   emit: TaskEmit,
 ): Promise<TaskEventResult> {
-  const now = new Date().toISOString() as unknown as Date;
+  const now = nowForDb();
   const nextStatus: TaskStatus =
     input.action === "complete"
       ? "completed"
