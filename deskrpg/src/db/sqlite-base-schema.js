@@ -217,11 +217,13 @@ function ensureSqliteBaseSchema(sqlite) {
       direction TEXT DEFAULT 'down',
       appearance TEXT NOT NULL,
       openclaw_config TEXT NOT NULL,
+      parent_agent_id TEXT,
       created_at TEXT,
       updated_at TEXT,
       UNIQUE(channel_id, position_x, position_y)
     );
     CREATE INDEX IF NOT EXISTS idx_npcs_channel_id ON npcs(channel_id);
+    CREATE INDEX IF NOT EXISTS idx_npcs_parent_agent_id ON npcs(parent_agent_id);
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY NOT NULL,

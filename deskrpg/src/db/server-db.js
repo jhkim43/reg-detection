@@ -307,6 +307,11 @@ function ensureSqliteCompatibility(sqlite) {
     "ALTER TABLE tasks ADD COLUMN stalled_at TEXT",
     "ALTER TABLE tasks ADD COLUMN stalled_reason TEXT",
   ]);
+  // seed-v10 AC-005: npcs.parent_agent_id 컬럼 추가 (멱등 ALTER).
+  applySqliteAlterStatements(sqlite, "npcs", [
+    "ALTER TABLE npcs ADD COLUMN parent_agent_id TEXT",
+  ]);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_npcs_parent_agent_id ON npcs(parent_agent_id)");
 
   dedupeSqliteGroupJoinRequests(sqlite);
   sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS group_join_requests_group_user_unique ON group_join_requests(group_id, user_id)");
@@ -526,10 +531,13 @@ if (isPostgres) {
     direction: varchar("direction", { length: 10 }).default("down"),
     appearance: jsonb("appearance").notNull(),
     openclawConfig: jsonb("openclaw_config").notNull(),
+    // seed-v10 AC-005: nanobot spawn sub-agent의 parent agentId (string, FK 아님).
+    parentAgentId: text("parent_agent_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   }, (table) => [
     index("idx_npcs_channel_id").on(table.channelId),
+    index("idx_npcs_parent_agent_id").on(table.parentAgentId),
     unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
   ]);
 
@@ -846,10 +854,13 @@ if (isPostgres) {
     direction: text("direction").default("down"),
     appearance: text("appearance").notNull(),
     openclawConfig: text("openclaw_config").notNull(),
+    // seed-v10 AC-005: nanobot spawn sub-agent의 parent agentId (string, FK 아님).
+    parentAgentId: text("parent_agent_id"),
     createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
   }, (table) => [
     index("idx_npcs_channel_id").on(table.channelId),
+    index("idx_npcs_parent_agent_id").on(table.parentAgentId),
     unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
   ]);
 
