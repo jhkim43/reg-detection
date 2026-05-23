@@ -34,6 +34,7 @@ COPY --from=builder /app/src/lib/meeting-formatter.js ./src/lib/meeting-formatte
 COPY --from=builder /app/src/lib/openclaw-gateway.js ./src/lib/openclaw-gateway.js
 COPY --from=builder /app/src/lib/nanobot-client.js ./src/lib/nanobot-client.js
 COPY --from=builder /app/src/lib/nanobot-session-recorder.js ./src/lib/nanobot-session-recorder.js
+COPY --from=builder /app/src/lib/nanobot-remote-abort.js ./src/lib/nanobot-remote-abort.js
 COPY --from=builder /app/src/lib/chat-history.js ./src/lib/chat-history.js
 COPY --from=builder /app/src/lib/runtime-paths.js ./src/lib/runtime-paths.js
 COPY --from=builder /app/src/lib/task-parser.js ./src/lib/task-parser.js
