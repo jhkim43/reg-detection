@@ -64,7 +64,7 @@ constraints:
     - "sub-agent NPC는 npcs.parent_agent_id FK로 parent 추적, parent 삭제 시 ON DELETE CASCADE"
     - "chat_messages 테이블이 chat 본문의 canonical source — nanobot session jsonl은 ephemeral cache (NPC 삭제 시 cleanup endpoint로 정리)"
     - "deskrpg → nanobot chatSend body.metadata 필드로 user 식별 정보 전달: {user_id, character_id, channel_id, parent_npc_id?}. nanobot은 이 metadata를 session 단위로 저장 후 push 시점에 internal endpoint body에 그대로 forward"
-    - "NPC 삭제 시 deskrpg가 nanobot cleanup endpoint를 명시 호출 — sessions/api_*.jsonl + .token.json + workspace-${agentId} 삭제 (silent-fail 허용, chat 흐름 비차단)"
+    - "NPC 삭제 시 deskrpg 측만 정리 (chat_messages cascade + deskrpg mirror workspace 정리). nanobot 측 sessions/workspace 파일은 nanobot 자체 lifecycle로 유지 (layer 경계 명확성 우선, 2026-05-23 다른 팀원 합의)"
     - "legacy task 흐름 완전 제거 — task-parser.js / task-prompt.js의 withTaskReminder + buildTaskReminder / server.js의 parseNpcResponse 호출 전체 삭제"
     - "본 cycle = parallel-change 흐름의 migrate 단계 — expand는 phase 4.5에서 완료됨 (cancel endpoint + DB tracking + Option A)"
     - "task가 실행 중일 때 사용자 abort → nanobot이 _cancel_active_tasks로 in-flight tool 중단 (phase 4.5에서 인프라 안착) + nanobot cancel hook이 task event status='cancelled' push (다른 팀원 작업) → deskrpg가 board UI 즉시 반영. cancel granularity는 session 단위 (개별 tool granular cancel은 nanobot 미지원, 본 cycle 수용)"
@@ -154,15 +154,21 @@ acceptance_criteria:
 
   - id: "AC-007"
     description: |
-      NPC 삭제 시 deskrpg가 nanobot 측 cleanup endpoint
-      `POST /v1/agents/{agentId}/cleanup`을 명시 호출. nanobot이 sessions/api_*.jsonl
-      + .token.json + workspace-${agentId} 파일을 일괄 정리. deskrpg 측은
-      best-effort (network err 비치명, chat 흐름 비차단). nanobot 측 endpoint
-      신설은 다른 팀원 작업. deskrpg는 cleanup helper(postNanobotAgentCleanup)
-      추가 + DELETE /api/npcs/[id] 흐름에서 호출.
-    verification: "automated"
-    priority: "must"
-    complexity: "medium"
+      [2026-05-23 정책 변경] NPC 삭제 시 nanobot 측 파일 cleanup 흐름 **제거**.
+      사용자 + 다른 팀원 합의: deskrpg가 외부에서 nanobot file system을 정리하는
+      것은 layer 경계 침범. nanobot 측 sessions/workspace는 nanobot 자체 lifecycle
+      로 유지 (운영자 수동 또는 future cron sweep).
+
+      deskrpg 측 동작 (확정):
+        - PostgreSQL chat_messages/tasks/nanobot_agent_sessions cascade (DB)
+        - deskrpg 컨테이너 내 workspace-{agentId}/ mirror 정리 (T-F03 기존 흐름)
+        - nanobot 컨테이너 내 파일은 미정리 (nanobot 자체 관리)
+
+      AC-007은 본 cycle scope에서 **제거**. 단 AC ID 번호는 보존 (history 추적용).
+    verification: "manual"
+    priority: "nice"
+    complexity: "low"
+    removed_reason: "layer 경계 침범 회피. nanobot 측 파일은 nanobot이 자체 관리."
 
   - id: "AC-008"
     description: |
@@ -316,8 +322,8 @@ scope:
     - "AC-003: legacy task-parser/withTaskReminder 전체 제거"
     - "AC-005: npcs.parent_agent_id FK migration"
     - "AC-006: chatSend body.metadata 확장"
-    - "AC-007: NPC 삭제 시 nanobot cleanup endpoint 호출"
     - "AC-010: ToolExecutionEvent contract 문서화"
+    # AC-007 (cleanup endpoint) — 2026-05-23 정책 변경으로 제거. D-29 참조.
 
   future:
     - "AC-008: sub-agent UI 시각 구분 (🤖 뱃지) — 디자인 미정"
@@ -388,15 +394,21 @@ tech_decisions:
       - "session_id parse (단기 우회) — brittle, meeting 흐름 미지원"
       - "HTTP 헤더로 (x-deskrpg-user-id 등) — body가 더 structured"
 
-  - decision: "D-29: NPC 삭제 cleanup = 즉시 push (deskrpg → nanobot cleanup endpoint)"
+  - decision: "D-29: NPC 삭제 시 nanobot 측 파일 cleanup = **하지 않음** (2026-05-23 정책 변경)"
     reason: |
-      cron sweep은 지연(N분) + 데이터 누수 위험. NPC 삭제 시점에 deskrpg가
-      nanobot에 즉시 알리면 정합성 명확. best-effort (실패해도 NPC 삭제는 진행
-      — silent-fail).
+      당초 push 모델로 즉시 정리 흐름을 채택했으나, 사용자 + 다른 팀원 합의로
+      방향 전환 (2026-05-23):
+        - nanobot의 sessions/workspace는 nanobot agent loop의 working set + 자체
+          운영 history. deskrpg가 외부에서 그 file system을 정리하는 것은
+          **layer 경계 침범** (deskrpg는 nanobot 내부 구현 모름).
+        - 사용자 NPC 삭제는 deskrpg 측 정리만 의미 (chat_messages cascade,
+          deskrpg mirror dir cleanup, DB row 삭제). nanobot 측은 자체 lifecycle.
+        - 운영 위생 차원의 디스크 누수는 future cron sweep 또는 운영자 수동
+          (v10-backlog-3 트래킹).
     alternatives_considered:
-      - "nanobot 측 cron sweep — 지연, nanobot이 deskrpg DB poll해야"
-      - "Hybrid (push + cron backup) — 코드 두 곳, Phase 5+에서 도입 검토"
-      - "정리 안 함 — 디스크 누수, 운영 위생 X"
+      - "(이전 채택) push 모델 즉시 정리 — layer 경계 침범, 거절됨"
+      - "nanobot 측 cron sweep — future 옵션 (v10-backlog-3)"
+      - "Hybrid (push + cron backup) — 코드 두 곳, 본 cycle scope 외"
 
   - decision: "D-30: ToolExecutionEvent shape를 stable contract로 문서화"
     reason: |
@@ -474,10 +486,10 @@ migration_strategy:
     - "4. AC-001/002 (internal endpoint 신설) — push 받을 곳 준비"
     - "5. AC-006 (chatSend metadata 확장) — 다른 팀원이 활용할 spec 안착"
     - "6. AC-010 (event contract 문서화) — 다른 팀원과 sync"
-    - "7. AC-007 (cleanup endpoint 호출) — nanobot 측 endpoint 신설 대기 (다른 팀원)"
-    - "8. AC-003 (legacy 제거) — push 흐름 동작 확인 후"
-    - "9. AC-004 (injectTaskPrompt 결정 및 적용)"
-    - "10. AC-008 (sub-agent UI) — Phase 6"
+    - "7. AC-003 (legacy 제거) — push 흐름 동작 확인 후"
+    - "8. AC-004 (injectTaskPrompt 결정 및 적용)"
+    - "9. AC-008 (sub-agent UI) — Phase 6"
+    # AC-007 (nanobot cleanup endpoint) — 2026-05-23 정책 변경으로 제거. D-29 참조.
   rollback: "AC-003 머지 전까지는 legacy 흐름 그대로 동작 (parallel-change expand가 새 흐름 enable 후 contract). 머지 후 회귀 시 revert 가능."
 
 # ─────────────────────────────────────────────────────────────────────

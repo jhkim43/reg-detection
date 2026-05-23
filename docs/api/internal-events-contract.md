@@ -218,39 +218,58 @@ x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
 
 ---
 
-## 5. `POST /v1/agents/{agentId}/cleanup` (AC-007, nanobot 측 endpoint — 다른 팀원 작업)
+## 5. NPC 삭제 시 nanobot 측 파일 cleanup — **하지 않음 (2026-05-23 결정)**
 
-### 용도
-deskrpg가 NPC 삭제 시 nanobot 측 `~/.nanobot/api-workspace/sessions/api_{sessionKey 매칭}.{jsonl,token.json}` + `~/.nanobot/workspace-{agentId}/` 파일을 정리하도록 명시 호출.
+### 정책
 
-### Request
+deskrpg에서 NPC를 삭제해도 **nanobot 측 파일(`~/.nanobot/api-workspace/sessions/*` + `~/.nanobot/workspace-{agentId}/`)은 그대로 유지**한다.
 
-```http
-POST /v1/agents/{agentId}/cleanup
-x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
+### 이유 (사용자 + 다른 팀원 합의)
+
+- nanobot의 sessions/workspace는 nanobot agent loop의 working set + 자체 운영 history
+- deskrpg가 외부에서 그 file system을 정리하는 것은 **layer 경계 침범** — deskrpg는 nanobot 내부 구현 모름
+- 사용자 NPC 삭제는 **deskrpg 측 정리**만 의미 (chat_messages cascade, mirror dir cleanup, DB row 삭제)
+- nanobot 측 파일은 nanobot이 자체 lifecycle로 관리 (운영자 수동 또는 future cron sweep)
+
+### deskrpg 측 동작 (확정)
+
+```
+NPC 삭제 (deskrpg):
+  ✅ PostgreSQL chat_messages, tasks, nanobot_agent_sessions cascade
+  ✅ deskrpg 컨테이너 내 workspace-{agentId}/ mirror 정리 (T-F03 deleteNanobotAgentWorkspace)
+  ❌ nanobot 컨테이너 내 api-workspace/sessions/* — 미정리 (nanobot 자체 lifecycle)
+  ❌ nanobot 컨테이너 내 workspace-{agentId}/ — 미정리 (nanobot 자체 lifecycle)
 ```
 
-### 동작 (nanobot 측 구현)
+→ AC-007 (`postNanobotAgentCleanup`) **제거**. nanobot 측에 `/v1/agents/{agentId}/cleanup` endpoint 신설도 **불필요**.
 
-1. agentId로 매칭되는 sessions/ 파일 찾기 (filename에 agentId 포함된 모든 `api_*.jsonl` + `.token.json`)
-2. workspace-{agentId} 디렉토리 정리 (있다면)
-3. 정리 결과 반환
+### Trade-off (수용)
 
-### Response
-
-```typescript
-// 200
-{ deleted_files: number, deleted_workspaces: number }
-
-// 404 — agentId의 흔적 없음 (정상, idempotent)
-{ deleted_files: 0, deleted_workspaces: 0 }
-```
-
-→ deskrpg는 `postNanobotAgentCleanup`을 **best-effort**로 호출 (network err 또는 404 silent-fail). nanobot endpoint 미구현 시점에도 deskrpg NPC 삭제는 정상 진행.
+- nanobot sessions/ 파일이 NPC 삭제 후에도 잔존 — 운영 위생 차원의 디스크 누수 가능
+- 그러나 layer 경계 명확성이 우선. nanobot 측 정리는 future cron sweep (seed-v10 `non_blocking_backlog` v10-backlog-3 참조) 또는 운영자 수동.
 
 ---
 
 ## 6. chatSend body.metadata (AC-006)
+
+### 왜 필요한가 (motivation)
+
+nanobot이 deskrpg internal API(`/api/internal/tasks`, `/api/internal/npcs`)를 호출할 때 body에 **`ownerUserId`, `channelId`, `assignerCharacterId` 필수** (권한 검증·DB op 식별자). 그러나 nanobot은 그 값을 어떻게 알 수 있는가?
+
+기존 방식 (현재 sessionKey 패턴):
+```
+session_id = "ot-{channelId8}-{agentId}-dm-{userUUID}"
+                                          ↑
+                                user 정보가 string에 임베드되어 있음
+```
+
+→ parsing으로 추출은 가능하지만 brittle:
+- type별 패턴 다름 (`dm` vs `meeting-meet-{ts}` vs `poll-meet-{ts}`)
+- userUUID에 hyphen이 있어 단순 split 어려움
+- channelId는 prefix 8자만 → 전체 UUID 추출 불가
+- characterId는 sessionKey에 없음
+
+해결: **body.metadata 필드로 structured 명시 전달**.
 
 ### deskrpg → nanobot body 확장
 
@@ -273,9 +292,33 @@ x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
 }
 ```
 
-### nanobot 측 처리 (다른 팀원 작업)
+### 현재 nanobot 코드의 metadata 처리 상태
 
-1. chat 요청 받을 때 `body.metadata`를 session 메모리에 저장 (key = session_id)
+| Layer | 상태 |
+|---|---|
+| `nanobot/api/server.py` (HTTP API) | ❌ `body.get("metadata")` 호출 없음 — 현재 무시됨. **다른 팀원이 wiring 추가 필요** |
+| `nanobot/agent/loop.py` (agent context) | ✅ metadata 인프라 **이미 존재** (`process_direct(metadata=...)` 시그니처, `self._metadata` 저장 등) |
+
+→ 다른 팀원이 server.py에 ~10줄 wiring 추가하면 즉시 활용 가능:
+
+```python
+# nanobot/api/server.py — handle_chat_completions 안 (예시)
+session_metadata = body.get("metadata") or {}
+# ...
+response = await agent_loop.process_direct(
+    content=text,
+    session_key=session_key,
+    channel="api",
+    chat_id=API_CHAT_ID,
+    metadata=session_metadata,  # ← 신규
+    on_stream=_on_stream,
+    on_stream_end=_on_stream_end,
+)
+```
+
+### nanobot 측 처리 흐름 (다른 팀원 작업)
+
+1. chat 요청 받을 때 `body.metadata`를 session 메모리(또는 agent context `_metadata`)에 저장
 2. tool execution 시점에 `/api/internal/tasks` POST body에 그 metadata 풀어서 forward:
    - `metadata.user_id` → `body.ownerUserId`
    - `metadata.character_id` → `body.assignerCharacterId`
@@ -284,6 +327,10 @@ x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
    - `metadata.user_id` → `body.ownerUserId`
    - `metadata.channel_id` → `body.channelId`
    - parent NPC의 agentId → `body.parentAgentId` (nanobot 자체 추적)
+
+### 호환성
+
+`body.metadata`는 **선택 필드** — deskrpg 구버전이 metadata 안 보내도 nanobot은 그냥 빈 dict로 처리. 점진적 도입 가능.
 
 ---
 
@@ -381,8 +428,8 @@ nanobot 측에서 이 shape으로 normalize 후 deskrpg endpoint 호출.
 | AC-001: `/api/internal/tasks` route + handler + test | P-NB01: agent loop emission hook + task push |
 | AC-002: `/api/internal/npcs` route + handler + test | P-NB02: sub-agent spawn/delete push |
 | AC-005: `parent_agent_id` migration | (대기 — AC-005 머지 후 P-NB02 활성화) |
-| AC-006: chatSend metadata 전달 (request side) | P-NB04: metadata 수신 + session 저장 + forward |
-| AC-007: `postNanobotAgentCleanup` helper 호출 | P-NB03: `POST /v1/agents/{agentId}/cleanup` endpoint |
+| AC-006: chatSend metadata 전달 (request side) | P-NB04: server.py에 body.metadata wiring + session 저장 + forward |
+| ~~AC-007: cleanup~~ — **제거됨** | ~~P-NB03~~ — **불요** (NPC 삭제해도 nanobot 측 파일 유지) |
 | (없음) | P-NB05: cancel 후 status=cancelled push |
 
 → 본 PR 머지 후 다른 팀원이 P-NB01 시작 가능 (`/api/internal/tasks` endpoint가 본 PR에 함께 신설되면 즉시 통합 테스트 가능).
@@ -400,3 +447,4 @@ nanobot 측에서 이 shape으로 normalize 후 deskrpg endpoint 호출.
 ## 변경 이력
 
 - 2026-05-23T16:30:00 — Initial draft (seed-v10 spec phase, T-V06)
+- 2026-05-23T17:00:00 — Section 5 (cleanup endpoint) 제거. 사용자 + 다른 팀원 합의로 NPC 삭제 시 nanobot 측 파일은 그대로 유지 (layer 경계 명확성 우선). AC-007 + P-NB03 작업 둘 다 불필요. Section 6 (body.metadata) motivation + 현재 nanobot 코드 상태 + wiring 가이드 보강.

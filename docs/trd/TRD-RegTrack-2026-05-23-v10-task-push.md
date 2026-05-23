@@ -26,7 +26,7 @@
 | 사용자 명시 승인 | "이 작업을 태스크로 등록할까요?" + "등록해" 자연어 답 (LLM-driven) | **자동 등록** (사용자 명시 승인 X, 결정 (가)) |
 | sub-agent 흐름 | 부재 | nanobot이 child spawn 시 deskrpg `/api/internal/npcs` POST |
 | chat history 원천 | dual write (PostgreSQL + nanobot jsonl) 평행 누적 | PostgreSQL canonical + nanobot jsonl ephemeral cache |
-| NPC 삭제 cleanup | PostgreSQL cascade만, nanobot 측 파일 누수 | deskrpg가 nanobot `/v1/agents/{agentId}/cleanup` 명시 호출 |
+| NPC 삭제 cleanup | PostgreSQL cascade만, nanobot 측 파일 누수 | **변경 없음** — nanobot 측 파일은 자체 lifecycle로 유지 (2026-05-23 정책 결정, layer 경계 명확성 우선). deskrpg는 PostgreSQL cascade + mirror dir 정리만. |
 
 ---
 
@@ -128,8 +128,8 @@ Response 200:
 
 **동작**:
 - npcs row 삭제 → cascade (chat_messages, tasks, nanobot_agent_sessions, sub-agents via parent_agent_id)
-- deleteNanobotAgentWorkspace 호출 — workspace-{agentId} mirror 정리
-- postNanobotAgentCleanup 호출 — nanobot 측 sessions/api_*.jsonl 정리 (AC-007)
+- deleteNanobotAgentWorkspace 호출 — workspace-{agentId} mirror 정리 (deskrpg 컨테이너 내)
+- ~~postNanobotAgentCleanup~~ — **제거됨** (2026-05-23, nanobot 측 파일은 자체 lifecycle)
 - socket.io `npc:deleted` broadcast
 
 #### 2.1.2 Socket.io 이벤트 (신설/수정)
@@ -201,25 +201,11 @@ export async function deleteNpcInternal(npcId: string): Promise<{ deletedCount: 
 }
 ```
 
-##### `deskrpg/src/lib/nanobot-cleanup.ts` (AC-007)
+##### ~~`deskrpg/src/lib/nanobot-cleanup.ts` (AC-007)~~ — **제거됨 (2026-05-23)**
 
-```typescript
-// nanobot 측 sessions/workspace 정리 trigger — best-effort
-export async function postNanobotAgentCleanup(agentId: string): Promise<void> {
-  try {
-    const url = `${getApiUrl()}/agents/${encodeURIComponent(agentId)}/cleanup`;
-    await fetch(url, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "x-deskrpg-internal-secret": getInternalSecret(),
-      },
-    });
-  } catch (_e) {
-    // best-effort: NPC 삭제 흐름은 계속 (silent-fail)
-  }
-}
-```
+nanobot 측 파일 cleanup helper는 본 cycle scope에서 제거. 사용자 + 다른 팀원
+합의로 NPC 삭제 시 nanobot 측 sessions/workspace는 그대로 유지 (layer 경계
+명확성 우선). D-29 참조.
 
 ##### `deskrpg/src/lib/nanobot-client.js` 수정 (AC-006)
 
@@ -350,7 +336,7 @@ Next.js API route handler (route.ts)
 |---|---|---|---|
 | deskrpg → nanobot (chat 요청) | HTTP POST `/v1/chat/completions` | body: model + messages + session_id + **metadata** | (internal network) |
 | deskrpg → nanobot (cancel) | HTTP POST `/v1/chat/abort/{session_id}` | path param | (internal network) |
-| deskrpg → nanobot (cleanup, NEW) | HTTP POST `/v1/agents/{agentId}/cleanup` | path param | x-deskrpg-internal-secret |
+| ~~deskrpg → nanobot (cleanup)~~ | ~~POST `/v1/agents/{agentId}/cleanup`~~ | — | **제거됨 (2026-05-23)** |
 | nanobot → deskrpg (task event, NEW) | HTTP POST `/api/internal/tasks` | ToolExecutionEvent shape | x-deskrpg-internal-secret |
 | nanobot → deskrpg (sub-agent spawn, NEW) | HTTP POST `/api/internal/npcs` | sub-agent spec | x-deskrpg-internal-secret |
 | nanobot → deskrpg (sub-agent delete, NEW) | HTTP DELETE `/api/internal/npcs/{id}` | path param | x-deskrpg-internal-secret |
@@ -380,7 +366,6 @@ deskrpg/
 │   ├── lib/
 │   │   ├── internal-task-handler.ts        # 신설 Logic
 │   │   ├── internal-npc-handler.ts         # 신설 Logic
-│   │   ├── nanobot-cleanup.ts              # 신설 Logic (AC-007)
 │   │   ├── nanobot-client.js               # 수정 (chatSend body.metadata)
 │   │   ├── nanobot-session-recorder.js     # 기존 (phase 4 T-F03)
 │   │   ├── nanobot-remote-abort.js         # 기존 (phase 4.5 T-F07)
@@ -421,7 +406,7 @@ nanobot/  (다른 팀원 영역, 본 TRD scope 외)
 |---|---|
 | `internal-task-handler.ts` | action별 분기 (create/update/complete/cancel) · npcTaskId UNIQUE conflict 처리 · 권한 검증 · socket emit 호출 검증 (mock io) |
 | `internal-npc-handler.ts` | sub-agent spawn DB row 정확성 (parent_agent_id 포함) · cascade delete (sub-agent 자식까지) · writeNanobotAgentFiles mock 호출 · socket emit |
-| `nanobot-cleanup.ts` | URL encoding · network error silent · header 포함 (internal-secret) · nanobot 응답 무시 (best-effort) |
+| ~~`nanobot-cleanup.ts`~~ | **제거됨 (2026-05-23)** — D-29 정책 변경 |
 | `nanobot-client.js` (수정) | chatSend metadata가 body에 포함됨 (mock fetch로 검증) · buildNanobotRequestBody가 metadata field 정확히 추가 |
 | `task-prompt.ts` (단순화) | 새 hint가 locale별 정확히 반환 · withTaskReminder는 export 안 됨 (제거 확인) |
 
@@ -600,12 +585,12 @@ cancel granularity 한계 (수용):
 | 3 | AC-001 | `/api/internal/tasks` route.ts + internal-task-handler.ts + unit test 5건 | 60분 |
 | 4 | AC-002 | `/api/internal/npcs` route.ts + DELETE + internal-npc-handler.ts + unit test 6건 | 80분 |
 
-### Phase 3 — Logic (cleanup + metadata)
+### Phase 3 — Logic (metadata 확장)
 
 | 순서 | AC | 작업 | 시간 |
 |---|---|---|---|
 | 5 | AC-006 | nanobot-client.js chatSend body.metadata 확장 + buildNanobotRequestBody + server.js 호출처 metadata 인자 추가 + unit test 3건 | 40분 |
-| 6 | AC-007 | nanobot-cleanup.ts (postNanobotAgentCleanup) + DELETE /api/npcs/[id] 호출 추가 + unit test 4건 | 30분 |
+| ~~6~~ | ~~AC-007~~ | ~~nanobot-cleanup.ts~~ — **2026-05-23 제거** (D-29) | — |
 
 ### Phase 4 — Legacy 제거
 
@@ -647,8 +632,8 @@ cancel granularity 한계 (수용):
 | 1. nanobot agent loop emission hook | `nanobot/nanobot/agent/hook.py` 또는 신설 (`TaskEventHook`) | LLMUsageRecordHook 패턴 모사 |
 | 2. tool execution event push | nanobot이 deskrpg `/api/internal/tasks` POST | AC-010 contract 참조 |
 | 3. sub-agent spawn → push | nanobot이 deskrpg `/api/internal/npcs` POST | AC-002, AC-010 |
-| 4. `/v1/agents/{agentId}/cleanup` endpoint | `nanobot/nanobot/api/server.py` 신설 | AC-007 |
-| 5. body.metadata 수신 + session 저장 + push 시 forward | nanobot session 메모리 확장 | AC-006 |
+| ~~4. cleanup endpoint~~ | — | **제거됨 (2026-05-23, D-29)** |
+| 5. body.metadata 수신 + server.py wiring + session 저장 + push 시 forward | `nanobot/api/server.py` (handle_chat_completions에 ~10줄 추가) + `nanobot/agent/loop.py` 기존 metadata 인프라 활용 | AC-006 |
 | 6. Candidate 4 (qwen reasoning_content) — backlog | nanobot LLM provider parser | future, v10-backlog-1 |
 
 → **API contract** (AC-010 문서)가 미리 안착되면 다른 팀원이 그것 보고 parallel 작업 가능.

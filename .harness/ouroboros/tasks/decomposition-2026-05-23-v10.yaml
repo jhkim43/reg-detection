@@ -11,7 +11,7 @@ decomposition:
   parallel_actor: "nanobot fork (다른 팀원) — AC-010 contract 공유 후 별 PR"
   created: "2026-05-23T16:00:00"
 
-  total_tasks: 32
+  total_tasks: 29
 
   scope: |
     seed-v10의 AC 10개를 30분 이내 atomic 단위로 분해. 모든 task는
@@ -213,11 +213,11 @@ decomposition:
           삭제 (application layer cascade)
         - db.delete(npcs).where(eq(id, npcId)) — PostgreSQL cascade로 chat_messages,
           tasks, nanobot_agent_sessions 자동 정리
-        - deleteNanobotAgentWorkspace(agentId)
-        - postNanobotAgentCleanup(agentId) — best-effort (T-V20 의존)
+        - deleteNanobotAgentWorkspace(agentId) — deskrpg 컨테이너 내 mirror 정리만
+        - (2026-05-23 정책 변경: nanobot 측 파일 cleanup 호출은 하지 않음. D-29.)
         - socket.io io.to(channelId).emit("npc:deleted", {npcId})
       test: "T-V13에서 unit test"
-      depends_on: [T-V11, T-V20]
+      depends_on: [T-V11]
       estimated_minutes: 25
       files:
         - "deskrpg/src/lib/internal-npc-handler.ts"
@@ -231,7 +231,7 @@ decomposition:
         (2) spawnSubAgent + writeNanobotAgentFiles 호출 검증
         (3) parent NPC 없으면 error
         (4) deleteNpcInternal → cascade (sub-agent 자식 함께 삭제)
-        (5) deleteNpcInternal → deleteNanobotAgentWorkspace + postNanobotAgentCleanup 호출
+        (5) deleteNpcInternal → deleteNanobotAgentWorkspace 호출 (deskrpg mirror only)
         (6) deleteNpcInternal → socket npc:deleted emit
       test: "6/6 pass"
       depends_on: [T-V12]
@@ -330,49 +330,10 @@ decomposition:
         - "deskrpg/server.js"
         - "deskrpg/src/lib/nanobot-client.metadata-wiring.test.ts (신설, lint-like)"
 
-    - id: T-V20
-      ac_ref: AC-007
-      layer: logic
-      description: |
-        deskrpg/src/lib/nanobot-cleanup.ts 신설.
-        postNanobotAgentCleanup(agentId) 함수:
-        - POST {getApiUrl()}/agents/{encodeURIComponent(agentId)}/cleanup
-        - headers: x-deskrpg-internal-secret + Content-Type: application/json
-        - try/catch silent-fail (nanobot 측 endpoint 미구현 시 404 받아도 OK)
-      test: "T-V21에서 unit test"
-      depends_on: []
-      estimated_minutes: 20
-      files:
-        - "deskrpg/src/lib/nanobot-cleanup.ts (신설)"
-
-    - id: T-V21
-      ac_ref: AC-007
-      layer: logic
-      description: |
-        nanobot-cleanup.test.ts — 4 tests (fetch spy):
-        (1) URL encoding (agentId의 ':' 등) 정확
-        (2) header x-deskrpg-internal-secret 포함
-        (3) fetch network error → silent (throw X)
-        (4) 404 (nanobot endpoint 미구현) → silent
-      test: "4/4 pass"
-      depends_on: [T-V20]
-      estimated_minutes: 25
-      files:
-        - "deskrpg/src/lib/nanobot-cleanup.test.ts (신설)"
-
-    - id: T-V22
-      ac_ref: AC-007
-      layer: logic
-      description: |
-        deskrpg/src/app/api/npcs/[id]/route.ts의 DELETE handler에 postNanobotAgentCleanup
-        호출 추가. nanobot mode일 때만 호출 (isNanobotProvider).
-        deleteNanobotAgentWorkspace 후 postNanobotAgentCleanup 호출 순서.
-        실패는 silent — NPC 삭제 흐름 비차단.
-      test: "wiring guard — DELETE 핸들러에 postNanobotAgentCleanup 호출 grep"
-      depends_on: [T-V20]
-      estimated_minutes: 15
-      files:
-        - "deskrpg/src/app/api/npcs/[id]/route.ts"
+    # T-V20, T-V21, T-V22 (AC-007 nanobot cleanup helper + DELETE 호출) — 2026-05-23 제거.
+    # 사유: 사용자 + 다른 팀원 합의로 NPC 삭제 시 nanobot 측 파일은 자체 lifecycle로 유지.
+    # seed-v10.yaml D-29 + AC-007 + docs/api/internal-events-contract.md §5 참조.
+    # NPC 삭제는 deskrpg 측만 정리 (PostgreSQL cascade + deskrpg mirror workspace).
 
     # ───────────────────────────────────────────────────────────────
     # Phase 4 — Legacy 제거
@@ -561,12 +522,11 @@ decomposition:
         의존 (cleanup) — Phase 3 일부와 교차.
 
     - phase: 3
-      label: "Logic — cleanup + metadata"
-      tasks: [T-V17, T-V18, T-V19, T-V20, T-V21, T-V22]
+      label: "Logic — metadata 확장 (cleanup은 2026-05-23 정책 변경으로 제거)"
+      tasks: [T-V17, T-V18, T-V19]
       rationale: |
         Phase 2와 병행 가능. T-V17(nanobot-client metadata) → T-V18(test) +
-        T-V19(server.js wiring). T-V20(cleanup helper) → T-V21(test) +
-        T-V22(DELETE NPC 흐름 wiring).
+        T-V19(server.js wiring). T-V20/V21/V22 (nanobot cleanup) 제거 — D-29 참조.
 
     - phase: 4
       label: "Legacy 제거"
@@ -608,10 +568,7 @@ decomposition:
         description: "sub-agent spawn 시 deskrpg /api/internal/npcs POST. sub-agent 종료 시 DELETE 호출"
         ac_ref: "AC-002 (consumer side)"
 
-      - id: "P-NB03"
-        layer: "nanobot api"
-        description: "POST /v1/agents/{agentId}/cleanup endpoint 신설. sessions/api_{sessionKey 매칭}.* + workspace-{agentId} 정리"
-        ac_ref: "AC-007 (consumer side)"
+      # P-NB03 (cleanup endpoint) — 2026-05-23 제거됨 (D-29 정책 변경, layer 경계 명확성)
 
       - id: "P-NB04"
         layer: "nanobot logic"
@@ -634,32 +591,32 @@ decomposition:
   estimated_total:
     phase_1: "90 minutes (T-V01~V06)"
     phase_2: "245 minutes (T-V07~V16)"
-    phase_3: "125 minutes (T-V17~V22)"
+    phase_3: "65 minutes (T-V17~V19) — T-V20/V21/V22 제거됨"
     phase_4: "120 minutes (T-V23~V27)"
-    phase_5: "70 minutes (T-V28~V30)"
+    phase_5: "70 minutes (T-V28~V30) + T-V32(30분)"
     phase_6: "30 minutes (T-V31)"
-    total: "680 minutes (~11.5 hours, 테스트 작성 포함)"
+    total: "650 minutes (~10.8 hours, 테스트 작성 포함)"
     note: "병렬 가능 task를 활용하면 실측은 더 짧을 수 있음. /run 시 Direct 흐름 (모든 AC가 low/medium이라 Pair Mode 없이 진행 가능)."
 
   # ─────────────────────────────────────────────────────────────────
   # Validation
   # ─────────────────────────────────────────────────────────────────
   validation:
-    total_tasks: 32
+    total_tasks: 29
     by_layer:
       data: 5  # T-V01~V05
       docs: 1  # T-V06
-      logic: 15  # T-V07/V08/V11/V12/V13/V17/V18/V19/V20/V21/V22/V23/V24/V25/V26
-      presentation: 9  # T-V09/V10/V14/V15/V16/V27/V28/V29/V30
+      logic: 12  # T-V07/V08/V11/V12/V13/V17/V18/V19/V23/V24/V25/V26
+      presentation: 10  # T-V09/V10/V14/V15/V16/V27/V28/V29/V30/V32
       test: 1  # T-V31
     ac_coverage:
-      AC-001: [T-V07, T-V08, T-V09, T-V10]
+      AC-001: [T-V07, T-V08, T-V09, T-V10, T-V32]
       AC-002: [T-V11, T-V12, T-V13, T-V14, T-V15, T-V16]
       AC-003: [T-V23, T-V24, T-V25, T-V27]
       AC-004: [T-V26]
       AC-005: [T-V01, T-V02, T-V03, T-V04, T-V05]
       AC-006: [T-V17, T-V18, T-V19]
-      AC-007: [T-V20, T-V21, T-V22]
+      AC-007: []  # 2026-05-23 제거됨 (D-29 정책 변경 — nanobot 측 파일 자체 lifecycle)
       AC-008: [T-V29, T-V30]
       AC-009: [T-V31]
       AC-010: [T-V06]
@@ -670,7 +627,7 @@ decomposition:
 
   notes:
     - "각 task는 30분 이내 atomic. /run에서 Direct 모드로 진행 (AC complexity 모두 low/medium, Pair Mode 자동 OFF)."
-    - "T-V12는 T-V20에 의존 (postNanobotAgentCleanup 사용) — Phase 2+3 교차 단계."
+    - "2026-05-23: T-V20/V21/V22 (AC-007 nanobot cleanup) 제거. D-29 정책 변경 — nanobot 측 파일은 자체 lifecycle로 유지. T-V12의 postNanobotAgentCleanup 의존성도 함께 제거 (T-V12는 deskrpg mirror 정리만 호출)."
     - "T-V29 sub-agent 시각 마크는 디자인 미정 → placeholder. 정식 디자인은 별 PR."
     - "T-V31은 manual 측정 + 문서 기록. 자동 회귀 가드는 별 cycle."
     - "다른 팀원(nanobot fork) 작업은 contract 문서(T-V06) 머지 후 별 PR. 본 cycle와 parallel 진행 가능."
