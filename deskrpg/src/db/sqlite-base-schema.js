@@ -228,7 +228,8 @@ function ensureSqliteBaseSchema(sqlite) {
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY NOT NULL,
       channel_id TEXT NOT NULL REFERENCES channels(id),
-      npc_id TEXT REFERENCES npcs(id) ON DELETE CASCADE,
+      -- seed-v10 backlog-1 (A): ON DELETE SET NULL — NPC 삭제 시 task 이력 보존.
+      npc_id TEXT REFERENCES npcs(id) ON DELETE SET NULL,
       npc_name_snapshot TEXT,
       assigner_id TEXT NOT NULL REFERENCES characters(id),
       npc_task_id TEXT NOT NULL,

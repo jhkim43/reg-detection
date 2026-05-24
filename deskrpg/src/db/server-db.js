@@ -563,8 +563,8 @@ if (isPostgres) {
   const tasks = pgTable("tasks", {
     id: uuid("id").defaultRandom().primaryKey(),
     channelId: uuid("channel_id").notNull().references(() => channels.id),
-    npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
-    // seed-v10 backlog-1 (A) snapshot.
+    // seed-v10 backlog-1 (A): nullable + ON DELETE SET NULL → task 이력 보존.
+    npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "set null" }),
     npcNameSnapshot: varchar("npc_name_snapshot", { length: 100 }),
     assignerId: uuid("assigner_id").notNull().references(() => characters.id),
     npcTaskId: varchar("npc_task_id", { length: 64 }).notNull(),
@@ -888,8 +888,8 @@ if (isPostgres) {
   const tasks = sqliteTable("tasks", {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     channelId: text("channel_id").notNull().references(() => channels.id),
-    npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
-    // seed-v10 backlog-1 (A) snapshot.
+    // seed-v10 backlog-1 (A): SET NULL → 이력 보존.
+    npcId: text("npc_id").references(() => npcs.id, { onDelete: "set null" }),
     npcNameSnapshot: text("npc_name_snapshot"),
     assignerId: text("assigner_id").notNull().references(() => characters.id),
     npcTaskId: text("npc_task_id").notNull(),
