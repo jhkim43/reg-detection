@@ -134,7 +134,9 @@ services:
     build:
       context: ./deskrpg
       dockerfile: Dockerfile.dev
-    image: ${DESKRPG_IMAGE:-regtrack/deskrpg:nanobot}
+    # dev image는 별도 tag로 분리 — prd compose(`regtrack/deskrpg:nanobot`)와
+    # 같은 tag를 공유하면 `docker compose --build`가 서로 덮어쓰는 문제 회피.
+    image: ${DESKRPG_IMAGE:-regtrack/deskrpg:nanobot-dev}
     container_name: reg-detection-deskrpg
     restart: unless-stopped
     networks:
