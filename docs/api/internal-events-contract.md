@@ -202,10 +202,12 @@ x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
 
 1. npcs row 조회 + `agentId` + `channelId` 추출
 2. 같은 channel에서 `parent_agent_id == 본 NPC의 agentId` 인 sub-agent 자식들 재귀 삭제 (application layer cascade)
-3. `DELETE FROM npcs WHERE id=$` — PostgreSQL FK cascade로 chat_messages, tasks, nanobot_agent_sessions 자동 정리
+3. `DELETE FROM npcs WHERE id=$` — PostgreSQL FK 처리:
+   - **chat_messages**: ON DELETE CASCADE (관련 채팅 함께 삭제)
+   - **tasks**: ON DELETE **SET NULL** (backlog-1 A) — task row 생존, npc_id만 NULL. UI는 `npc_name_snapshot` fallback으로 작업자 라벨 유지
+   - **nanobot_agent_sessions**: ON DELETE CASCADE (session FK 정리)
 4. `deleteNanobotAgentWorkspace(agentId)` — deskrpg 측 mirror 정리
-5. `postNanobotAgentCleanup(agentId)` — nanobot 측 sessions cleanup 호출 (best-effort)
-6. socket emit `npc:deleted` → 맵 UI 동적 제거
+5. socket emit `npc:deleted` → 맵 UI 동적 제거
 
 ### Response
 
@@ -235,7 +237,8 @@ deskrpg에서 NPC를 삭제해도 **nanobot 측 파일(`~/.nanobot/api-workspace
 
 ```
 NPC 삭제 (deskrpg):
-  ✅ PostgreSQL chat_messages, tasks, nanobot_agent_sessions cascade
+  ✅ PostgreSQL chat_messages CASCADE / nanobot_agent_sessions CASCADE
+  ✅ tasks는 SET NULL — task row 살아남고 npc_id만 NULL. UI는 npc_name_snapshot fallback (backlog-1 A)
   ✅ deskrpg 컨테이너 내 workspace-{agentId}/ mirror 정리 (T-F03 deleteNanobotAgentWorkspace)
   ❌ nanobot 컨테이너 내 api-workspace/sessions/* — 미정리 (nanobot 자체 lifecycle)
   ❌ nanobot 컨테이너 내 workspace-{agentId}/ — 미정리 (nanobot 자체 lifecycle)
