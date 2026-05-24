@@ -65,7 +65,7 @@ export type SpawnSubAgentResult = SpawnSubAgentOk | NpcHandlerErr;
 export type DeleteNpcOk = { ok: true; statusCode: 200; deletedCount: number };
 export type DeleteNpcResult = DeleteNpcOk | NpcHandlerErr;
 
-export type NpcEmit = (channelId: string, event: "npc:spawned" | "npc:deleted", payload: unknown) => void | Promise<void>;
+export type NpcEmit = (channelId: string, event: "npc:added" | "npc:removed", payload: unknown) => void | Promise<void>;
 
 export type NpcHandlerDeps = {
   emit: NpcEmit;
@@ -222,12 +222,16 @@ export async function spawnSubAgent(
     name: inserted.name,
     parentAgentId: input.parentAgentId,
     openclawConfig,
+    // GameScene NpcSprite가 layers + bodyType 기반으로 sprite composite. 누락 시
+    // 파란 fallback Rectangle로 렌더되므로 raw appearance(input)를 그대로 emit.
+    appearance,
     positionX: inserted.positionX,
     positionY: inserted.positionY,
     direction: inserted.direction ?? "down",
   };
 
-  await safeEmit(deps.emit, input.channelId, "npc:spawned", { npc: npcSummary });
+  // emit payload는 GameScene이 listen하는 NpcData 형식 (단일 객체).
+  await safeEmit(deps.emit, input.channelId, "npc:added", npcSummary);
 
   return { ok: true, statusCode: 201, npc: npcSummary };
 }
@@ -277,7 +281,7 @@ export async function deleteNpcInternal(
     }
   }
 
-  await safeEmit(deps.emit, target.channelId, "npc:deleted", { npcId });
+  await safeEmit(deps.emit, target.channelId, "npc:removed", { npcId });
 
   return { ok: true, statusCode: 200, deletedCount };
 }
@@ -285,7 +289,7 @@ export async function deleteNpcInternal(
 async function safeEmit(
   emit: NpcEmit,
   channelId: string,
-  event: "npc:spawned" | "npc:deleted",
+  event: "npc:added" | "npc:removed",
   payload: unknown,
 ): Promise<void> {
   try {

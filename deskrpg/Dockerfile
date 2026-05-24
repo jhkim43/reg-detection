@@ -18,7 +18,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm ci가 platform-specific optionalDependencies(lightningcss, @tailwindcss/oxide,
+# @next/swc, @img/sharp 등)를 누락하는 경우가 있어 host arch에 맞는 Linux native
+# binary를 명시 install. uname -m로 arm64(aarch64) / x64(x86_64) 분기.
+RUN ARCH=$(uname -m); \
+    if [ "$ARCH" = "aarch64" ]; then \
+      SUFFIX="arm64"; \
+    else \
+      SUFFIX="x64"; \
+    fi; \
+    npm ci && npm install --no-save \
+      lightningcss-linux-${SUFFIX}-gnu \
+      @tailwindcss/oxide-linux-${SUFFIX}-gnu \
+      @next/swc-linux-${SUFFIX}-gnu \
+      @img/sharp-linux-${SUFFIX} \
+      @img/sharp-libvips-linux-${SUFFIX}
 
 FROM base AS builder
 WORKDIR /app

@@ -149,6 +149,11 @@ services:
       - /app/.next
     environment:
       DATABASE_URL: postgresql://deskrpg:${POSTGRES_PASSWORD}@deskrpg-db:5432/deskrpg
+      # 명시 분기 — src/db/index.ts가 next dev 평가 시점에 sqlite로 fallback하는 케이스 회피.
+      DB_TYPE: postgresql
+      # dev 모드는 socket.io + http가 같은 PORT(3000)에 통합. 내부 forward에서 PORT+1
+      # (=3001) fetch fail 방지 위해 INTERNAL_PORT 명시.
+      INTERNAL_PORT: "3000"
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # PR 2a — /api/llm-usage/account-balance가 OpenRouter 잔여 fetch에 사용.

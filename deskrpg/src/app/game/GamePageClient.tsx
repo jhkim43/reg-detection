@@ -787,33 +787,34 @@ function GamePageInner() {
       });
 
       // seed-v10 T-V28 — internal endpoint(POST /api/internal/{tasks,npcs}) 가 emit하는
-      // 3개 이벤트의 client wiring. 새로고침 없이 sub-agent NPC + task 변화를 실시간 반영.
-      // 페이로드는 부분 정보만 오므로 list refresh로 일관성 보장.
+      // 이벤트의 client wiring. deskrpg 표준 event 이름(npc:added/npc:removed)으로
+      // 통일해 GameScene이 sprite 동기화 + GamePageClient는 React state(channelNpcs)
+      // 만 별도 동기화. task:event는 list refresh로 TaskBoard 갱신.
       socketInstance.on("task:event", () => {
-        if (channelId) socketInstance.emit("task:list", { channelId });
+        if (channelId) socketRef.current?.emit("task:list", { channelId });
       });
-      socketInstance.on("npc:spawned", async () => {
+      socketInstance.on("npc:added", async () => {
         if (!channelId) return;
         try {
           const res = await fetch(`/api/npcs?channelId=${channelId}`);
           const data = await res.json();
           if (data.npcs) setChannelNpcs(data.npcs);
         } catch (err) {
-          console.warn("[socket] npc:spawned refresh failed:", err);
+          console.warn("[socket] npc:added refresh failed:", err);
         }
       });
-      socketInstance.on("npc:deleted", async ({ npcId: removedNpcId }: { npcId: string }) => {
+      socketInstance.on("npc:removed", async ({ npcId: removedNpcId }: { npcId: string }) => {
         if (!channelId) return;
         // 1) 클라이언트 state 즉시 제거 (낙관적)
         setChannelNpcs((prev) => prev.filter((n) => n.id !== removedNpcId));
         setAllTasks((prev) => prev.filter((t) => t.npcId !== removedNpcId));
-        // 2) 서버 fetch로 정합성 보장 (다른 클라이언트 trigger한 변경도 반영)
+        // 2) 서버 fetch로 정합성 보장
         try {
           const res = await fetch(`/api/npcs?channelId=${channelId}`);
           const data = await res.json();
           if (data.npcs) setChannelNpcs(data.npcs);
         } catch (err) {
-          console.warn("[socket] npc:deleted refresh failed:", err);
+          console.warn("[socket] npc:removed refresh failed:", err);
         }
       });
 

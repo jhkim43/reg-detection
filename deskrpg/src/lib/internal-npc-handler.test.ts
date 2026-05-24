@@ -71,7 +71,7 @@ function makeSpies() {
       deleteCalls.push({ agentId });
       return { workspacePath: `/tmp/workspace-${agentId}`, deleted: true };
     },
-    emit: (channelId: string, event: "npc:spawned" | "npc:deleted", payload: unknown) => {
+    emit: (channelId: string, event: "npc:added" | "npc:removed", payload: unknown) => {
       emitCalls.push({ channelId, event, payload });
     },
   };
@@ -109,7 +109,7 @@ test("(1) spawnSubAgent → npcs insert + parent_agent_id 포함 + socket emit",
   assert.equal(row.position_x, 6); // parent.x(5) + 1
 
   assert.equal(spies.emitCalls.length, 1);
-  assert.equal(spies.emitCalls[0].event, "npc:spawned");
+  assert.equal(spies.emitCalls[0].event, "npc:added");
   assert.equal(spies.emitCalls[0].channelId, fx.channelId);
 });
 
@@ -226,8 +226,8 @@ test("(6) deleteNpcInternal → socket npc:deleted emit", async () => {
     deleteWorkspace: spies.deleteWorkspace,
   });
 
-  assert.ok(spies.emitCalls.some((c) => c.event === "npc:deleted" && c.channelId === fx.channelId),
+  assert.ok(spies.emitCalls.some((c) => c.event === "npc:removed" && c.channelId === fx.channelId),
     "must emit npc:deleted on parent channel");
-  const deletedEmit = spies.emitCalls.find((c) => c.event === "npc:deleted");
+  const deletedEmit = spies.emitCalls.find((c) => c.event === "npc:removed");
   assert.deepEqual((deletedEmit?.payload as { npcId: string }), { npcId: fx.parentNpcId });
 });
