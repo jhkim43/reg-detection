@@ -3,6 +3,20 @@ FROM node:20-bookworm-slim AS base
 
 FROM base AS deps
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    build-essential \
+    libc6-dev \
+    libjpeg-dev \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libgif-dev \
+    librsvg2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
