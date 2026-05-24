@@ -13,7 +13,7 @@ import {
   getGatewayErrorStatus,
   testGatewayConnection,
 } from "@/lib/openclaw-gateway.js";
-import { isNanobotProvider } from "@/lib/nanobot-client";
+import { isNanobotProvider } from "@/lib/nanobot-api-client";
 
 function normalizeGatewayAgents(
   result: unknown,

@@ -5,8 +5,8 @@
  * 세션의 시작/첫 chunk/abort 시각을 DB에 영속한다. 모든 호출은 silent-fail —
  * chat 흐름을 깨뜨리지 않는다.
  *
- * helper를 nanobot-client.js 본체에 두지 않은 이유: nanobot-client.ts (dev path)와
- * baseName이 같아 tsx의 bundler resolver가 require("./nanobot-client.js")를 .ts로
+ * helper를 nanobot-client.cjs 본체에 두지 않은 이유: nanobot-client.ts (dev path)와
+ * baseName이 같아 tsx의 bundler resolver가 require("./nanobot-client.cjs")를 .ts로
  * redirect한다. 이 helper만 별도 파일로 두면 unit test가 가능하다.
  */
 

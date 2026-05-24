@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { internalRpc, getUserId } from "@/lib/internal-rpc";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
-import { isNanobotProvider } from "@/lib/nanobot-client";
+import { isNanobotProvider } from "@/lib/nanobot-api-client";
 
 function normalizeGatewayAgents(result: unknown) {
   if (Array.isArray(result)) return result;

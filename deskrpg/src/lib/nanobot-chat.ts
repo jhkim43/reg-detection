@@ -8,7 +8,7 @@ import {
   type ChatMessage,
   nanobotChat,
   nanobotChatStream,
-} from "./nanobot-client";
+} from "./nanobot-api-client";
 
 // History is retained on the nanobot session (session_id) — client no longer
 // forwards prior turns. The HistoryEntry shape is kept so callers can keep

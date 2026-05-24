@@ -125,7 +125,7 @@ test("getGatewayErrorStatus: details.code='PAIRING_REQUIRED' also triggers 409",
 // (실제 API route 통합은 AC-013 구현 시 같이 검증. 본 테스트는 mapping 함수 단위만.)
 
 test("integration smoke: nanobot adapter style error → 정규화", () => {
-  // nanobot-client.js의 chatSend가 throw하는 패턴 모방
+  // nanobot-client.cjs의 chatSend가 throw하는 패턴 모방
   const nanobotErr = new Error("Nanobot HTTP 502");
   const payload = gateway.buildGatewayErrorPayload(nanobotErr);
   const status = gateway.getGatewayErrorStatus(nanobotErr);
