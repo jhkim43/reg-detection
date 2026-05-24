@@ -21,7 +21,7 @@ function chatLog(...args: unknown[]) { if (DEBUG_CHAT) console.log("[npc:chat]",
 
 import { parseDbObject } from "../lib/db-json";
 import { getGatewayRuntimeConfigForChannel } from "../lib/gateway-resources";
-import { isNanobotProvider } from "../lib/nanobot-client";
+import { isNanobotProvider } from "../lib/nanobot-api-client";
 import { nanobotChatSend, nanobotChatPlain, buildNanobotChatPrompt } from "../lib/nanobot-chat";
 import { chatSendStream, chatAbortStream } from "../lib/nanobot-chat-streaming";
 import {

@@ -13,10 +13,15 @@ const {
   buildGatewayErrorPayload,
   getGatewayErrorStatus,
 } = require("./src/lib/openclaw-gateway.js");
+// node:module의 createRequire로 native CommonJS require 인스턴스를 만들어
+// tsx의 module hook을 우회. tsx는 require("./nanobot-client.cjs")를 동명의
+// nanobot-client.ts(client용 wrapper, createNanobotAdapter 없음)로 redirect함.
+const { createRequire } = require("node:module");
+const requireCJS = createRequire(__filename);
 const {
   isNanobotProvider,
   createNanobotAdapter,
-} = require("./src/lib/nanobot-client.js");
+} = requireCJS("./src/lib/nanobot-client.cjs");
 const { parseNpcResponse, isValidTaskAction } = require("./src/lib/task-parser.js");
 const { TaskManager } = require("./src/lib/task-manager.js");
 const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");

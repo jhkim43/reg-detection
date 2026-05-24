@@ -223,10 +223,13 @@ export const npcs = sqliteTable("npcs", {
   direction: text("direction").default("down"),
   appearance: text("appearance").notNull(),
   openclawConfig: text("openclaw_config").notNull(),
+  // seed-v10 AC-005: nanobot parent agent의 agentId. NULL = 일반 NPC.
+  parentAgentId: text("parent_agent_id"),
   createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_npcs_channel_id").on(table.channelId),
+  index("idx_npcs_parent_agent_id").on(table.parentAgentId),
   unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
 ]);
 
@@ -275,7 +278,9 @@ export const meetingMinutes = sqliteTable("meeting_minutes", {
 export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   channelId: text("channel_id").notNull().references(() => channels.id),
-  npcId: text("npc_id").references(() => npcs.id, { onDelete: "cascade" }),
+  // seed-v10 backlog-1 (A): ON DELETE SET NULL — task 이력 보존.
+  npcId: text("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+  npcNameSnapshot: text("npc_name_snapshot"),
   assignerId: text("assigner_id").notNull().references(() => characters.id),
   npcTaskId: text("npc_task_id").notNull(),
   title: text("title").notNull(),

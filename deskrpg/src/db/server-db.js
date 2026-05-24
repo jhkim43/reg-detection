@@ -306,7 +306,14 @@ function ensureSqliteCompatibility(sqlite) {
     "ALTER TABLE tasks ADD COLUMN last_reported_at TEXT",
     "ALTER TABLE tasks ADD COLUMN stalled_at TEXT",
     "ALTER TABLE tasks ADD COLUMN stalled_reason TEXT",
+    // seed-v10 backlog-1 (A): NPC 삭제 시 task 작업자 이름 보존용 snapshot.
+    "ALTER TABLE tasks ADD COLUMN npc_name_snapshot TEXT",
   ]);
+  // seed-v10 AC-005: npcs.parent_agent_id 컬럼 추가 (멱등 ALTER).
+  applySqliteAlterStatements(sqlite, "npcs", [
+    "ALTER TABLE npcs ADD COLUMN parent_agent_id TEXT",
+  ]);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_npcs_parent_agent_id ON npcs(parent_agent_id)");
 
   dedupeSqliteGroupJoinRequests(sqlite);
   sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS group_join_requests_group_user_unique ON group_join_requests(group_id, user_id)");
@@ -526,10 +533,13 @@ if (isPostgres) {
     direction: varchar("direction", { length: 10 }).default("down"),
     appearance: jsonb("appearance").notNull(),
     openclawConfig: jsonb("openclaw_config").notNull(),
+    // seed-v10 AC-005: nanobot spawn sub-agent의 parent agentId (string, FK 아님).
+    parentAgentId: text("parent_agent_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   }, (table) => [
     index("idx_npcs_channel_id").on(table.channelId),
+    index("idx_npcs_parent_agent_id").on(table.parentAgentId),
     unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
   ]);
 
@@ -553,7 +563,9 @@ if (isPostgres) {
   const tasks = pgTable("tasks", {
     id: uuid("id").defaultRandom().primaryKey(),
     channelId: uuid("channel_id").notNull().references(() => channels.id),
-    npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    // seed-v10 backlog-1 (A): nullable + ON DELETE SET NULL → task 이력 보존.
+    npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+    npcNameSnapshot: varchar("npc_name_snapshot", { length: 100 }),
     assignerId: uuid("assigner_id").notNull().references(() => characters.id),
     npcTaskId: varchar("npc_task_id", { length: 64 }).notNull(),
     title: varchar("title", { length: 200 }).notNull(),
@@ -846,10 +858,13 @@ if (isPostgres) {
     direction: text("direction").default("down"),
     appearance: text("appearance").notNull(),
     openclawConfig: text("openclaw_config").notNull(),
+    // seed-v10 AC-005: nanobot spawn sub-agent의 parent agentId (string, FK 아님).
+    parentAgentId: text("parent_agent_id"),
     createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
   }, (table) => [
     index("idx_npcs_channel_id").on(table.channelId),
+    index("idx_npcs_parent_agent_id").on(table.parentAgentId),
     unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
   ]);
 
@@ -873,7 +888,9 @@ if (isPostgres) {
   const tasks = sqliteTable("tasks", {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     channelId: text("channel_id").notNull().references(() => channels.id),
-    npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
+    // seed-v10 backlog-1 (A): SET NULL → 이력 보존.
+    npcId: text("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+    npcNameSnapshot: text("npc_name_snapshot"),
     assignerId: text("assigner_id").notNull().references(() => characters.id),
     npcTaskId: text("npc_task_id").notNull(),
     title: text("title").notNull(),

@@ -18,7 +18,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm ci가 platform-specific optionalDependencies(lightningcss, @tailwindcss/oxide,
+# @next/swc, @img/sharp 등)를 누락하는 경우가 있어 host arch에 맞는 Linux native
+# binary를 명시 install. uname -m로 arm64(aarch64) / x64(x86_64) 분기.
+RUN ARCH=$(uname -m); \
+    if [ "$ARCH" = "aarch64" ]; then \
+      SUFFIX="arm64"; \
+    else \
+      SUFFIX="x64"; \
+    fi; \
+    npm ci && npm install --no-save \
+      lightningcss-linux-${SUFFIX}-gnu \
+      @tailwindcss/oxide-linux-${SUFFIX}-gnu \
+      @next/swc-linux-${SUFFIX}-gnu \
+      @img/sharp-linux-${SUFFIX} \
+      @img/sharp-libvips-linux-${SUFFIX}
 
 FROM base AS builder
 WORKDIR /app
@@ -46,7 +60,7 @@ COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/src/lib/meeting-broker.js ./src/lib/meeting-broker.js
 COPY --from=builder /app/src/lib/meeting-formatter.js ./src/lib/meeting-formatter.js
 COPY --from=builder /app/src/lib/openclaw-gateway.js ./src/lib/openclaw-gateway.js
-COPY --from=builder /app/src/lib/nanobot-client.js ./src/lib/nanobot-client.js
+COPY --from=builder /app/src/lib/nanobot-client.cjs ./src/lib/nanobot-client.cjs
 COPY --from=builder /app/src/lib/nanobot-session-recorder.js ./src/lib/nanobot-session-recorder.js
 COPY --from=builder /app/src/lib/nanobot-remote-abort.js ./src/lib/nanobot-remote-abort.js
 COPY --from=builder /app/src/lib/chat-history.js ./src/lib/chat-history.js

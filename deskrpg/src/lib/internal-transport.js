@@ -5,6 +5,9 @@ function getInternalSocketHostname(env = process.env) {
 }
 
 function getInternalSocketPort(env = process.env) {
+  // prd: socket.io는 PORT+1 (server.js의 별도 listen).
+  // dev: server-dev.js가 같은 PORT에 socket.io + http 통합 → INTERNAL_PORT env로 override.
+  if (env.INTERNAL_PORT) return env.INTERNAL_PORT;
   return (parseInt(env.PORT || "3000", 10) + 1).toString();
 }
 

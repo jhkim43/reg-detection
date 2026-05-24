@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
         updatedAt: tasks.updatedAt,
         completedAt: tasks.completedAt,
         npcName: npcs.name,
+        // seed-v10 backlog-1 (A): NPC 삭제 시 fallback용 snapshot.
+        npcNameSnapshot: tasks.npcNameSnapshot,
       })
       .from(tasks)
       .leftJoin(npcs, eq(tasks.npcId, npcs.id))

@@ -473,6 +473,27 @@ non_blocking_backlog:
     detail_extra: |
       v10 머지 후 실 사용에서 multi-tool 동시 진행 빈도 측정 → 필요성 결정.
 
+  - id: "v10-backlog-6"
+    title: "nanobot → user 자율 보고(report) push endpoint + UI"
+    priority: "medium"
+    owner: "본인 (deskrpg) + 다른 팀원 (nanobot fork)"
+    detail: |
+      nanobot agent가 task 진행 도중 사용자에게 자율적으로 보고하는 흐름.
+      서버: POST /api/internal/reports endpoint 신설 — npc_reports 테이블에
+      buildQueuedReportRow로 row insert. nanobot이 task lifecycle event와 별개로
+      보고 push 가능. UI: 채팅 패널 옆 side panel / toast notification 등 외부
+      익숙한 패턴 중 채택. 디자인 라운드 필요.
+    detail_extra: |
+      v10 phase 1+2 시나리오 검증 중 발견. summary != report 구분 명확화도 포함.
+
+  # ─────────────────────────────────────────────────────────────────────
+  # In-scope (이번 v10 PR에서 해결한 backlog — 트래킹용)
+  # ─────────────────────────────────────────────────────────────────────
+  # backlog-A (resolved): tasks.npc_name_snapshot 컬럼 추가. NPC가 FK
+  # ON DELETE CASCADE로 삭제돼도 task 카드에 작업자 라벨 fallback 표시.
+  # handleTaskEvent(create) 시 npcs.name 캡처 → tasks.npc_name_snapshot.
+  # 시나리오 A 검증 중 발견된 design gap. 본 PR에 포함.
+
 # ─────────────────────────────────────────────────────────────────────
 # Migration Strategy from v9
 # ─────────────────────────────────────────────────────────────────────

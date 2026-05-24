@@ -15,9 +15,22 @@ ENV NODE_ENV=development
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
 
-# 패키지 파일만 먼저 복사하여 의존성 설치 (캐싱 활용)
+# 패키지 파일만 먼저 복사하여 의존성 설치 (캐싱 활용).
+# npm/cli#4828 — npm ci가 platform-specific optional dep을 누락하는 알려진 버그.
+# host arch(arm64/x64)에 맞는 Linux native binary 명시 install로 보충.
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN ARCH=$(uname -m); \
+    if [ "$ARCH" = "aarch64" ]; then \
+      SUFFIX="arm64"; \
+    else \
+      SUFFIX="x64"; \
+    fi; \
+    npm ci && npm install --no-save \
+      lightningcss-linux-${SUFFIX}-gnu \
+      @tailwindcss/oxide-linux-${SUFFIX}-gnu \
+      @next/swc-linux-${SUFFIX}-gnu \
+      @img/sharp-linux-${SUFFIX} \
+      @img/sharp-libvips-linux-${SUFFIX}
 
 # 소스 코드는 docker-compose에서 볼륨 마운트하므로 
 # 여기서는 별도로 COPY 할 필요가 없습니다.

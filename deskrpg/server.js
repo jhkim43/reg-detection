@@ -12,7 +12,7 @@ const {
 const {
   isNanobotProvider,
   createNanobotAdapter,
-} = require("./src/lib/nanobot-client.js");
+} = require("./src/lib/nanobot-client.cjs");
 const { parseNpcResponse, isValidTaskAction } = require("./src/lib/task-parser.js");
 const { TaskManager } = require("./src/lib/task-manager.js");
 const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");

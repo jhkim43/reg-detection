@@ -217,16 +217,20 @@ function ensureSqliteBaseSchema(sqlite) {
       direction TEXT DEFAULT 'down',
       appearance TEXT NOT NULL,
       openclaw_config TEXT NOT NULL,
+      parent_agent_id TEXT,
       created_at TEXT,
       updated_at TEXT,
       UNIQUE(channel_id, position_x, position_y)
     );
     CREATE INDEX IF NOT EXISTS idx_npcs_channel_id ON npcs(channel_id);
+    CREATE INDEX IF NOT EXISTS idx_npcs_parent_agent_id ON npcs(parent_agent_id);
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY NOT NULL,
       channel_id TEXT NOT NULL REFERENCES channels(id),
-      npc_id TEXT REFERENCES npcs(id) ON DELETE CASCADE,
+      -- seed-v10 backlog-1 (A): ON DELETE SET NULL — NPC 삭제 시 task 이력 보존.
+      npc_id TEXT REFERENCES npcs(id) ON DELETE SET NULL,
+      npc_name_snapshot TEXT,
       assigner_id TEXT NOT NULL REFERENCES characters(id),
       npc_task_id TEXT NOT NULL,
       title TEXT NOT NULL,

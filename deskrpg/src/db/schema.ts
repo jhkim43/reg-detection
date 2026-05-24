@@ -223,10 +223,15 @@ export const npcs = pgTable("npcs", {
   direction: varchar("direction", { length: 10 }).default("down"),
   appearance: jsonb("appearance").notNull(),
   openclawConfig: jsonb("openclaw_config").notNull(),
+  // seed-v10 AC-005 / TRD-D-33: nanobot이 발급한 parent agent의 agentId (string, FK 아님).
+  // NULL = 사용자가 hire한 일반 NPC. NOT NULL = nanobot spawn sub-agent (parent_agent_id의
+  // npcs.openclawConfig.agentId와 매칭). cascade는 application layer에서 처리.
+  parentAgentId: text("parent_agent_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_npcs_channel_id").on(table.channelId),
+  index("idx_npcs_parent_agent_id").on(table.parentAgentId),
   unique("npcs_channel_position_unique").on(table.channelId, table.positionX, table.positionY),
 ]);
 
@@ -275,7 +280,10 @@ export const meetingMinutes = pgTable("meeting_minutes", {
 export const tasks = pgTable("tasks", {
   id: uuid("id").defaultRandom().primaryKey(),
   channelId: uuid("channel_id").notNull().references(() => channels.id),
-  npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "cascade" }),
+  // seed-v10 backlog-1 (A): NPC 삭제 시 task 이력 보존을 위해 ON DELETE SET NULL.
+  // npc_id가 NULL이 되어도 npc_name_snapshot으로 작업자 attribution 살아남음.
+  npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+  npcNameSnapshot: varchar("npc_name_snapshot", { length: 100 }),
   assignerId: uuid("assigner_id").notNull().references(() => characters.id),
   npcTaskId: varchar("npc_task_id", { length: 64 }).notNull(),
   title: varchar("title", { length: 200 }).notNull(),

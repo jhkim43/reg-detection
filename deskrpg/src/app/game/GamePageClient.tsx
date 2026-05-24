@@ -786,6 +786,38 @@ function GamePageInner() {
         setAllTasks((prev) => prev.filter((t) => t.npcId !== removedNpcId));
       });
 
+      // seed-v10 T-V28 — internal endpoint(POST /api/internal/{tasks,npcs}) 가 emit하는
+      // 이벤트의 client wiring. deskrpg 표준 event 이름(npc:added/npc:removed)으로
+      // 통일해 GameScene이 sprite 동기화 + GamePageClient는 React state(channelNpcs)
+      // 만 별도 동기화. task:event는 list refresh로 TaskBoard 갱신.
+      socketInstance.on("task:event", () => {
+        if (channelId) socketRef.current?.emit("task:list", { channelId });
+      });
+      socketInstance.on("npc:added", async () => {
+        if (!channelId) return;
+        try {
+          const res = await fetch(`/api/npcs?channelId=${channelId}`);
+          const data = await res.json();
+          if (data.npcs) setChannelNpcs(data.npcs);
+        } catch (err) {
+          console.warn("[socket] npc:added refresh failed:", err);
+        }
+      });
+      socketInstance.on("npc:removed", async ({ npcId: removedNpcId }: { npcId: string }) => {
+        if (!channelId) return;
+        // 1) 클라이언트 state 즉시 제거 (낙관적)
+        setChannelNpcs((prev) => prev.filter((n) => n.id !== removedNpcId));
+        setAllTasks((prev) => prev.filter((t) => t.npcId !== removedNpcId));
+        // 2) 서버 fetch로 정합성 보장
+        try {
+          const res = await fetch(`/api/npcs?channelId=${channelId}`);
+          const data = await res.json();
+          if (data.npcs) setChannelNpcs(data.npcs);
+        } catch (err) {
+          console.warn("[socket] npc:removed refresh failed:", err);
+        }
+      });
+
       // NPC task lifecycle events
       socketInstance.on("npc:task-created", ({ npcId, task }: { npcId: string; task: { id: string; npcTaskId: string; title: string; status: string } }) => {
         if (dialogNpcRef.current?.npcId !== npcId) return;

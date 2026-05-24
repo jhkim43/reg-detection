@@ -15,7 +15,7 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
-import { isNanobotProvider } from "@/lib/nanobot-client";
+import { isNanobotProvider } from "@/lib/nanobot-api-client";
 
 async function verifyNpcOwnership(req: NextRequest, npcId: string) {
   const userId = getUserId(req);

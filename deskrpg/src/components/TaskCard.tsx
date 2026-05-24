@@ -12,6 +12,8 @@ interface Task {
   summary: string | null;
   status: string;
   npcName?: string;
+  // seed-v10 backlog-1 (A): NPC가 삭제되어 LEFT JOIN으로 npcName이 NULL일 때 fallback.
+  npcNameSnapshot?: string | null;
   autoNudgeCount?: number;
   autoNudgeMax?: number;
   lastNudgedAt?: string | null;
@@ -57,7 +59,7 @@ export default function TaskCard({
 }: TaskCardProps) {
   const t = useT();
   const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.pending;
-  const npcName = task.npcName || "";
+  const npcName = task.npcName || task.npcNameSnapshot || "";
   const npcTaskId = task.npcTaskId || "";
   const updatedAt = task.updatedAt || task.createdAt || "";
   const isFinished = task.status === "complete" || task.status === "cancelled";

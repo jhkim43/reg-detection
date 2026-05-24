@@ -14,7 +14,7 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { getGatewayRuntimeStateForChannel } from "@/lib/gateway-resources";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
-import { isNanobotProvider } from "@/lib/nanobot-client";
+import { isNanobotProvider } from "@/lib/nanobot-api-client";
 
 export async function GET(req: NextRequest) {
   try {

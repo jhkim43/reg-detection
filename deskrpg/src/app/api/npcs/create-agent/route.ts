@@ -12,7 +12,7 @@ import {
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
-import { isNanobotProvider } from "@/lib/nanobot-client";
+import { isNanobotProvider } from "@/lib/nanobot-api-client";
 import { writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
 
 export async function POST(req: NextRequest) {

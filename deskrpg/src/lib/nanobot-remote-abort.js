@@ -11,7 +11,7 @@
  *   - chatAbort 흐름을 throw로 깨뜨리지 않는다.
  *
  * 별 파일로 분리한 이유: `nanobot-client.ts` (dev path)와 baseName이 같아 tsx의
- * bundler resolver가 require("./nanobot-client.js")를 .ts로 redirect → 인라인이면
+ * bundler resolver가 require("./nanobot-client.cjs")를 .ts로 redirect → 인라인이면
  * 단위 테스트 불가. 동일 패턴: `nanobot-session-recorder.js` (T-F03).
  */
 
