@@ -55,6 +55,7 @@
     "better-sqlite3": "^12.8.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.1",
+    "express": "^4.21.0",
     "jose": "^6.2.2",
     "jszip": "^3.10.1",
     "lucide-react": "^1.7.0",

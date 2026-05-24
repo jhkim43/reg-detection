@@ -185,7 +185,7 @@ function getSocketServerUrl(): string | undefined {
   const explicitUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
   if (explicitUrl) return explicitUrl;
 
-  if (process.env.NODE_ENV !== "production") return undefined;
+  if (process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "development") return undefined;
 
   const { protocol, hostname, port } = window.location;
   const currentPort = Number.parseInt(port, 10);

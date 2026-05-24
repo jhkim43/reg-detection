@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "50mb",
     },
   },
+  allowedDevOrigins: [
+    '192.168.56.104', // 가상 머신의 IP (VirtualBox)
+    'localhost',      // Mac 로컬에서 직접 띄울 때
+    '127.0.0.1'       // 로컬 IP 접속용
+  ],
 };
 
 export default nextConfig;

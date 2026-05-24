@@ -1,0 +1,30 @@
+# Dockerfile.dev
+FROM node:20-bookworm-slim
+
+# 필요한 빌드 도구 설치 (기존과 동일)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ build-essential libc6-dev \
+    libjpeg-dev libcairo2-dev libpango1.0-dev \
+    libgif-dev librsvg2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 기본 환경 변수 설정
+ENV NODE_ENV=development
+ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
+
+# 패키지 파일만 먼저 복사하여 의존성 설치 (캐싱 활용)
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# 소스 코드는 docker-compose에서 볼륨 마운트하므로 
+# 여기서는 별도로 COPY 할 필요가 없습니다.
+
+EXPOSE 3000
+
+# 개발 서버 실행
+# 1. node migrate.js 로 Drizzle 마이그레이션을 먼저 실행합니다.
+# 2. 성공하면(&&) node --import tsx server-dev.js 로 개발 서버를 실행합니다.
+CMD ["sh", "-c", "node migrate.js && node --import tsx server-dev.js"]
