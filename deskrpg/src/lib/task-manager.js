@@ -36,6 +36,9 @@ function normalizeTask(row) {
     stalledAt: normalizeTimestamp(row.stalledAt),
     stalledReason: row.stalledReason ?? null,
     npcName: row.npcName || undefined,
+    // seed-v10 backlog-1 (A): NPC가 삭제되어 LEFT JOIN으로 npcName이 null이면
+    // npcNameSnapshot으로 작업자 라벨 fallback.
+    npcNameSnapshot: row.npcNameSnapshot ?? null,
     createdAt: normalizeTimestamp(row.createdAt),
     updatedAt: normalizeTimestamp(row.updatedAt),
     completedAt: normalizeTimestamp(row.completedAt),
