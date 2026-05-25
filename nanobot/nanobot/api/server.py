@@ -192,16 +192,18 @@ async def _parse_multipart(request: web.Request) -> tuple[str, list[str], str | 
 
 
 async def handle_chat_completions(request: web.Request) -> web.Response:
-    """POST /v1/chat/completions — supports JSON and multipart/form-data."""
+    """POST /v1/chat/completions — supports JSON and metadata integration."""
     content_type = request.content_type or ""
     if not isinstance(content_type, str):
         content_type = ""
 
     agent_loop = request.app["agent_loop"]
-    timeout_s: float = request.app.get("request_timeout", 120.0)
+    timeout_s: float = request.app.get("request_timeout", 300.0)
     model_name: str = request.app.get("model_name", "nanobot")
 
     stream = False
+    req_metadata = {} # ★ DeskRPG의 메타데이터를 저장할 딕셔너리 신설
+    
     try:
         if content_type.startswith("multipart/"):
             text, media_paths, session_id, requested_model = await _parse_multipart(request)
@@ -213,7 +215,25 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             stream = body.get("stream", False)
             requested_model = body.get("model")
             text, media_paths = _parse_json_content(body)
+            text = text.split("일반 대화/질문에는 태스크 블록을 생성하지 마세요.")[-1] # 프롬프트 혼동이 크기 때문에, 잘라내고 기능개발부터 우선
+            logger.info(f"Received API request with text: {text}, media_paths: {media_paths}, stream: {stream}, requested_model: {requested_model}")
             session_id = body.get("session_id")
+            # ★ 신규 (AC-006) HTTP body에서 metadata 추출
+            if "metadata" in body and isinstance(body["metadata"], dict):
+                req_metadata = body["metadata"]
+
+            # ★ 더미 데이터 주입 (메타데이터가 비어있을 경우에만 강제 할당)
+            if not req_metadata:
+                logger.info("[API] No metadata found in request, using dummy data for testing.")
+                req_metadata = {
+                    # curl 테스트에서 성공한 실제 ownerUserId
+                    "user_id": "385e7205-ef9e-4cb5-91ad-592ce9dec34c", 
+                    "character_id": "00000000-0000-0000-0000-000000000002",
+                    # curl 테스트에서 성공한 실제 channelId
+                    "channel_id": "c59dc519-f4c7-4d3f-adb6-ddcb2e035972", 
+                    # curl 테스트에서 성공한 실제 부모 에이전트 ID
+                    "parent_npc_id": "dev-b" 
+                }
     except ValueError as e:
         return _error_json(400, str(e))
     except _FileSizeExceeded as e:
@@ -230,9 +250,24 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     session_lock = session_locks.setdefault(session_key, asyncio.Lock())
 
     logger.info(
-        "API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        "API request session_key={} media={} text={} stream={} meta={}",
+        session_key, len(media_paths), text[:80], stream, req_metadata,
     )
+    
+    # 세션 ID 파싱을 통해 자동으로 부모 agentId 추출 오버라이드
+    # 예시: "ot-ch8-designer-a-dm-..." 에서 "designer-a" 부분을 부모 아이디 백업으로 추출
+    parent_agent_id_fallback = None
+    if session_id and session_id.startswith("ot-"):
+        parts = session_id.split("-")
+        if len(parts) >= 3:
+            parent_agent_id_fallback = parts[2] # 세션 네이밍 규칙에 따른 fallback
+
+    # 인바운드 메시지에 심어줄 전역 메타데이터 통합
+    inbound_metadata = {
+        **req_metadata,
+        "parent_agent_id_fallback": parent_agent_id_fallback
+    }
+
     # -- streaming path --
     if stream:
         resp = web.StreamResponse()
@@ -262,6 +297,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             nonlocal stream_failed
             try:
                 async with session_lock:
+                    # ★ process_direct 대신 InboundMessage 규격을 타도록 변경하거나 
+                    # metadata 딕셔너리를 컨텍스트에 온전히 이식하기 위해 인자 구조 확장
                     response = await asyncio.wait_for(
                         agent_loop.process_direct(
                             content=text,
@@ -271,6 +308,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                             chat_id=API_CHAT_ID,
                             on_stream=_on_stream,
                             on_stream_end=_on_stream_end,
+                            # ★ 핵심: 주입받은 메타데이터 패키지를 후속 루프 레이어로 전달
+                            metadata=inbound_metadata 
                         ),
                         timeout=timeout_s,
                     )
@@ -345,13 +384,12 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         session_key=session_key,
                         channel="api",
                         chat_id=API_CHAT_ID,
+                        metadata=inbound_metadata # ★ 핵심: 넌스트리밍 경로에도 전달
                     ),
                     timeout=timeout_s,
                 )
                 response_text = _response_text(response)
-
                 if not response_text or not response_text.strip():
-                    logger.warning("Empty response for session {}, retrying", session_key)
                     retry_response = await asyncio.wait_for(
                         agent_loop.process_direct(
                             content=text,
@@ -359,6 +397,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                             session_key=session_key,
                             channel="api",
                             chat_id=API_CHAT_ID,
+                            metadata=inbound_metadata
                         ),
                         timeout=timeout_s,
                     )
@@ -437,7 +476,7 @@ async def handle_chat_abort(request: web.Request) -> web.Response:
 
 
 def create_app(
-    agent_loop, model_name: str = "nanobot", request_timeout: float = 120.0
+    agent_loop, model_name: str = "nanobot", request_timeout: float = 300.0
 ) -> web.Application:
     """Create the aiohttp application.
 

@@ -464,22 +464,59 @@ class AgentLoop:
         message_id: str | None = None, metadata: dict | None = None,
         session_key: str | None = None,
     ) -> None:
-        """Update context for all tools that need routing info."""
-        # When the caller threads a thread-scoped session_key (e.g. slack with
-        # reply_in_thread: true), honor it so spawn announces route back to
-        # the originating thread session. Falls back to unified mode or
-        # channel:chat_id for callers that don't have a thread-scoped key.
+        """Update context for all tools that need routing and DeskRPG meta info."""
         if session_key is not None:
             effective_key = session_key
         elif self._unified_session:
             effective_key = UNIFIED_SESSION_KEY
         else:
             effective_key = f"{channel}:{chat_id}"
+
         for name in ("message", "spawn", "cron", "my"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "spawn":
-                        tool.set_context(channel, chat_id, effective_key=effective_key)
+                        # ==========================================================
+                        # ★ [AC-006 구현] DeskRPG 매핑 필드 가공 및 바인딩 추출
+                        # ==========================================================
+                        owner_id = None
+                        channel_uuid = None
+                        parent_agent_uuid = None
+
+                        if metadata:
+                            # DeskRPG 라우터 바디 양식 우선 파싱 (JS Camel/Snake 혼용 회피)
+                            owner_id = (
+                                metadata.get("user_id") or 
+                                metadata.get("ownerUserId") or 
+                                metadata.get("owner_user_id")
+                            )
+                            channel_uuid = (
+                                metadata.get("channel_id") or 
+                                metadata.get("channelId")
+                            )
+                            # 부모의 텍스트 기반 agentId 매칭 추출
+                            # 만약 대화 바디에 명시되지 않았다면, 1번 레이어의 세션명 정규화 파싱값 활용
+                            parent_agent_uuid = (
+                                metadata.get("parent_npc_id") or 
+                                metadata.get("parentAgentId") or 
+                                metadata.get("parent_agent_id_fallback")
+                            )
+
+                        # 개선된 SpawnTool의 확장 컨텍스트 호출 인터페이스 실행
+                        try:
+                            tool.set_context(
+                                channel=channel,
+                                chat_id=chat_id,
+                                effective_key=effective_key,
+                                owner_user_id=owner_id,
+                                channel_id=channel_uuid,
+                                parent_agent_id=parent_agent_uuid
+                            )
+                        except TypeError:
+                            # 하위 호환성 예외 처리
+                            tool.set_context(channel, chat_id, effective_key=effective_key)
+                        # ==========================================================
+
                         if hasattr(tool, "set_origin_message_id"):
                             tool.set_origin_message_id(message_id)
                     elif name == "cron":
@@ -1443,12 +1480,14 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        metadata: dict[str, Any] | None = None, # ★ 명시적으로 metadata 인자 공간 개설
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
         msg = InboundMessage(
             channel=channel, sender_id="user", chat_id=chat_id,
             content=content, media=media or [],
+            metadata=metadata or {}, # ★ 전달받은 메타데이터 객체를 인바운드 메시지에 영속 주입
         )
         return await self._process_message(
             msg,

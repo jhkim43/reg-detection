@@ -5,5 +5,5 @@ $ docker builder prune -a -f
 ```
 - deskrpg-app service 이미지만 재빌드하는 경우 
 ```
-$ docker compose -f docker-compose-integration-dev.yml --env-file .env.integration up -d deskrpg-app
+$ docker compose -f docker-compose-integration-dev.yml --env-file .env.integration up -d --build deskrpg-app
 ```
