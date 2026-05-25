@@ -24,7 +24,31 @@ async def notify_deskrpg_spawn(
     identity: str,
     soul: str
 ):
-    """DeskRPG 백엔드의 POST /api/internal/npcs endpoint 규격을 정확히 호출합니다."""
+    """
+    DeskRPG 백엔드의 POST /api/internal/npcs endpoint 규격을 정확히 호출합니다.
+    ```
+    curl -sS -X POST "http://localhost:3000/api/internal/npcs" \
+        -H "x-deskrpg-internal-secret: 6bd2..." \
+        -H "content-type: application/json" \
+        -d '{
+            "ownerUserId": "385e7205-....",
+            "channelId": "c59dc519-....",
+            "name": "리서치담당",
+            "agentId": "agent-research-001",
+            "parentAgentId": "supervisor",
+            "identity": "국제 정세 리서치 전문가.",
+            "soul": "정확하고 중립적인 사실 기반 리포트.",
+            "locale": "ko",
+            "appearance": {
+            "bodyType": "male",
+            "layers": {
+                "body":      { "itemKey": "body",      "variant": "light" },
+                "eye_color": { "itemKey": "eye_color", "variant": "blue" }
+            }
+            }
+        }'
+    ```
+    """
     # 도커 네트워크 명세 상 기본 호스트 바인딩 오버라이드 처리
     deskrpg_url = os.environ.get("DESKRPG_INTERNAL_URL", "http://deskrpg-app:3000/api/internal/npcs")
     secret = os.environ.get("INTERNAL_RPC_SECRET", "test-secret")
@@ -37,14 +61,22 @@ async def notify_deskrpg_spawn(
         "parentAgentId": parent_agent_id,
         "identity": identity,
         "soul": soul,
+        "locale": "ko",
+        "appearance": {
+            "bodyType": "male",
+            "layers": {
+                "body":      { "itemKey": "body",      "variant": "light" },
+                "eye_color": { "itemKey": "eye_color", "variant": "blue" }
+            }
+        }
     }
-    
     headers = {
         "x-deskrpg-internal-secret": secret,
         "Content-Type": "application/json"
     }
     
     def _send_request():
+        import urllib.error
         req = urllib.request.Request(
             deskrpg_url, 
             data=json.dumps(payload).encode('utf-8'), 
@@ -54,6 +86,10 @@ async def notify_deskrpg_spawn(
         try:
             with urllib.request.urlopen(req, timeout=5) as response:
                 logger.info(f"[DeskRPG Sync] Successfully spawned sub-agent: {name} mapped to parent {parent_agent_id}")
+        except urllib.error.HTTPError as e:
+            # ★ 404, 400 등 에러 발생 시 백엔드가 반환한 상세 에러 JSON을 긁어서 로깅
+            error_body = e.read().decode('utf-8')
+            logger.error(f"[DeskRPG Sync Error] HTTP {e.code}: {error_body}")
         except Exception as e:
             logger.error(f"[DeskRPG Sync Error] Failed post request to internal api: {e}")
 

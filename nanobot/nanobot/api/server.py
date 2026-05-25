@@ -226,10 +226,13 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             if not req_metadata:
                 logger.info("[API] No metadata found in request, using dummy data for testing.")
                 req_metadata = {
-                    "user_id": "00000000-0000-0000-0000-000000000001",
+                    # curl 테스트에서 성공한 실제 ownerUserId
+                    "user_id": "385e7205-ef9e-4cb5-91ad-592ce9dec34c", 
                     "character_id": "00000000-0000-0000-0000-000000000002",
-                    "channel_id": "00000000-0000-0000-0000-000000000003",
-                    "parent_npc_id": "dummy-parent-id"
+                    # curl 테스트에서 성공한 실제 channelId
+                    "channel_id": "c59dc519-f4c7-4d3f-adb6-ddcb2e035972", 
+                    # curl 테스트에서 성공한 실제 부모 에이전트 ID
+                    "parent_npc_id": "dev-b" 
                 }
     except ValueError as e:
         return _error_json(400, str(e))
