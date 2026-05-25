@@ -20,18 +20,13 @@ function getModel() {
   return process.env.NANOBOT_MODEL || "qwen/qwen3.6-35b-a3b";
 }
 
-function buildSystemPrompt(npcName, persona) {
-  const parts = [
-    `You are ${npcName || "an NPC"}, an NPC in a virtual office RPG.`,
-  ];
-  if (persona && typeof persona.identity === "string" && persona.identity.trim()) {
-    parts.push("\n[Identity]\n" + persona.identity);
-  }
-  if (persona && typeof persona.soul === "string" && persona.soul.trim()) {
-    parts.push("\n[Soul]\n" + persona.soul);
-  }
-  parts.push("\nRespond naturally in the user's language. Stay in character.");
-  return parts.join("\n");
+function buildSystemPrompt(npcName, _persona) {
+  // seed-v10 옵션 B1: identity/soul은 nanobot workspace의 AGENTS.md/SOUL.md를
+  // BOOTSTRAP_FILES가 system prompt로 자동 read한다. user message에 다시 inject하면
+  // 이중 inject가 되어 LLM context를 부풀리고 tool_call 안정성을 떨어뜨린다 — 텔레그램
+  // 경로와 동등한 동작을 위해 여기서는 npc 이름만 frame으로 제공한다.
+  // (workspace 디렉토리는 agentId 기반이라 nanobot이 npc 이름을 자체적으로 알 수 없음.)
+  return `You are ${npcName || "an NPC"}, an NPC in a virtual office RPG. Respond naturally in the user's language. Stay in character.`;
 }
 
 // nanobot OpenAI-compat accepts only a single user message; multi-turn history

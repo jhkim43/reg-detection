@@ -13,7 +13,7 @@ import {
   localizeNpcPromptDocument,
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
-import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
+import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles, buildAgentsFileContent } from "@/lib/nanobot-agent-lifecycle";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
 import { isNanobotProvider } from "@/lib/nanobot-api-client";
 
@@ -81,6 +81,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         });
       }
 
+      // seed-v10 옵션 B1: identity + meetingProtocol을 AGENTS.md 한 파일에 흡수.
       const files = hasNpcPresetDefaults(body.presetId)
         ? buildGatewayAgentFiles({
             presetId: body.presetId,
@@ -91,18 +92,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             fallbackPersona: body.persona?.trim(),
           })
         : [
-            ...(body.identity?.trim() ? [{
-              name: "IDENTITY.md" as const,
-              content: injectTaskPrompt(localizeNpcPromptDocument(body.identity.trim(), normalizedLocale, "identity"), normalizedLocale),
-            }] : []),
+            {
+              name: "AGENTS.md" as const,
+              content: buildAgentsFileContent(
+                body.identity?.trim()
+                  ? injectTaskPrompt(localizeNpcPromptDocument(body.identity.trim(), normalizedLocale, "identity"), normalizedLocale)
+                  : null,
+                getDefaultMeetingProtocol(normalizedLocale),
+              ),
+            },
             ...(body.soul?.trim() ? [{
               name: "SOUL.md" as const,
               content: localizeNpcPromptDocument(body.soul.trim(), normalizedLocale, "soul"),
             }] : []),
-            {
-              name: "AGENTS.md" as const,
-              content: getDefaultMeetingProtocol(normalizedLocale),
-            },
           ];
 
       if (isNanobotProvider()) {

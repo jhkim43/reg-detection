@@ -2,6 +2,7 @@ import { OFFICE_PRESETS, applyPresetName } from "./office-presets";
 import { PERSONA_PRESETS } from "./npc-persona-presets";
 import { injectTaskPrompt } from "./task-prompt";
 import { normalizeLocale, type ServerLocale } from "./i18n/server";
+import { buildAgentsFileContent } from "./nanobot-agent-lifecycle";
 
 export interface NpcPresetDefaults {
   presetId: string;
@@ -29,7 +30,7 @@ export interface BuildPersonaConfigOptions extends BuildNpcPresetDefaultsOptions
 }
 
 export interface GatewayAgentFile {
-  name: "IDENTITY.md" | "SOUL.md" | "AGENTS.md";
+  name: "AGENTS.md" | "SOUL.md";
   content: string;
 }
 
@@ -277,9 +278,10 @@ export function buildGatewayAgentFiles({
     fallbackPersona,
   });
 
+  // seed-v10 옵션 B1: identity + meetingProtocol을 AGENTS.md 한 파일에 흡수
+  // (nanobot BOOTSTRAP_FILES가 AGENTS.md만 persona로 자동 read).
   return [
-    { name: "IDENTITY.md", content: personaConfig.identity },
+    { name: "AGENTS.md", content: buildAgentsFileContent(personaConfig.identity, defaults.meetingProtocol) },
     { name: "SOUL.md", content: personaConfig.soul },
-    { name: "AGENTS.md", content: defaults.meetingProtocol },
   ];
 }

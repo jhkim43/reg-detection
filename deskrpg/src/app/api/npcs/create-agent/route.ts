@@ -13,7 +13,7 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
 import { isNanobotProvider } from "@/lib/nanobot-api-client";
-import { writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
+import { writeNanobotAgentFiles, buildAgentsFileContent } from "@/lib/nanobot-agent-lifecycle";
 
 export async function POST(req: NextRequest) {
   try {
@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // seed-v10 옵션 B1: nanobot이 BOOTSTRAP_FILES로 자동 read하는 AGENTS.md / SOUL.md에
+    // identity + meetingProtocol을 통합. openclaw legacy 경로(아래 else)는 동일 files를
+    // 받지만 deprecated path라 IDENTITY.md 별도 보존은 의도적으로 생략.
     const files = hasNpcPresetDefaults(presetId)
       ? buildGatewayAgentFiles({
           presetId,
@@ -57,24 +60,25 @@ export async function POST(req: NextRequest) {
           soulOverride: soul?.trim(),
         })
       : [
-          ...(identity?.trim() ? [{
-            name: "IDENTITY.md" as const,
-            content: injectTaskPrompt(localizeNpcPromptDocument(identity.trim(), normalizedLocale, "identity"), normalizedLocale),
-          }] : []),
+          {
+            name: "AGENTS.md" as const,
+            content: buildAgentsFileContent(
+              identity?.trim()
+                ? injectTaskPrompt(localizeNpcPromptDocument(identity.trim(), normalizedLocale, "identity"), normalizedLocale)
+                : null,
+              getDefaultMeetingProtocol(normalizedLocale),
+            ),
+          },
           ...(soul?.trim() ? [{
             name: "SOUL.md" as const,
             content: localizeNpcPromptDocument(soul.trim(), normalizedLocale, "soul"),
           }] : []),
-          {
-            name: "AGENTS.md" as const,
-            content: getDefaultMeetingProtocol(normalizedLocale),
-          },
         ];
 
-    // seed-v9 D-22: persona의 source of truth는 DB npcs.openclawConfig (POST /api/npcs에서 저장).
-    // nanobot mode (default): agents.create RPC는 no-op (stateless, system prompt를 매 호출 DB에서
-    //   재구성). 단 IDENTITY.md/SOUL.md는 write-only mirror로 워크스페이스에 같이 작성
-    //   (~/.nanobot/workspace-${agentId}/) — 인간 디버깅·tail 용도, nanobot loop은 read X.
+    // seed-v9 D-22 / seed-v10 옵션 B1: persona의 source of truth는 DB npcs.openclawConfig.
+    // nanobot mode (default): agents.create RPC는 no-op (stateless). AGENTS.md/SOUL.md를
+    //   ~/.nanobot/workspace-${agentId}/에 작성 — nanobot agent loop의 BOOTSTRAP_FILES가
+    //   system prompt로 자동 load (read-side는 nanobot 담당).
     // openclaw mode (deprecated): agents.create + agents.files.set RPC로 워크스페이스 동기화.
     if (isNanobotProvider()) {
       await writeNanobotAgentFiles(agentId.trim(), files);
