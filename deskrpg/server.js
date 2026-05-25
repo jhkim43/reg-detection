@@ -470,6 +470,10 @@ async function main() {
       const r = rows[0];
       const openclawConfig = parseJson(r.openclawConfig);
       const config = { ...openclawConfig, _channelId: r.channelId, _name: r.name };
+      // raw openclawConfig.agentId 보존 — nanobot mode에서 config.agentId가 npcId로
+      // override되지만, sub-agent spawn 시 internal-npc-handler가 parentAgentId로
+      // 매칭하는 키는 openclawConfig.agentId (e.g. "Supervisor"). 두 의미 분리.
+      config._openclawAgentId = (openclawConfig && (openclawConfig.agentId || openclawConfig.agent_id)) || null;
       // nanobot mode: NPC id doubles as agent id (no OpenClaw agents.create step).
       if (isNanobotProvider()) {
         config.agentId = npcId;
@@ -559,10 +563,23 @@ async function main() {
     const pendKey = pendingNpcChatKey(socket.id, npcId);
     pendingNpcChats.set(pendKey, { gateway, agentId, sessionKey });
 
+    // seed-v10 AC-006 / T-V19 — chat body.metadata로 deskrpg user/character/channel/parent_npc
+    // 컨텍스트 전달. nanobot SpawnTool이 sub-agent 생성 시 deskrpg internal API의 ownerUserId/
+    // channelId/parentAgentId를 이 metadata에서 채움. snake_case 표준.
+    // parent_npc_id는 LLM call용 agentId(nanobot mode: NPC.id)가 아니라 raw openclawConfig.agentId
+    // — internal-npc-handler.findParentNpc가 openclawConfig.agentId로 매칭하기 때문.
+    const characterId = players.get(socket.id)?.characterId || null;
+    const metadata = {
+      user_id: userId,
+      character_id: characterId,
+      channel_id: channelId,
+      parent_npc_id: npcConfig._openclawAgentId || agentId,
+    };
+
     try {
       const response = await gateway.chatSend(agentId, sessionKey, message, (delta) => {
         socket.emit(eventName, { npcId, chunk: delta, done: false });
-      });
+      }, metadata);
       socket.emit(eventName, { npcId, chunk: "", done: true });
       return response;
     } catch (err) {

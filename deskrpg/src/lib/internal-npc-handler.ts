@@ -12,6 +12,7 @@ import {
   deleteNanobotAgentWorkspace as defaultDeleteWorkspace,
   type AgentFile,
 } from "./nanobot-agent-lifecycle";
+import { buildAgentsFileContent } from "./nanobot-workspace-content";
 
 export type SpawnSubAgentInput = {
   ownerUserId: string;
@@ -208,8 +209,10 @@ export async function spawnSubAgent(
   }
 
   try {
+    // seed-v10 옵션 B1: identity는 AGENTS.md의 # Identity 섹션으로 흡수.
+    // sub-agent는 meetingProtocol을 별도 지정받지 않으므로 identity만 들어감.
     const files: AgentFile[] = [
-      { name: "IDENTITY.md", content: input.identity },
+      { name: "AGENTS.md", content: buildAgentsFileContent(input.identity, null) },
       { name: "SOUL.md", content: input.soul },
     ];
     await writeFiles(input.agentId, files);

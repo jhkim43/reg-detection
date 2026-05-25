@@ -42,6 +42,9 @@ export async function chatSendStream(opts: {
   repo?: ChatStreamRepo;
   timeoutMs?: number;
   abortController?: AbortController;
+  // seed-v10 AC-006: deskrpg user/character/channel/parent_npc context for nanobot
+  // SpawnTool — included in HTTP body as `metadata`. snake_case 표준.
+  metadata?: Record<string, unknown>;
 }): Promise<ChatSendStreamResult> {
   const {
     agentId,
@@ -53,6 +56,7 @@ export async function chatSendStream(opts: {
     repo,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     abortController,
+    metadata,
   } = opts;
 
   if (!agentId || !agentId.trim()) {
@@ -100,6 +104,9 @@ export async function chatSendStream(opts: {
         session_id: sessionKey,
         messages: [{ role: "user", content: message }],
         stream: true,
+        ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? { metadata }
+          : {}),
       }),
       signal: internalController.signal,
     });

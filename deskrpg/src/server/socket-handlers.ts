@@ -533,6 +533,9 @@ function buildNanobotGatewayAdapter() {
       sessionKey: string,
       message: string,
       onDelta?: (delta: string) => void,
+      // seed-v10 AC-006: 5번째 인자는 nanobot용 metadata. OpenClawGateway는 같은 자리에
+      // attachments를 받지만 nanobot mode 경로에서만 호출되므로 시그니처가 갈라져도 안전.
+      metadata?: Record<string, unknown>,
     ) => {
       // nanobot 모드에서 agentId == npcId (AC-013 D-22 mirror).
       const key = nanobotSessionKey(agentId, sessionKey);
@@ -553,6 +556,7 @@ function buildNanobotGatewayAdapter() {
           onDelta: onDelta ?? (() => {}),
           abortController: ac,
           repo: defaultNanobotChatStreamRepo,
+          metadata,
         });
         return result.fullText;
       } finally {
@@ -646,6 +650,10 @@ async function getNpcConfig(npcId: string): Promise<NpcConfig | null> {
       ? npc.id
       : ((oc.agentId as string) || null);
 
+    // raw openclawConfig.agentId 보존 — nanobot mode에서 agentId가 npcId로 override되지만,
+    // sub-agent spawn 시 internal-npc-handler.findParentNpc는 openclawConfig.agentId로 매칭.
+    const openclawAgentId = (oc.agentId as string) || (oc.agent_id as string) || null;
+
     return {
       id: npc.id,
       name: npc.name,
@@ -653,9 +661,10 @@ async function getNpcConfig(npcId: string): Promise<NpcConfig | null> {
       sessionKeyPrefix: (oc.sessionKeyPrefix as string) || npcId,
       _channelId: npc.channelId as string,
       _name: npc.name,
+      _openclawAgentId: openclawAgentId,
       role: "Participant",
       passPolicy: typeof oc.passPolicy === "string" ? oc.passPolicy : null,
-    };
+    } as NpcConfig;
   } catch (err) {
     console.error(`[npc] Failed to load config for ${npcId}:`, err);
     return null;
@@ -731,6 +740,17 @@ async function streamNpcResponse(
         attachments,
       });
       registerPendingChat(socket.id, npcId, { agentId, sessionKey, gateway });
+      // seed-v10 AC-006 / T-V19 — chat body.metadata로 deskrpg context 전달.
+      // parent_npc_id는 LLM call agentId(nanobot mode: NPC.id)가 아니라 raw
+      // openclawConfig.agentId — internal-npc-handler.findParentNpc 매칭 기준.
+      const characterId = players.get(socket.id)?.characterId || null;
+      const npcConfigAny = npcConfig as unknown as { _openclawAgentId?: string | null };
+      const metadata: Record<string, unknown> = {
+        user_id: userId,
+        character_id: characterId,
+        channel_id: _channelId,
+        parent_npc_id: npcConfigAny._openclawAgentId || agentId,
+      };
       const response = await gateway.chatSend(
         agentId,
         sessionKey,
@@ -738,6 +758,7 @@ async function streamNpcResponse(
         (delta: string) => {
           socket.emit(responseEvent, { npcId, chunk: delta, done: false });
         },
+        metadata,
       );
       socket.emit(responseEvent, { npcId, chunk: "", done: true });
       return response || "";

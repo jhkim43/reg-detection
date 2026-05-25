@@ -113,7 +113,9 @@ test("(1) spawnSubAgent → npcs insert + parent_agent_id 포함 + socket emit",
   assert.equal(spies.emitCalls[0].channelId, fx.channelId);
 });
 
-test("(2) spawnSubAgent + writeNanobotAgentFiles 호출 검증 (IDENTITY.md + SOUL.md)", async () => {
+test("(2) spawnSubAgent + writeNanobotAgentFiles 호출 검증 (AGENTS.md + SOUL.md)", async () => {
+  // seed-v10 옵션 B1: identity는 AGENTS.md의 # Identity 섹션으로 흡수. nanobot
+  // BOOTSTRAP_FILES가 AGENTS.md를 system prompt로 자동 read하므로 sub-agent도 같은 매핑.
   const fx = seedFixture("02");
   const spies = makeSpies();
 
@@ -133,10 +135,10 @@ test("(2) spawnSubAgent + writeNanobotAgentFiles 호출 검증 (IDENTITY.md + SO
   assert.equal(spies.writeCalls.length, 1);
   assert.equal(spies.writeCalls[0].agentId, "agent-sub-02");
   const fileNames = spies.writeCalls[0].files.map((f) => f.name);
-  assert.ok(fileNames.includes("IDENTITY.md"));
+  assert.ok(fileNames.includes("AGENTS.md"));
   assert.ok(fileNames.includes("SOUL.md"));
-  const identityFile = spies.writeCalls[0].files.find((f) => f.name === "IDENTITY.md");
-  assert.equal(identityFile?.content, "ID body");
+  const agentsFile = spies.writeCalls[0].files.find((f) => f.name === "AGENTS.md");
+  assert.equal(agentsFile?.content, "# Identity\nID body");
 });
 
 test("(3) parent NPC 없으면 parent_npc_not_found 404", async () => {
