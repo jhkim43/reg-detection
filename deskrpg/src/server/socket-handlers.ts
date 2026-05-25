@@ -533,6 +533,9 @@ function buildNanobotGatewayAdapter() {
       sessionKey: string,
       message: string,
       onDelta?: (delta: string) => void,
+      // seed-v10 AC-006: 5번째 인자는 nanobot용 metadata. OpenClawGateway는 같은 자리에
+      // attachments를 받지만 nanobot mode 경로에서만 호출되므로 시그니처가 갈라져도 안전.
+      metadata?: Record<string, unknown>,
     ) => {
       // nanobot 모드에서 agentId == npcId (AC-013 D-22 mirror).
       const key = nanobotSessionKey(agentId, sessionKey);
@@ -553,6 +556,7 @@ function buildNanobotGatewayAdapter() {
           onDelta: onDelta ?? (() => {}),
           abortController: ac,
           repo: defaultNanobotChatStreamRepo,
+          metadata,
         });
         return result.fullText;
       } finally {
@@ -731,6 +735,16 @@ async function streamNpcResponse(
         attachments,
       });
       registerPendingChat(socket.id, npcId, { agentId, sessionKey, gateway });
+      // seed-v10 AC-006 / T-V19 — chat body.metadata로 deskrpg context 전달 → nanobot
+      // SpawnTool이 sub-agent 생성 시 deskrpg internal API의 ownerUserId/channelId/
+      // parentAgentId를 이 metadata로 채움.
+      const characterId = players.get(socket.id)?.characterId || null;
+      const metadata: Record<string, unknown> = {
+        user_id: userId,
+        character_id: characterId,
+        channel_id: _channelId,
+        parent_npc_id: agentId,
+      };
       const response = await gateway.chatSend(
         agentId,
         sessionKey,
@@ -738,6 +752,7 @@ async function streamNpcResponse(
         (delta: string) => {
           socket.emit(responseEvent, { npcId, chunk: delta, done: false });
         },
+        metadata,
       );
       socket.emit(responseEvent, { npcId, chunk: "", done: true });
       return response || "";

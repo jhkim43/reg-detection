@@ -559,10 +559,22 @@ async function main() {
     const pendKey = pendingNpcChatKey(socket.id, npcId);
     pendingNpcChats.set(pendKey, { gateway, agentId, sessionKey });
 
+    // seed-v10 AC-006 / T-V19 — chat body.metadata로 deskrpg user/character/channel/parent_npc
+    // 컨텍스트 전달. nanobot SpawnTool이 sub-agent 생성 시 deskrpg internal API의 ownerUserId/
+    // channelId/parentAgentId를 이 metadata에서 채움. snake_case 표준 (nanobot 측 camelCase
+    // fallback도 있지만 deskrpg는 contract에 명시된 snake_case로 송신).
+    const characterId = players.get(socket.id)?.characterId || null;
+    const metadata = {
+      user_id: userId,
+      character_id: characterId,
+      channel_id: channelId,
+      parent_npc_id: agentId,
+    };
+
     try {
       const response = await gateway.chatSend(agentId, sessionKey, message, (delta) => {
         socket.emit(eventName, { npcId, chunk: delta, done: false });
-      });
+      }, metadata);
       socket.emit(eventName, { npcId, chunk: "", done: true });
       return response;
     } catch (err) {

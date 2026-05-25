@@ -32,6 +32,10 @@ function buildSystemPrompt(npcName, _persona) {
 // nanobot OpenAI-compat accepts only a single user message; multi-turn history
 // is managed server-side per session_id. Fold [system, ...history, user] into
 // one user payload (system as prefix), and surface sessionId via body.session_id.
+//
+// seed-v10 AC-006: body.metadata로 deskrpg user/character/channel/parent_npc 컨텍스트
+// 전달. nanobot SpawnTool이 sub-agent 생성 시 deskrpg internal API의 ownerUserId /
+// channelId / parentAgentId 필드를 채우는 데 사용 (parent_npc_not_found 404 해결).
 function buildNanobotRequestBody(messages, opts) {
   let systemText = "";
   let userText = "";
@@ -53,6 +57,9 @@ function buildNanobotRequestBody(messages, opts) {
     messages: [{ role: "user", content: text }],
   };
   if (opts.sessionId) body.session_id = String(opts.sessionId);
+  if (opts.metadata && typeof opts.metadata === "object" && !Array.isArray(opts.metadata)) {
+    body.metadata = opts.metadata;
+  }
   return body;
 }
 
@@ -205,7 +212,7 @@ function createNanobotAdapter(deps) {
       // best-effort — 실패해도 chatAbort 흐름 비차단.
       await postNanobotChatAbort(getApiUrl(), sessionKey);
     },
-    async chatSend(npcId, sessionKey, message, onDelta) {
+    async chatSend(npcId, sessionKey, message, onDelta, metadata) {
       const npc = await loadNpc(npcId);
 
       // Phase 4.5 follow-up — Option A: nanobot session jsonl에 system 누적되는
@@ -249,7 +256,7 @@ function createNanobotAdapter(deps) {
           }
         : undefined;
 
-      const opts = { sessionId: sessionKey, signal: ac.signal };
+      const opts = { sessionId: sessionKey, signal: ac.signal, metadata };
       try {
         if (typeof onDelta === "function") {
           return await nanobotChatStream(messages, wrappedOnDelta, opts);
@@ -284,4 +291,5 @@ module.exports = {
   nanobotChatStream,
   createNanobotAdapter,
   buildSystemPrompt,
+  buildNanobotRequestBody,
 };
