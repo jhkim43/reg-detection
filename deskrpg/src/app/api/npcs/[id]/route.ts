@@ -13,7 +13,8 @@ import {
   localizeNpcPromptDocument,
 } from "@/lib/npc-agent-defaults";
 import { normalizeLocale } from "@/lib/i18n/server";
-import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles, buildAgentsFileContent } from "@/lib/nanobot-agent-lifecycle";
+import { deleteNanobotAgentWorkspace, setAgentFiles, writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
+import { buildAgentsFileContent } from "@/lib/nanobot-workspace-content";
 import { parseDbJson, parseDbObject } from "@/lib/db-json";
 import { isNanobotProvider } from "@/lib/nanobot-api-client";
 

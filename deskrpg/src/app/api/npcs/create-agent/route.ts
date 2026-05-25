@@ -13,7 +13,8 @@ import {
 import { normalizeLocale } from "@/lib/i18n/server";
 import { buildGatewayErrorPayload, getGatewayErrorStatus } from "@/lib/openclaw-gateway.js";
 import { isNanobotProvider } from "@/lib/nanobot-api-client";
-import { writeNanobotAgentFiles, buildAgentsFileContent } from "@/lib/nanobot-agent-lifecycle";
+import { writeNanobotAgentFiles } from "@/lib/nanobot-agent-lifecycle";
+import { buildAgentsFileContent } from "@/lib/nanobot-workspace-content";
 
 export async function POST(req: NextRequest) {
   try {

@@ -10,9 +10,9 @@ import { db as defaultDb, channels, npcs, jsonForDb } from "@/db";
 import {
   writeNanobotAgentFiles as defaultWriteFiles,
   deleteNanobotAgentWorkspace as defaultDeleteWorkspace,
-  buildAgentsFileContent,
   type AgentFile,
 } from "./nanobot-agent-lifecycle";
+import { buildAgentsFileContent } from "./nanobot-workspace-content";
 
 export type SpawnSubAgentInput = {
   ownerUserId: string;

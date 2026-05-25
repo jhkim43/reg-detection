@@ -18,6 +18,11 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { buildAgentsFileContent } from "./nanobot-workspace-content";
+
+// buildAgentsFileContent는 client/server 양쪽에서 쓸 수 있도록 nanobot-workspace-content.ts
+// (fs-free)로 분리됨. 본 파일 사용자는 그대로 re-export로 접근 가능.
+export { buildAgentsFileContent };
 
 /** seed-v9 D-21: nanobot 워크스페이스 root */
 export function getNanobotHomeDir(env: Record<string, string | undefined> = process.env): string {
@@ -33,25 +38,6 @@ export type AgentFile = {
   name: "AGENTS.md" | "SOUL.md";
   content: string;
 };
-
-/**
- * identity + meetingProtocol을 nanobot의 AGENTS.md 단일 파일에 흡수.
- *
- * nanobot BOOTSTRAP_FILES가 AGENTS.md 하나만 persona로 읽으므로, deskrpg가 분리
- * 보관하던 두 필드를 한 파일에 섹션으로 합친다. 둘 다 비어 있으면 빈 문자열을
- * 반환 — 호출자는 그 경우 파일 자체를 작성하지 않는다.
- */
-export function buildAgentsFileContent(
-  identity: string | null | undefined,
-  meetingProtocol: string | null | undefined,
-): string {
-  const parts: string[] = [];
-  const id = (identity ?? "").trim();
-  const mp = (meetingProtocol ?? "").trim();
-  if (id) parts.push(`# Identity\n${id}`);
-  if (mp) parts.push(`# Meeting Protocol\n${mp}`);
-  return parts.join("\n\n");
-}
 
 /**
  * Write-only mirror: nanobot 워크스페이스에 .md 파일 작성.
