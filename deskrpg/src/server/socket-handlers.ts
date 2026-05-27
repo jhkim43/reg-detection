@@ -1268,8 +1268,6 @@ export function setupSocketHandlers(io: Server) {
         chatLog(`  ← task response (${npcConfig._name}):`, response ? response.slice(0, 150) : "(empty)");
 
         if (response) {
-          // sanitizeNpcResponseText 호출은 유지 — markdown 정리. T-V25에서 추가 단순화 예정.
-          void sanitizeNpcResponseText(response);
           socket.emit("npc:response-complete", { npcId, npcName: npcConfig._name || npcId });
         }
       },
