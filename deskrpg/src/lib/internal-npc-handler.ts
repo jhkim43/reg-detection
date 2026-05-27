@@ -119,12 +119,16 @@ function parseOpenClawConfig(raw: unknown): OpenClawConfig {
   return {};
 }
 
-async function findParentNpc(
+async function findParentAndOccupied(
   dbHandle: typeof defaultDb,
   channelId: string,
   parentAgentId: string,
-): Promise<{ id: string; positionX: number; positionY: number } | null> {
+): Promise<{
+  parent: { id: string; positionX: number; positionY: number } | null;
+  occupied: Set<string>;
+}> {
   // openclawConfig.agentId == parentAgentId — JSON column이라 application filter.
+  // 같은 query에서 channel의 모든 NPC 위치도 함께 추출 (자동 spatial 배치용).
   const rows = await dbHandle
     .select({
       id: npcs.id,
@@ -135,11 +139,53 @@ async function findParentNpc(
     .from(npcs)
     .where(eq(npcs.channelId, channelId));
 
+  let parent: { id: string; positionX: number; positionY: number } | null = null;
+  const occupied = new Set<string>();
   for (const row of rows) {
-    const cfg = parseOpenClawConfig(row.openclawConfig);
-    if (cfg.agentId === parentAgentId) {
-      return { id: row.id, positionX: row.positionX, positionY: row.positionY };
+    occupied.add(`${row.positionX},${row.positionY}`);
+    if (!parent) {
+      const cfg = parseOpenClawConfig(row.openclawConfig);
+      if (cfg.agentId === parentAgentId) {
+        parent = { id: row.id, positionX: row.positionX, positionY: row.positionY };
+      }
     }
+  }
+  return { parent, occupied };
+}
+
+/**
+ * parent 중심으로 빈 자리를 우선순위 순서대로 탐색. 첫 후보(`parent.x+1, parent.y`)는
+ * 기존 default와 동일해 단일 spawn 시 UX 변화 없음. 충돌 시 좌/상/하 → 대각선 → radius 2/3
+ * 순으로 fallback. 모두 점령되어 있으면 null → 호출자가 explicit 409 반환.
+ */
+const POSITION_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  // radius 1 — parent 인접 (오른쪽 우선 = 기존 default 호환)
+  [1, 0], [-1, 0], [0, 1], [0, -1],
+  [1, 1], [1, -1], [-1, 1], [-1, -1],
+  // radius 2
+  [2, 0], [-2, 0], [0, 2], [0, -2],
+  [2, 1], [2, -1], [-2, 1], [-2, -1],
+  [1, 2], [1, -2], [-1, 2], [-1, -2],
+  [2, 2], [2, -2], [-2, 2], [-2, -2],
+  // radius 3
+  [3, 0], [-3, 0], [0, 3], [0, -3],
+  [3, 1], [3, -1], [-3, 1], [-3, -1],
+  [1, 3], [1, -3], [-1, 3], [-1, -3],
+  [3, 2], [3, -2], [-3, 2], [-3, -2],
+  [2, 3], [2, -3], [-2, 3], [-2, -3],
+  [3, 3], [3, -3], [-3, 3], [-3, -3],
+];
+
+function nextAvailablePosition(
+  occupied: Set<string>,
+  centerX: number,
+  centerY: number,
+): { x: number; y: number } | null {
+  for (const [dx, dy] of POSITION_OFFSETS) {
+    const x = centerX + dx;
+    const y = centerY + dy;
+    if (x < 0 || y < 0) continue;
+    if (!occupied.has(`${x},${y}`)) return { x, y };
   }
   return null;
 }
@@ -164,12 +210,23 @@ export async function spawnSubAgent(
     return { ok: false, statusCode: 403, errorCode: "forbidden_channel" };
   }
 
-  const parent = await findParentNpc(dbHandle, input.channelId, input.parentAgentId);
+  const { parent, occupied } = await findParentAndOccupied(dbHandle, input.channelId, input.parentAgentId);
   if (!parent) return { ok: false, statusCode: 404, errorCode: "parent_npc_not_found" };
 
-  // Position default: parent NPC 옆 (+1, +0). Phase 6 디자인 시 collision 회피 로직 추가.
-  const positionX = typeof input.positionX === "number" ? input.positionX : parent.positionX + 1;
-  const positionY = typeof input.positionY === "number" ? input.positionY : parent.positionY;
+  // 자동 spatial 배치: 사용자가 명시한 positionX/Y는 그대로(occupied여도 insert 시 catch가
+  // 409로 응답). 미명시 시 parent 중심 spiral 탐색으로 빈 자리 자동 선택. radius 4까지 다
+  // 막혀 있으면 명시적 409.
+  let positionX: number;
+  let positionY: number;
+  if (typeof input.positionX === "number" && typeof input.positionY === "number") {
+    positionX = input.positionX;
+    positionY = input.positionY;
+  } else {
+    const slot = nextAvailablePosition(occupied, parent.positionX, parent.positionY);
+    if (!slot) return { ok: false, statusCode: 409, errorCode: "position_conflict" };
+    positionX = slot.x;
+    positionY = slot.y;
+  }
   const locale = input.locale ?? "ko";
 
   const openclawConfig = {
@@ -202,7 +259,11 @@ export async function spawnSubAgent(
       });
     inserted = row;
   } catch (err) {
-    if (String(err).match(/unique|UNIQUE/)) {
+    // Drizzle Error.toString()은 "Error: Failed query: insert into ..." 형태라 unique 정보가
+    // 없음. 실제 constraint 이름은 err.cause.constraint("npcs_channel_position_unique") 또는
+    // err.cause.code/message에 있어 함께 검사. (Phase 3 검증 중 500 internal_error 발견 후 fix)
+    const errStr = String(err) + " " + String((err as { cause?: unknown })?.cause ?? "");
+    if (errStr.match(/unique|UNIQUE|duplicate key/i)) {
       return { ok: false, statusCode: 409, errorCode: "position_conflict" };
     }
     throw err;
