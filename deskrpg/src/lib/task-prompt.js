@@ -89,46 +89,6 @@ function injectTaskPrompt(userIdentity, locale) {
   return buildTaskCorePrompt(locale) + "\n\n" + (userIdentity || "");
 }
 
-/**
- * 대화 히스토리가 길어질 때 LLM에게 프로토콜을 상기시키는 짧은 리마인더.
- * 사용자 메시지 앞에 [SYSTEM] 태그로 prepend된다.
- */
-function buildTaskReminder(locale) {
-  const confirmation = translateTaskPrompt(locale, "taskPrompt.confirmRegistration");
-  const header = translateTaskPrompt(locale, "taskPrompt.reminderHeader");
-  const confirmStep = translateTaskPrompt(locale, "taskPrompt.reminderConfirmStep", {
-    confirmation,
-  });
-  const createStep = translateTaskPrompt(locale, "taskPrompt.reminderCreateStep");
-  const requiredFields = translateTaskPrompt(locale, "taskPrompt.reminderRequiredFields");
-  const allowedFields = translateTaskPrompt(locale, "taskPrompt.reminderAllowedFields");
-  const ignoreCasual = translateTaskPrompt(locale, "taskPrompt.reminderIgnoreCasual");
-
-  return `[SYSTEM REMINDER - MANDATORY TASK PROTOCOL]
-${header}
-${confirmStep}
-${createStep}
-${'```'}json:task
-{"action":"create","id":"{name}-{YYYYMMDD}-{4hex}","title":"제목","status":"in_progress","summary":"요약"}
-${'```'}
-${requiredFields}
-${allowedFields}
-${ignoreCasual}`;
-}
-
-const TASK_REMINDER = buildTaskReminder("en");
-
-/**
- * 사용자 메시지에 프로토콜 리마인더를 prepend.
- * 매 메시지마다 주입하되, 리마인더가 사용자에게 보이지 않으므로 부담 없음.
- * @param {string} userMessage - 원본 사용자 메시지
- * @param {string | null | undefined} locale
- * @returns {string}
- */
-function withTaskReminder(userMessage, locale) {
-  return buildTaskReminder(locale) + "\n\n" + userMessage;
-}
-
 function buildTaskSessionPrompt(task, locale) {
   const context = [
     "[TASK CONTEXT]",
@@ -151,10 +111,7 @@ function buildTaskSessionPrompt(task, locale) {
 module.exports = {
   TASK_CORE_PROMPT,
   injectTaskPrompt,
-  TASK_REMINDER,
-  withTaskReminder,
   buildTaskCorePrompt,
-  buildTaskReminder,
   buildTaskSessionPrompt,
   normalizeTaskPromptLocale,
 };

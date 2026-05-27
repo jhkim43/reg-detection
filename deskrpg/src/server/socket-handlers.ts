@@ -70,7 +70,7 @@ const { sanitizeNpcResponseText } = require("../lib/task-block-utils.js") as typ
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { TaskManager } = require("../lib/task-manager.js") as { TaskManager: new (db: typeof import("../db").db, schema: { tasks: typeof tasks; npcs: typeof npcs }) => { handleTaskAction: (...args: unknown[]) => Promise<unknown>; getTasksByNpc: (npcId: string) => Promise<unknown[]>; getTasksByChannel: (channelId: string) => Promise<unknown[]>; deleteTask: (taskId: string, channelId: string) => Promise<unknown>; getStaleInProgressTasks: (channelId: string, olderThanIso: string) => Promise<unknown[]>; markTaskNudged: (taskId: string, channelId: string) => Promise<unknown>; markTaskStalled: (taskId: string, channelId: string, reason: string) => Promise<unknown>; resumeTask: (taskId: string, channelId: string) => Promise<unknown>; completeTask: (taskId: string, channelId: string) => Promise<unknown>; createBacklogTask: (channelId: string, assignerId: string, title: string, summary: string | null) => Promise<unknown>; moveTask: (taskId: string, channelId: string, toStatus: string, npcId: string | null, options?: { expectedFromStatus?: string }) => Promise<unknown>; getTaskById: (taskId: string, channelId: string) => Promise<unknown>; getTaskByNpcTaskId: (npcId: string, npcTaskId: string) => Promise<unknown>; hasInProgressTask: (npcId: string, channelId: string) => Promise<boolean>; getNextPendingTask: (npcId: string, channelId: string) => Promise<ManagedTask | null>; }; };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("../lib/task-prompt.js") as typeof import("../lib/task-prompt.js");
+const { normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("../lib/task-prompt.js") as typeof import("../lib/task-prompt.js");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -307,7 +307,7 @@ async function runProgressNudgeForTask(
     const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-dm-${targetUserId}`;
     await taskManager.markTaskNudged(task.id, task.channelId);
 
-    const prompt = withTaskReminder(promptOverride ?? buildAutoExecutionPrompt(task));
+    const prompt = promptOverride ?? buildAutoExecutionPrompt(task);
     let response: string;
     if (isNanobotProvider()) {
       response = await nanobotChatSend({
@@ -1165,7 +1165,7 @@ export function setupSocketHandlers(io: Server) {
 
         // Inject task reminder on every NPC DM so task actions can be parsed consistently.
         const fileSection = buildFilePromptSection(extractedFiles);
-        const messageToSend = withTaskReminder(trimmed + fileSection, getSocketLocale(socket));
+        const messageToSend = trimmed + fileSection;
 
         // Stream response via OpenClaw
         chatLog(`  → gateway (${npcConfig._name}): msgLen=${messageToSend.length}(${(messageToSend.length/1024).toFixed(0)}KB)`, fileAttachments ? `+${fileAttachments.length} att(${fileAttachments.map(a => `${a.fileName}:${(a.content.length/1024).toFixed(0)}KB`).join(",")})` : "");
@@ -1256,7 +1256,7 @@ export function setupSocketHandlers(io: Server) {
         const taskPrompt = task
           ? buildTaskSessionPrompt(task, getSocketLocale(socket))
           : "";
-        const messageToSend = (taskPrompt ? taskPrompt + "\n\n" : "") + withTaskReminder(trimmed + fileSection, getSocketLocale(socket));
+        const messageToSend = (taskPrompt ? taskPrompt + "\n\n" : "") + trimmed + fileSection;
 
         // Session key: per-task
         const sessionKey = `${npcConfig.sessionKeyPrefix || npcId}-task-${taskId}`;
@@ -1422,7 +1422,7 @@ export function setupSocketHandlers(io: Server) {
               summary: task.summary || "",
               createdAt: (task as { createdAt?: string }).createdAt || "",
             }, getSocketLocale(socket));
-            const autoStartMessage = withTaskReminder(`${task.title} 업무를 시작합니다.`, getSocketLocale(socket));
+            const autoStartMessage = `${task.title} 업무를 시작합니다.`;
             const messageToSend = `${taskSessionPrompt}\n\n${autoStartMessage}`;
             const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-task-${task.npcTaskId}`;
             const response = await streamNpcResponse(
@@ -1580,7 +1580,7 @@ export function setupSocketHandlers(io: Server) {
                     summary: promotedTask.summary || "",
                     createdAt: (promotedTask as { createdAt?: string }).createdAt || "",
                   }, getSocketLocale(targetSocket));
-                  const autoStartMessage = withTaskReminder(`${promotedTask.title} 업무를 시작합니다.`, getSocketLocale(targetSocket));
+                  const autoStartMessage = `${promotedTask.title} 업무를 시작합니다.`;
                   const messageToSend = `${taskSessionPrompt}\n\n${autoStartMessage}`;
                   const sessionKey = `${npcConfig.sessionKeyPrefix || completedTask.npcId}-task-${promotedTask.npcTaskId}`;
 

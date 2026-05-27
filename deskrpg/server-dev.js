@@ -23,7 +23,7 @@ const {
   createNanobotAdapter,
 } = requireCJS("./src/lib/nanobot-client.cjs");
 const { TaskManager } = require("./src/lib/task-manager.js");
-const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");
+const { normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");
 const {
   getInternalSocketHostname,
   isInternalRequestAuthorized,
@@ -308,7 +308,7 @@ async function main() {
       const response = await gateway.chatSend(
         agentId,
         sessionKey,
-        withTaskReminder(promptOverride || buildAutoExecutionPrompt(task)),
+        promptOverride || buildAutoExecutionPrompt(task),
         () => {},
       );
       const preview = (response || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
@@ -660,7 +660,7 @@ ${transcript}
       if (characterId) {
         await chatHistory.appendMessage(characterId, npcId, "player", trimmed);
       }
-      const messageToSend = withTaskReminder(trimmed, getSocketLocale(socket));
+      const messageToSend = trimmed;
       const response = await streamNpcResponse(socket, npcId, npcConfig, user.userId, messageToSend);
       if (response) {
         if (characterId) {
@@ -736,7 +736,7 @@ ${transcript}
               summary: task.summary || "",
               createdAt: task.createdAt || "",
             }, locale);
-            const autoStartMessage = withTaskReminder(`${task.title} 업무를 시작합니다.`, locale);
+            const autoStartMessage = `${task.title} 업무를 시작합니다.`;
             const messageToSend = `${taskSessionPrompt}\n\n${autoStartMessage}`;
             const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-task-${task.npcTaskId}`;
 
