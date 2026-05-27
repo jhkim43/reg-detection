@@ -65,7 +65,6 @@ COPY --from=builder /app/src/lib/nanobot-session-recorder.js ./src/lib/nanobot-s
 COPY --from=builder /app/src/lib/nanobot-remote-abort.js ./src/lib/nanobot-remote-abort.js
 COPY --from=builder /app/src/lib/chat-history.js ./src/lib/chat-history.js
 COPY --from=builder /app/src/lib/runtime-paths.js ./src/lib/runtime-paths.js
-COPY --from=builder /app/src/lib/task-parser.js ./src/lib/task-parser.js
 COPY --from=builder /app/src/lib/task-block-utils.js ./src/lib/task-block-utils.js
 COPY --from=builder /app/src/lib/task-manager.js ./src/lib/task-manager.js
 COPY --from=builder /app/src/db/server-db.js ./src/db/server-db.js

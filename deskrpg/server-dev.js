@@ -22,7 +22,6 @@ const {
   isNanobotProvider,
   createNanobotAdapter,
 } = requireCJS("./src/lib/nanobot-client.cjs");
-const { parseNpcResponse, isValidTaskAction } = require("./src/lib/task-parser.js");
 const { TaskManager } = require("./src/lib/task-manager.js");
 const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("./src/lib/task-prompt.js");
 const {
@@ -289,58 +288,6 @@ async function main() {
     return getTaskAutomationConfig(rows[0]?.gatewayConfig || null);
   }
 
-  async function processNpcTaskActions(parsed, input) {
-    const taskAutomation = await getChannelTaskAutomation(input.channelId);
-    for (const taskAction of parsed.tasks) {
-      if (!isValidTaskAction(taskAction)) {
-        console.warn("[TaskManager] Invalid task action:", taskAction);
-        continue;
-      }
-
-      try {
-        const task = await taskManager.handleTaskAction(
-          taskAction,
-          input.channelId,
-          input.npcId,
-          input.assignerCharacterId,
-          { autoNudgeMax: taskAutomation.autoProgressNudgeMax },
-        );
-
-        if (!task) continue;
-
-        io.to(input.channelId).emit("task:updated", { task, action: taskAction.action });
-
-        if (shouldDeliverCompletionReport(taskAction)) {
-          await appendNpcHistoryMessage(input.assignerCharacterId, input.npcId, parsed.message);
-          const report = await enqueueCompletionReport(
-            db,
-            reportSchema,
-            buildCompletionReportRow({
-              channelId: input.channelId,
-              npcId: input.npcId,
-              taskId: task.id,
-              targetUserId: input.targetUserId,
-              message: parsed.message,
-            }),
-          );
-
-          if (report) {
-            const joinedSockets = getJoinedSocketsForUserAndChannel(input.targetUserId, input.channelId);
-            if (joinedSockets.length > 0) {
-              const payload = toReportReadyPayload(report, input.npcName);
-              for (const joinedSocket of joinedSockets) {
-                joinedSocket.emit("npc:report-ready", payload);
-              }
-              await markReportDelivered(db, reportSchema, report.id);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("[TaskManager] Error handling task action:", err);
-      }
-    }
-  }
-
   async function runProgressNudgeForTask(task, promptOverride, reportKind = "progress") {
     if (progressNudgeInFlight.has(task.id)) return;
     progressNudgeInFlight.add(task.id);
@@ -364,17 +311,7 @@ async function main() {
         withTaskReminder(promptOverride || buildAutoExecutionPrompt(task)),
         () => {},
       );
-      const parsed = parseNpcResponse(response);
-
-      await processNpcTaskActions(parsed, {
-        channelId: task.channelId,
-        npcId: task.npcId,
-        npcName: npcConfig._name,
-        assignerCharacterId: task.assignerId,
-        targetUserId,
-      });
-
-      const preview = (parsed.message || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
+      const preview = (response || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
       await appendNpcHistoryMessage(task.assignerId, task.npcId, preview);
 
       const report = await enqueueQueuedReport(
@@ -730,19 +667,6 @@ ${transcript}
           await chatHistory.appendMessage(characterId, npcId, "npc", response);
         }
 
-        const parsed = parseNpcResponse(response);
-        if (parsed.tasks.length > 0 && player?.characterId) {
-          await processNpcTaskActions(parsed, {
-            channelId: npcConfig._channelId,
-            npcId,
-            npcName: npcConfig._name,
-            assignerCharacterId: player.characterId,
-            targetUserId: player.userId,
-          });
-        } else if (parsed.tasks.length > 0) {
-          console.warn("[TaskManager] No characterId for socket", socket.id);
-        }
-
         socket.emit("npc:response-complete", { npcId, npcName: npcConfig._name || npcId });
       }
     });
@@ -827,14 +751,6 @@ ${transcript}
             );
 
             if (response) {
-              const parsed = parseNpcResponse(response);
-              await processNpcTaskActions(parsed, {
-                channelId: player.mapId,
-                npcId: task.npcId,
-                npcName: npcConfig._name,
-                assignerCharacterId: player.characterId,
-                targetUserId: player.userId,
-              });
               socket.emit("npc:response-complete", {
                 npcId: task.npcId,
                 npcName: npcConfig._name || task.npcId,
