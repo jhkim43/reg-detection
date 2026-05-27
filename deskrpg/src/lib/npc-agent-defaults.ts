@@ -1,6 +1,5 @@
 import { OFFICE_PRESETS, applyPresetName } from "./office-presets";
 import { PERSONA_PRESETS } from "./npc-persona-presets";
-import { injectTaskPrompt } from "./task-prompt";
 import { normalizeLocale, type ServerLocale } from "./i18n/server";
 // nanobot-workspace-content는 fs 의존성이 없는 server/client 공용 헬퍼 — 본 파일은
 // 클라이언트 컴포넌트(NpcHireModal)에서 transitive하게 import되므로 server-only
@@ -258,7 +257,7 @@ export function buildPersonaConfig({
   const soulSource = soulOverride?.trim() || defaults.soul;
 
   return {
-    identity: injectTaskPrompt(localizeNpcPromptDocument(identitySource, locale, "identity"), locale),
+    identity: localizeNpcPromptDocument(identitySource, locale, "identity"),
     soul: localizeNpcPromptDocument(soulSource, locale, "soul"),
   };
 }

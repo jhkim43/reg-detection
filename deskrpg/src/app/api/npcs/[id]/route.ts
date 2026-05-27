@@ -3,7 +3,6 @@ import { db, isPostgres, jsonForDb } from "@/db";
 import { npcs, channels } from "@/db";
 import { eq } from "drizzle-orm";
 import { internalRpc, getUserId } from "@/lib/internal-rpc";
-import { injectTaskPrompt } from "@/lib/task-prompt";
 import {
   buildGatewayAgentFiles,
   buildPersonaConfig,
@@ -97,7 +96,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
               name: "AGENTS.md" as const,
               content: buildAgentsFileContent(
                 body.identity?.trim()
-                  ? injectTaskPrompt(localizeNpcPromptDocument(body.identity.trim(), normalizedLocale, "identity"), normalizedLocale)
+                  ? localizeNpcPromptDocument(body.identity.trim(), normalizedLocale, "identity")
                   : null,
                 getDefaultMeetingProtocol(normalizedLocale),
               ),
@@ -130,7 +129,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             fallbackPersona: body.persona?.trim(),
           })
         : {
-            identity: injectTaskPrompt(localizeNpcPromptDocument(body.identity?.trim() || "", normalizedLocale, "identity"), normalizedLocale),
+            identity: localizeNpcPromptDocument(body.identity?.trim() || "", normalizedLocale, "identity"),
             soul: localizeNpcPromptDocument(body.soul?.trim() || "", normalizedLocale, "soul"),
           };
 
@@ -196,7 +195,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             fallbackPersona: body.persona?.trim(),
           })
         : {
-            identity: injectTaskPrompt(localizeNpcPromptDocument(newIdentity, normalizedLocale, "identity"), normalizedLocale),
+            identity: localizeNpcPromptDocument(newIdentity, normalizedLocale, "identity"),
             soul: localizeNpcPromptDocument(newSoul, normalizedLocale, "soul"),
           };
 
