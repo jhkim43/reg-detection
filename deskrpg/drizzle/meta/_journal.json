@@ -57,6 +57,13 @@
       "when": 1780022400000,
       "tag": "0007_v10_tasks_npc_set_null",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780281600000,
+      "tag": "0008_v10_chat_messages_push",
+      "breakpoints": true
     }
   ]
 }
