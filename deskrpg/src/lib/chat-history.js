@@ -10,7 +10,7 @@
 "use strict";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-const { db, schema, eq, and, desc } = require("../db/server-db.js");
+const { db, schema, eq, and, or, desc, isNull } = require("../db/server-db.js");
 
 const HISTORY_LIMIT_DEFAULT = 200;
 
@@ -22,9 +22,22 @@ function roleToDb(role) {
 
 function rowToMemory(row) {
   // server.js 기존 모양: { role: "player"|"npc", content, timestamp }
+  // seed-v10 phase6 T-V37: kind="subagent_push" + metadata.subagentLabel이 있으면
+  // content에 prefix를 미리 박아 반환 (클라이언트는 단순 표시).
+  let content = row.content;
+  if (row.kind === "subagent_push" && row.metadata) {
+    try {
+      const meta = typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata;
+      if (meta && typeof meta.subagentLabel === "string" && meta.subagentLabel.trim()) {
+        content = `[${meta.subagentLabel}] ${content}`;
+      }
+    } catch (_e) {
+      // metadata 파싱 실패 — content 원본 그대로
+    }
+  }
   return {
     role: row.role === "user" ? "player" : "npc",
-    content: row.content,
+    content,
     timestamp: row.createdAt ? new Date(row.createdAt).getTime() : Date.now(),
   };
 }
@@ -32,10 +45,19 @@ function rowToMemory(row) {
 async function loadHistory(characterId, npcId, limit = HISTORY_LIMIT_DEFAULT) {
   if (!characterId || !npcId) return [];
   try {
+    // seed-v10 phase6 T-V37: 해당 character + npc의 chat 메시지에 더해 character 무관
+    // 한 push 메시지(character_id IS NULL)도 함께 fetch. push 메시지는 sub-agent
+    // 자율 보고이므로 같은 NPC dialog를 보는 모든 character가 함께 봄.
     const rows = await db
       .select()
       .from(schema.chatMessages)
-      .where(and(eq(schema.chatMessages.characterId, characterId), eq(schema.chatMessages.npcId, npcId)))
+      .where(and(
+        or(
+          eq(schema.chatMessages.characterId, characterId),
+          isNull(schema.chatMessages.characterId),
+        ),
+        eq(schema.chatMessages.npcId, npcId),
+      ))
       .orderBy(desc(schema.chatMessages.createdAt))
       .limit(limit);
     // desc 로 가져왔으니 시간 순서로 다시 뒤집어서 반환.

@@ -330,7 +330,7 @@ function ensureSqliteCompatibility(sqlite) {
 }
 
 // ─── Drizzle query helpers (shared) ──────────────────────────────────────────
-const { eq, and, desc, sql } = require("drizzle-orm");
+const { eq, and, or, desc, sql, isNull } = require("drizzle-orm");
 
 // ─── PostgreSQL mode ──────────────────────────────────────────────────────────
 if (isPostgres) {
@@ -995,4 +995,4 @@ if (isPostgres) {
   console.log(`[server-db] SQLite mode — Drizzle ORM initialized (${dbPath})`);
 }
 
-module.exports = { db, schema, isPostgres, eq, and, desc, sql, ensureSqliteBaseSchema, ensureSqliteCompatibility };
+module.exports = { db, schema, isPostgres, eq, and, or, desc, sql, isNull, ensureSqliteBaseSchema, ensureSqliteCompatibility };
