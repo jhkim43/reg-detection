@@ -447,95 +447,123 @@ nanobot 측에서 이 shape으로 normalize 후 deskrpg endpoint 호출.
 
 ---
 
-## 11. `POST /api/internal/chat-push` *(planned, T-V-spec — draft)*
+## 11. `POST /api/internal/chat-push` (AC-008 chat push)
 
 ### 용도
 
-sub-agent가 백그라운드에서 작업 완료 후 결과를 parent NPC chat(supervisor 등)에 자동으로 표시하기 위한 push endpoint. **현재 미구현, deskrpg + nanobot 양쪽 동시 구현 필요.**
+sub-agent가 백그라운드에서 작업 완료 후 결과를 parent NPC chat(supervisor 등)에 자동으로 표시하기 위한 push endpoint. **deskrpg-side: phase5 v1 구현 완료. nanobot-side: 별도 PR로 진행.**
 
 ### Motivation
 
-| 경로 | 현재 동작 |
+| 경로 | 동작 |
 |---|---|
 | **텔레그램** (nanobot-gw native loop) | sub-agent 완료 시 nanobot이 outbound message를 parent session에 자동 inject → 사용자에게 자동 표시 ✅ |
-| **deskrpg api** (`/v1/chat/completions`) | sub-agent 완료 시 nanobot은 `Subagent [...] completed successfully`만 로그에 남기고 deskrpg에 push 안 함 → supervisor chat 화면에 후속 응답 0 ❌ |
+| **deskrpg api** (`/v1/chat/completions`) | nanobot이 본 endpoint 호출 → deskrpg가 socket broadcast → 클라이언트 ChatPanel listener가 받아 화면에 표시 ✅ |
 
 기대 UX: 사용자가 supervisor에게 "백그라운드에서 리서치하고 보고해" 요청 → 잠시 후 supervisor가 자율적으로 "리서치 완료, 결과는 ..." 메시지 추가 표시.
 
-### Request body (Draft v0)
+### Request body
 
 ```typescript
 {
   // 필수
   session_key: string;       // nanobot parent session key. e.g. "ot-247148b5-Supervisor-dm-6060c836-..."
-                             //   deskrpg는 이 prefix에서 channelId/npcId/userId 파싱 가능
-  channel_id: string;        // UUID, deskrpg channels.id (parsing fallback 회피용 명시)
+                             //   deskrpg는 prefix 의존 0 — channel_id/npc_id를 body 명시값으로만 사용 (결정 1).
+  channel_id: string;        // UUID, deskrpg channels.id
   npc_id: string;            // UUID, deskrpg npcs.id of the speaking NPC (parent)
   message: string;           // 사용자에게 보일 자연어 텍스트
 
   // 선택
   kind?: "subagent_report" | "subagent_progress" | "scheduled_reminder";
-  // 어떤 종류의 push인지. 클라이언트 표시 모드 분기에 사용.
+  // 어떤 종류의 push인지. 클라이언트 표시 모드 분기에 사용 (결정 2: 3개로 고정,
+  // 확장은 future PR).
 
   subagent_id?: string;      // 완료/진행 보고 시 어느 sub-agent의 결과인지
-  subagent_label?: string;   // UI 표시용 (e.g. "리서치담당")
+  subagent_label?: string;   // UI 표시용 prefix (e.g. "[리서치담당] " — 결정 3)
   task_npc_task_id?: string; // 연결된 task가 있으면. /api/internal/tasks와 join 가능
   metadata?: Record<string, unknown>;  // free-form (sources, timestamps 등)
 }
+```
+
+### Headers
+
+```http
+x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}     // 필수
+Idempotency-Key: <nanobot-issued-unique-id>           // 선택 — 중복 push 회피용
 ```
 
 ### Response
 
 ```typescript
 // 성공
-{ ok: true, statusCode: 201, persisted_message_id: string }
+201 { persisted_message_id: string (UUID) }
 
 // 실패 (errorCode 표준)
-{ ok: false, statusCode: 401, errorCode: "unauthorized" }
-{ ok: false, statusCode: 403, errorCode: "forbidden_channel" }
-{ ok: false, statusCode: 404, errorCode: "session_not_found" }     // session_key prefix가 deskrpg에 존재 안 함
-{ ok: false, statusCode: 404, errorCode: "channel_not_found" }
-{ ok: false, statusCode: 404, errorCode: "npc_not_found" }
-{ ok: false, statusCode: 400, errorCode: "missing_required_field", field: "session_key" }
-{ ok: false, statusCode: 409, errorCode: "duplicate_message" }     // idempotency (아래 참고)
+401 { errorCode: "unauthorized" }
+400 { errorCode: "missing_required_field", field: string }
+400 { errorCode: "invalid_json" | "invalid_body" }
+404 { errorCode: "channel_not_found" }
+404 { errorCode: "npc_not_found" }                    // npc.channelId가 body.channel_id와 불일치인 경우도 포함
+409 { errorCode: "duplicate_message" }                // 같은 Idempotency-Key가 최근 10분 내 들어옴
+500 { errorCode: "internal_error" }                   // socket emit 실패 등
 ```
 
-### deskrpg-side 처리 흐름
+### deskrpg-side 처리 흐름 (구현된 동작 — phase5 v1)
 
-1. INTERNAL_RPC_SECRET 검증
-2. `session_key`에서 channel/npc/user 추출 + body의 `channel_id`/`npc_id`와 cross-check
-3. `chat_messages` 테이블에 row append (role="npc", content=message, subagent_id 등 metadata jsonb)
-4. socket.emit (`io.to(channelId).emit("npc:push-message", { npcId, message, kind, subagent_label })`) → 클라이언트 ChatPanel이 listener로 받아 표시
-5. (선택) 연결된 task가 있으면 task 카드도 갱신 (이미 `/api/internal/tasks`로 처리되니 chat-push에서는 안 함)
+1. `x-deskrpg-internal-secret` 검증
+2. body parse + snake_case → camelCase 정규화 (`session_key` → `sessionKey` 등)
+3. 필수 필드 validation (`session_key`/`channel_id`/`npc_id`/`message` 비어있으면 400)
+4. Idempotency-Key 헤더가 있고 최근 10분 내 같은 키가 들어왔다면 `409 duplicate_message`
+5. `channels.id == channel_id` 조회 → 없으면 `404 channel_not_found`
+6. `npcs.id == npc_id` 조회 → 없거나 `npc.channelId != channel_id`이면 `404 npc_not_found`
+7. `randomUUID()`로 `persisted_message_id` 생성 → socket emit `npc:push-message`:
+   ```ts
+   io.to(channelId).emit("npc:push-message", {
+     messageId, npcId, message, kind, subagentId, subagentLabel,
+     taskNpcTaskId, metadata,
+   })
+   ```
+8. 정상이면 Idempotency-Key를 in-memory cache에 저장 (TTL 10분) + `201 { persisted_message_id }`
 
-### Idempotency
+### 클라이언트 표시 (결정 3 — 일반 chat history append)
 
-nanobot 측 retry로 인한 중복 push 회피:
-- nanobot이 매 push에 unique `Idempotency-Key` 헤더 (예: `subagent-{id}-completed-{timestamp}`) 보냄
-- deskrpg는 최근 N분(예: 10분) 내 같은 Idempotency-Key 들어오면 `409 duplicate_message` 반환 + 원본 message_id 동봉
+- `socketInstance.on("npc:push-message", payload)` listener
+- `payload.npcId === 현재 dialog NPC`인 경우만 `npcMessages` state에 append
+- `subagent_label`이 있으면 `"[리서치담당] " + message` 형태로 prefix
+- 별도 system message UI 모드 분기는 추가 안 함 (확장 시 `payload.kind` 활용)
 
-### nanobot-side 호출 위치 (Draft)
+### Idempotency (구현 디테일)
+
+- `Idempotency-Key` 헤더 → handler의 in-memory `Map<string, { messageId, expiresAt }>` cache
+- TTL: 10분 고정 (`IDEMPOTENCY_TTL_MS = 10 * 60 * 1000`)
+- process restart 시 cache 비워짐 — sub-agent 완료 보고는 짧은 시간 창의 중복만 회피하면 충분, 장기 영속성 불필요
+- nanobot 측 권장 key 형식: `subagent-{subagent_id}-completed-{timestamp}` 또는 `chat-push-{uuid}`
+
+### chat_messages 영속화 (phase5 v1 의도적 제외)
+
+현재 `chat_messages` schema가 `characterId NOT NULL`이라 push 시점 character를 모름 (sub-agent는 character 무관). 영속 저장은 추후 phase에서 schema 변경(예: `characterId nullable` 또는 `channelId` column 추가) 후 처리. **phase5 v1에서는 socket emit only** — 페이지 reload 시 push 메시지는 휘발됨.
+
+### nanobot-side 호출 위치 (가이드)
 
 - `nanobot/agent/subagent.py` SubagentManager의 완료 hook (성공/실패 모두)
-- `nanobot/api/server.py` handle_chat_completions의 single-turn 반환 후에도 sub-agent가 background로 남아 있는 경우 별도 finalization push
+- `nanobot/api/server.py` handle_chat_completions의 single-turn 반환 후 sub-agent가 background로 남아 있는 경우 별도 finalization push
 
 ### 구현 작업 분담
 
-| 항목 | 담당 |
-|---|---|
-| `POST /api/internal/chat-push` route + handler + socket emit | deskrpg (본인) |
-| `chat_messages` 스키마 + migration (필요 시) | deskrpg (본인) |
-| 클라이언트 `npc:push-message` listener + ChatPanel 표시 | deskrpg (본인) |
-| `SubagentManager` 완료 hook → notify_deskrpg_chat_push | nanobot 팀원 |
-| Idempotency-Key 생성 | nanobot 팀원 |
+| 항목 | 담당 | 상태 |
+|---|---|---|
+| `POST /api/internal/chat-push` route + handler | deskrpg (본인) | ✅ phase5 v1 |
+| `npc:push-message` socket emit | deskrpg (본인) | ✅ phase5 v1 |
+| 클라이언트 `npc:push-message` listener + ChatPanel 표시 | deskrpg (본인) | ✅ phase5 v1 |
+| `chat_messages` schema 변경 + 영속화 | deskrpg | 별도 phase |
+| `SubagentManager` 완료 hook → notify_deskrpg_chat_push | nanobot 팀원 | 별도 PR |
+| Idempotency-Key 생성 | nanobot 팀원 | 별도 PR |
 
-### 미결정 사항 (피드백 요청)
+### 결정 사항 (draft → v1 확정)
 
-1. `session_key` parsing 규칙을 deskrpg 측에서 어디까지 의존할지 — body의 `channel_id`/`npc_id`가 충분히 명시되면 prefix 의존 0으로 갈 수도
-2. `kind`의 enum 확장: `meeting_followup`, `external_event` 등 미래 후보
-3. 클라이언트 표시 위치: 일반 chat history에 합쳐서 보일지, 별도 system message UI로 표시할지
-
-→ 본 섹션은 draft. nanobot 팀원과 동기화 후 v1 finalize.
+1. **session_key parsing 의존도 = 0** — body의 `channel_id`/`npc_id`만 신뢰. session_key는 식별자/로그용으로만 전달 (parsing 안 함, fallback 안 함)
+2. **kind enum = 3개 고정** — `subagent_report` / `subagent_progress` / `scheduled_reminder`. 확장(`meeting_followup`, `external_event` 등)은 future PR에서 추가
+3. **클라이언트 표시 위치 = 일반 chat history append** — `npc:history-append`와 동일 패턴. 별도 system message UI는 미적용. `subagent_label`로 발화자 식별
 
 ---
 
@@ -544,3 +572,4 @@ nanobot 측 retry로 인한 중복 push 회피:
 - 2026-05-23T16:30:00 — Initial draft (seed-v10 spec phase, T-V06)
 - 2026-05-23T17:00:00 — Section 5 (cleanup endpoint) 제거. 사용자 + 다른 팀원 합의로 NPC 삭제 시 nanobot 측 파일은 그대로 유지 (layer 경계 명확성 우선). AC-007 + P-NB03 작업 둘 다 불필요. Section 6 (body.metadata) motivation + 현재 nanobot 코드 상태 + wiring 가이드 보강.
 - 2026-05-27 — Section 11 (chat-push endpoint, planned) draft 추가. sub-agent 비동기 완료 결과를 parent session에 push하기 위한 신규 endpoint. deskrpg + nanobot 양쪽 동시 구현 필요. seed-v10 phase4 T-V-spec.
+- 2026-05-27 — Section 11 draft → v1 finalize (seed-v10 phase5 T-V34). 미결정 사항 3개 모두 결론 (session_key parsing=0, kind 3개 고정, 일반 chat history append). deskrpg-side 구현 완료 표시 (route/handler/socket emit/클라이언트 listener). chat_messages 영속화는 의도적 제외 (현 schema characterId NOT NULL 이슈 — 별도 phase). nanobot 팀원이 본 spec 따라 SubagentManager 완료 hook + Idempotency-Key 생성 추가하면 end-to-end 완성.

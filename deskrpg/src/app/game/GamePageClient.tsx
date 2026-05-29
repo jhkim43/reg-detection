@@ -586,6 +586,35 @@ function GamePageInner() {
         });
       });
 
+      // seed-v10 phase5 T-V33 — nanobot이 sub-agent 비동기 완료/진행 보고를 push할 때
+      // (POST /api/internal/chat-push → socket broadcast). payload.npcId는 parent NPC,
+      // subagentLabel이 있으면 prefix로 표시해 어느 sub-agent의 보고인지 명시.
+      // 현재는 dialog가 해당 NPC로 열려 있을 때만 화면에 append (영속 저장은 추후 phase에서).
+      socketInstance.on("npc:push-message", (data: {
+        messageId: string;
+        npcId: string;
+        message: string;
+        kind: string | null;
+        subagentId: string | null;
+        subagentLabel: string | null;
+        taskNpcTaskId: string | null;
+        metadata: Record<string, unknown> | null;
+      }) => {
+        const cleaned = sanitizeNpcResponseText(data.message ?? "");
+        if (!cleaned.trim()) return;
+        if (dialogNpcRef.current?.npcId !== data.npcId) return;
+
+        const prefix = data.subagentLabel ? `[${data.subagentLabel}] ` : "";
+        const content = prefix + cleaned;
+
+        setNpcMessages((prev) => {
+          if (prev.some((message) => message.role === "npc" && message.content === content)) {
+            return prev;
+          }
+          return [...prev, { role: "npc", content }];
+        });
+      });
+
       // Channel chat messages
       socketInstance.on("chat:message", (msg: ChannelChatMessage) => {
         setChannelMessages((prev) => {
