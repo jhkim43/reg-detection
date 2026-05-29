@@ -686,9 +686,7 @@ function GamePageInner() {
 
         if (chunk) {
           streamBufferRef.current += chunk;
-          const buffered = sanitizeNpcResponseText(streamBufferRef.current, {
-            stripIncompleteTail: true,
-          });
+          const buffered = sanitizeNpcResponseText(streamBufferRef.current);
           setIsNpcStreaming(true);
           setNpcMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -702,9 +700,7 @@ function GamePageInner() {
         }
         if (data.done) {
           setIsNpcStreaming(false);
-          const cleaned = sanitizeNpcResponseText(streamBufferRef.current, {
-            stripIncompleteTail: true,
-          });
+          const cleaned = sanitizeNpcResponseText(streamBufferRef.current);
           setNpcMessages((prev) => {
             const lastIdx = prev.length - 1;
             if (lastIdx >= 0 && prev[lastIdx].role === "npc") {

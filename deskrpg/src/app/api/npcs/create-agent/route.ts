@@ -3,7 +3,6 @@ import { db } from "@/db";
 import { channels } from "@/db";
 import { eq } from "drizzle-orm";
 import { internalRpc, getUserId } from "@/lib/internal-rpc";
-import { injectTaskPrompt } from "@/lib/task-prompt";
 import {
   buildGatewayAgentFiles,
   getDefaultMeetingProtocol,
@@ -65,7 +64,7 @@ export async function POST(req: NextRequest) {
             name: "AGENTS.md" as const,
             content: buildAgentsFileContent(
               identity?.trim()
-                ? injectTaskPrompt(localizeNpcPromptDocument(identity.trim(), normalizedLocale, "identity"), normalizedLocale)
+                ? localizeNpcPromptDocument(identity.trim(), normalizedLocale, "identity")
                 : null,
               getDefaultMeetingProtocol(normalizedLocale),
             ),

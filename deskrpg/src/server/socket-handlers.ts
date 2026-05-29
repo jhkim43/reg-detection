@@ -65,13 +65,12 @@ import { registerMeetingDiscussionHandlers } from "./meeting-discussion";
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
 const { OpenClawGateway } = require("../lib/openclaw-gateway.js") as { OpenClawGateway: new () => any };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseNpcResponse, isValidTaskAction } = require("../lib/task-parser.js") as typeof import("../lib/task-parser.js");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { sanitizeNpcResponseText } = require("../lib/task-block-utils.js") as typeof import("../lib/task-block-utils.js");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { TaskManager } = require("../lib/task-manager.js") as { TaskManager: new (db: typeof import("../db").db, schema: { tasks: typeof tasks; npcs: typeof npcs }) => { handleTaskAction: (...args: unknown[]) => Promise<unknown>; getTasksByNpc: (npcId: string) => Promise<unknown[]>; getTasksByChannel: (channelId: string) => Promise<unknown[]>; deleteTask: (taskId: string, channelId: string) => Promise<unknown>; getStaleInProgressTasks: (channelId: string, olderThanIso: string) => Promise<unknown[]>; markTaskNudged: (taskId: string, channelId: string) => Promise<unknown>; markTaskStalled: (taskId: string, channelId: string, reason: string) => Promise<unknown>; resumeTask: (taskId: string, channelId: string) => Promise<unknown>; completeTask: (taskId: string, channelId: string) => Promise<unknown>; createBacklogTask: (channelId: string, assignerId: string, title: string, summary: string | null) => Promise<unknown>; moveTask: (taskId: string, channelId: string, toStatus: string, npcId: string | null, options?: { expectedFromStatus?: string }) => Promise<unknown>; getTaskById: (taskId: string, channelId: string) => Promise<unknown>; getTaskByNpcTaskId: (npcId: string, npcTaskId: string) => Promise<unknown>; hasInProgressTask: (npcId: string, channelId: string) => Promise<boolean>; getNextPendingTask: (npcId: string, channelId: string) => Promise<ManagedTask | null>; }; };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { withTaskReminder, normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("../lib/task-prompt.js") as typeof import("../lib/task-prompt.js");
+const { normalizeTaskPromptLocale, buildTaskSessionPrompt } = require("../lib/task-prompt.js") as typeof import("../lib/task-prompt.js");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -288,102 +287,6 @@ async function getChannelTaskAutomation(channelId: string) {
   return getTaskAutomationConfig(rows[0]?.gatewayConfig ?? null);
 }
 
-async function processNpcTaskActions(
-  io: Server,
-  parsed: { message: string; tasks: unknown[] },
-  input: {
-    channelId: string;
-    npcId: string;
-    npcName: string;
-    assignerCharacterId: string;
-    targetUserId: string;
-  },
-) {
-  const taskAutomation = await getChannelTaskAutomation(input.channelId);
-
-  for (const taskAction of parsed.tasks) {
-    if (!isValidTaskAction(taskAction)) {
-      console.warn("[TaskManager] Invalid task action:", taskAction);
-      continue;
-    }
-
-    try {
-      const task = await taskManager.handleTaskAction(
-        taskAction,
-        input.channelId,
-        input.npcId,
-        input.assignerCharacterId,
-        { autoNudgeMax: taskAutomation.autoProgressNudgeMax },
-      ) as ManagedTask | null;
-
-      if (!task) continue;
-
-      const action = (taskAction as { action: string }).action;
-      io.to(input.channelId).emit("task:updated", { task, action });
-
-      // Emit task lifecycle events for client-side task cards
-      if (action === "create") {
-        io.to(input.channelId).emit("npc:task-created", {
-          npcId: input.npcId,
-          task: { id: task.id, npcTaskId: task.npcTaskId, title: task.title, status: task.status },
-        });
-      }
-      if (action === "complete") {
-        io.to(input.channelId).emit("npc:task-completed", {
-          npcId: input.npcId,
-          npcName: input.npcName,
-          taskId: task.npcTaskId,
-          title: task.title,
-          summary: (task as Record<string, unknown>).summary as string || "",
-        });
-
-        // Auto-promote next pending task for the same NPC (FIFO)
-        const nextTask = await taskManager.getNextPendingTask(input.npcId, input.channelId);
-        if (nextTask) {
-          const promoted = await taskManager.moveTask(nextTask.id, input.channelId, "in_progress", input.npcId, { expectedFromStatus: "pending" }) as (ManagedTask & { _fromStatus?: string }) | null;
-          if (promoted) {
-            const { _fromStatus, ...promotedTask } = promoted;
-            io.to(input.channelId).emit("task:updated", { task: promotedTask, action: "move_pending_in_progress" });
-          }
-        }
-      }
-
-      if (shouldDeliverCompletionReport(taskAction as { action?: string })) {
-        appendNpcHistoryMessage(input.channelId, input.npcId, parsed.message);
-        const report = await enqueueCompletionReport(
-          db,
-          { npcReports },
-          buildCompletionReportRow({
-            channelId: input.channelId,
-            npcId: input.npcId,
-            taskId: task.id,
-            targetUserId: input.targetUserId,
-            message: parsed.message,
-          }),
-        );
-
-        if (report) {
-          const joinedSockets = getJoinedSocketsForUserAndChannel(
-            io,
-            input.targetUserId,
-            input.channelId,
-          );
-
-          if (joinedSockets.length > 0) {
-            const payload = toReportReadyPayload(report, input.npcName);
-            for (const joinedSocket of joinedSockets) {
-              joinedSocket.emit("npc:report-ready", payload);
-            }
-            await markReportDelivered(db, { npcReports }, report.id);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[TaskManager] Error handling task action:", err);
-    }
-  }
-}
-
 async function runProgressNudgeForTask(
   io: Server,
   task: ManagedTask,
@@ -404,7 +307,7 @@ async function runProgressNudgeForTask(
     const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-dm-${targetUserId}`;
     await taskManager.markTaskNudged(task.id, task.channelId);
 
-    const prompt = withTaskReminder(promptOverride ?? buildAutoExecutionPrompt(task));
+    const prompt = promptOverride ?? buildAutoExecutionPrompt(task);
     let response: string;
     if (isNanobotProvider()) {
       response = await nanobotChatSend({
@@ -424,17 +327,7 @@ async function runProgressNudgeForTask(
         () => {},
       );
     }
-    const parsed = parseNpcResponse(response);
-
-    await processNpcTaskActions(io, parsed, {
-      channelId: task.channelId,
-      npcId: task.npcId,
-      npcName: npcConfig._name,
-      assignerCharacterId: task.assignerId,
-      targetUserId,
-    });
-
-    const preview = (parsed.message || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
+    const preview = (response || "").trim() || `${task.title} 진행 상황을 보고했습니다.`;
     appendNpcHistoryMessage(task.channelId, task.npcId, preview);
 
     const report = await enqueueQueuedReport(
@@ -1272,27 +1165,15 @@ export function setupSocketHandlers(io: Server) {
 
         // Inject task reminder on every NPC DM so task actions can be parsed consistently.
         const fileSection = buildFilePromptSection(extractedFiles);
-        const messageToSend = withTaskReminder(trimmed + fileSection, getSocketLocale(socket));
+        const messageToSend = trimmed + fileSection;
 
         // Stream response via OpenClaw
         chatLog(`  → gateway (${npcConfig._name}): msgLen=${messageToSend.length}(${(messageToSend.length/1024).toFixed(0)}KB)`, fileAttachments ? `+${fileAttachments.length} att(${fileAttachments.map(a => `${a.fileName}:${(a.content.length/1024).toFixed(0)}KB`).join(",")})` : "");
         const response = await streamNpcResponse(socket, npcId, npcConfig, user.userId, messageToSend, fileAttachments);
         chatLog(`  ← npc response (${npcConfig._name}):`, response ? response.slice(0, 150) + (response.length > 150 ? "..." : "") : "(empty)");
         if (response) {
-          const parsed = parseNpcResponse(response);
           const sanitizedResponse = sanitizeNpcResponseText(response);
           history.push({ role: "npc", content: sanitizedResponse, timestamp: Date.now() });
-          if (player?.characterId) {
-            await processNpcTaskActions(io, parsed, {
-              channelId: npcConfig._channelId,
-              npcId,
-              npcName: npcConfig._name,
-              assignerCharacterId: player.characterId,
-              targetUserId: player.userId,
-            });
-          } else {
-            console.warn("[TaskManager] No characterId for socket", socket.id);
-          }
           socket.emit("npc:response-complete", { npcId, npcName: npcConfig._name || npcId });
         }
         npcChatHistory.set(historyKey, history);
@@ -1375,7 +1256,7 @@ export function setupSocketHandlers(io: Server) {
         const taskPrompt = task
           ? buildTaskSessionPrompt(task, getSocketLocale(socket))
           : "";
-        const messageToSend = (taskPrompt ? taskPrompt + "\n\n" : "") + withTaskReminder(trimmed + fileSection, getSocketLocale(socket));
+        const messageToSend = (taskPrompt ? taskPrompt + "\n\n" : "") + trimmed + fileSection;
 
         // Session key: per-task
         const sessionKey = `${npcConfig.sessionKeyPrefix || npcId}-task-${taskId}`;
@@ -1387,18 +1268,6 @@ export function setupSocketHandlers(io: Server) {
         chatLog(`  ← task response (${npcConfig._name}):`, response ? response.slice(0, 150) : "(empty)");
 
         if (response) {
-          const parsed = parseNpcResponse(response);
-          const sanitizedResponse = sanitizeNpcResponseText(response);
-          const player = players.get(socket.id);
-          if (player?.characterId) {
-            await processNpcTaskActions(io, parsed, {
-              channelId: npcConfig._channelId,
-              npcId,
-              npcName: npcConfig._name,
-              assignerCharacterId: player.characterId,
-              targetUserId: player.userId,
-            });
-          }
           socket.emit("npc:response-complete", { npcId, npcName: npcConfig._name || npcId });
         }
       },
@@ -1551,7 +1420,7 @@ export function setupSocketHandlers(io: Server) {
               summary: task.summary || "",
               createdAt: (task as { createdAt?: string }).createdAt || "",
             }, getSocketLocale(socket));
-            const autoStartMessage = withTaskReminder(`${task.title} 업무를 시작합니다.`, getSocketLocale(socket));
+            const autoStartMessage = `${task.title} 업무를 시작합니다.`;
             const messageToSend = `${taskSessionPrompt}\n\n${autoStartMessage}`;
             const sessionKey = `${npcConfig.sessionKeyPrefix || task.npcId}-task-${task.npcTaskId}`;
             const response = await streamNpcResponse(
@@ -1566,14 +1435,6 @@ export function setupSocketHandlers(io: Server) {
             );
 
             if (response) {
-              const parsed = parseNpcResponse(response);
-              await processNpcTaskActions(io, parsed, {
-                channelId: player.mapId,
-                npcId: task.npcId,
-                npcName: npcConfig._name,
-                assignerCharacterId: player.characterId,
-                targetUserId: player.userId,
-              });
               socket.emit("npc:response-complete", {
                 npcId: task.npcId,
                 npcName: npcConfig._name || task.npcId,
@@ -1717,7 +1578,7 @@ export function setupSocketHandlers(io: Server) {
                     summary: promotedTask.summary || "",
                     createdAt: (promotedTask as { createdAt?: string }).createdAt || "",
                   }, getSocketLocale(targetSocket));
-                  const autoStartMessage = withTaskReminder(`${promotedTask.title} 업무를 시작합니다.`, getSocketLocale(targetSocket));
+                  const autoStartMessage = `${promotedTask.title} 업무를 시작합니다.`;
                   const messageToSend = `${taskSessionPrompt}\n\n${autoStartMessage}`;
                   const sessionKey = `${npcConfig.sessionKeyPrefix || completedTask.npcId}-task-${promotedTask.npcTaskId}`;
 
@@ -1733,14 +1594,6 @@ export function setupSocketHandlers(io: Server) {
                   );
 
                   if (response) {
-                    const parsed = parseNpcResponse(response);
-                    await processNpcTaskActions(io, parsed, {
-                      channelId: player.mapId,
-                      npcId: completedTask.npcId,
-                      npcName: npcConfig._name,
-                      assignerCharacterId: player.characterId,
-                      targetUserId: player.userId,
-                    });
                     targetSocket.emit("npc:response-complete", {
                       npcId: completedTask.npcId,
                       npcName: npcConfig._name || completedTask.npcId,

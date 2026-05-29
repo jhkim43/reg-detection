@@ -6,7 +6,6 @@ import ChatInput from "./ChatInput";
 import TaskChatView, { type TaskMessage } from "./TaskChatView";
 import TaskInlineCard from "./TaskInlineCard";
 import TaskPanel from "./TaskPanel";
-import TaskConfirmButtons, { isTaskConfirmPrompt } from "./TaskConfirmButtons";
 import MarkdownContent from "./ui/MarkdownContent";
 import type { Task } from "./TaskCard";
 import type { Socket } from "socket.io-client";
@@ -178,12 +177,6 @@ export default function NpcDialog({
                           {msg.role === "npc" ? <MarkdownContent content={msg.content} /> : msg.content}
                           {msg.role === "npc" && isStreaming && i === messages.length - 1 && (
                             <span className="inline-block w-1.5 h-4 bg-amber-400 ml-0.5 animate-pulse" />
-                          )}
-                          {msg.role === "npc" && !isStreaming && i === messages.length - 1 && isTaskConfirmPrompt(msg.content) && (
-                            <TaskConfirmButtons
-                              onConfirm={() => onSend("등록해")}
-                              onCancel={() => onSend("취소")}
-                            />
                           )}
                         </div>
                       </div>
