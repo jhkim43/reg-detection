@@ -12,9 +12,8 @@
 //   - chat_messages 영속화 — 현재 schema가 characterId NOT NULL이라 push 시점 character
 //     모름. 추후 schema 변경(channelId column 또는 characterId nullable)으로 처리.
 
-import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { db as defaultDb, channels, npcs } from "@/db";
+import { db as defaultDb, channels, npcs, chatMessages, jsonForDb } from "@/db";
 
 export type ChatPushKind =
   | "subagent_report"
@@ -134,7 +133,33 @@ export async function handleChatPush(
     return { ok: false, statusCode: 404, errorCode: "npc_not_found" };
   }
 
-  const messageId = randomUUID();
+  // seed-v10 phase6 T-V36: chat_messages 영속 저장.
+  // - role="assistant" (NPC 발화로 표시) + kind="subagent_push" (push 메시지 식별)
+  // - character_id NULL — 자율 보고라 특정 character 무관
+  // - metadata는 subagent 식별 정보 jsonb
+  let messageId: string;
+  try {
+    const persistMetadata = {
+      subagentId: input.subagentId ?? null,
+      subagentLabel: input.subagentLabel ?? null,
+      taskNpcTaskId: input.taskNpcTaskId ?? null,
+      ...(input.metadata ?? {}),
+    };
+    const [row] = await dbHandle
+      .insert(chatMessages)
+      .values({
+        npcId: input.npcId,
+        role: "assistant",
+        content: input.message,
+        kind: (input.kind ?? "subagent_push") as string,
+        metadata: jsonForDb(persistMetadata) as never,
+      } as never)
+      .returning({ id: chatMessages.id });
+    messageId = row.id;
+  } catch (err) {
+    console.warn("[internal-chat-push-handler] chat_messages insert failed:", err);
+    return { ok: false, statusCode: 500, errorCode: "internal_error" };
+  }
 
   // socket emit — 클라이언트 ChatPanel listener가 받아 NPC 메시지로 표시.
   // payload는 deskrpg 측 camelCase 표준 (spec snake_case는 HTTP wire에만).
@@ -143,7 +168,7 @@ export async function handleChatPush(
       messageId,
       npcId: input.npcId,
       message: input.message,
-      kind: input.kind ?? null,
+      kind: input.kind ?? "subagent_push",
       subagentId: input.subagentId ?? null,
       subagentLabel: input.subagentLabel ?? null,
       taskNpcTaskId: input.taskNpcTaskId ?? null,
@@ -151,7 +176,8 @@ export async function handleChatPush(
     });
   } catch (err) {
     console.warn("[internal-chat-push-handler] socket emit failed:", err);
-    // emit 실패해도 idempotency cache는 안 채우고 500 — caller가 retry할 기회 보존
+    // emit 실패해도 row는 이미 insert됨 (영속) — 다음 history fetch에서 클라이언트가
+    // 복원 가능. idempotency cache는 안 채워서 retry 허용.
     return { ok: false, statusCode: 500, errorCode: "internal_error" };
   }
 
