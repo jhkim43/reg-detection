@@ -247,15 +247,19 @@ export const npcReports = sqliteTable("npc_reports", {
   consumedAt: text("consumed_at"),
 });
 
+// seed-v10 phase6 T-V35: schema.ts와 parity. character_id nullable + kind + metadata 추가.
 export const chatMessages = sqliteTable("chat_messages", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  characterId: text("character_id").notNull().references(() => characters.id),
+  characterId: text("character_id").references(() => characters.id),
   npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  kind: text("kind"),
+  metadata: text("metadata"),   // SQLite는 JSON을 text로 저장 (jsonForDb helper 사용)
   createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+  index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
 ]);
 
 export const meetingMinutes = sqliteTable("meeting_minutes", {

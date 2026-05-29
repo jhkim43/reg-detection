@@ -249,15 +249,23 @@ export const npcReports = pgTable("npc_reports", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
 });
 
+// seed-v10 phase6 T-V35: sub-agent push 메시지 영속화 지원.
+//   - character_id nullable — sub-agent 자율 보고는 character scope 무관.
+//   - kind: 메시지 종류 식별 ("user_chat"|"npc_response"|"subagent_push"|...). NULL은 기존
+//     row(legacy, role로 추론) 호환.
+//   - metadata: free-form jsonb — subagent_id, subagent_label, task_npc_task_id 등.
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
-  characterId: uuid("character_id").notNull().references(() => characters.id),
+  characterId: uuid("character_id").references(() => characters.id),
   npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
   role: varchar("role", { length: 10 }).notNull(),
   content: text("content").notNull(),
+  kind: varchar("kind", { length: 20 }),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+  index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
 ]);
 
 export const meetingMinutes = pgTable("meeting_minutes", {

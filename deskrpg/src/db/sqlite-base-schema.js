@@ -269,13 +269,16 @@ function ensureSqliteBaseSchema(sqlite) {
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id TEXT PRIMARY KEY NOT NULL,
-      character_id TEXT NOT NULL REFERENCES characters(id),
+      character_id TEXT REFERENCES characters(id),
       npc_id TEXT NOT NULL REFERENCES npcs(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      kind TEXT,
+      metadata TEXT,
       created_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lookup ON chat_messages(character_id, npc_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_npc_kind ON chat_messages(npc_id, kind, created_at);
 
     CREATE TABLE IF NOT EXISTS meeting_minutes (
       id TEXT PRIMARY KEY NOT NULL,

@@ -330,7 +330,7 @@ function ensureSqliteCompatibility(sqlite) {
 }
 
 // ─── Drizzle query helpers (shared) ──────────────────────────────────────────
-const { eq, and, desc, sql } = require("drizzle-orm");
+const { eq, and, or, desc, sql, isNull } = require("drizzle-orm");
 
 // ─── PostgreSQL mode ──────────────────────────────────────────────────────────
 if (isPostgres) {
@@ -599,15 +599,19 @@ if (isPostgres) {
   ]);
 
   // PR 2a — chat history DB 영속화. role = "user" | "assistant" (LLM convention).
+  // seed-v10 phase6 T-V35: character_id nullable + kind + metadata 추가 (sub-agent push 보고용).
   const chatMessages = pgTable("chat_messages", {
     id: uuid("id").primaryKey().defaultRandom(),
-    characterId: uuid("character_id").notNull().references(() => characters.id),
+    characterId: uuid("character_id").references(() => characters.id),
     npcId: uuid("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 10 }).notNull(),
     content: text("content").notNull(),
+    kind: varchar("kind", { length: 20 }),
+    metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   }, (table) => [
     index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+    index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
   ]);
 
   // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
@@ -924,15 +928,19 @@ if (isPostgres) {
   ]);
 
   // PR 2a — chat history DB 영속화. role = "user" | "assistant" (LLM convention).
+  // seed-v10 phase6 T-V35: schema-sqlite.ts와 parity.
   const chatMessages = sqliteTable("chat_messages", {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-    characterId: text("character_id").notNull().references(() => characters.id),
+    characterId: text("character_id").references(() => characters.id),
     npcId: text("npc_id").notNull().references(() => npcs.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
     content: text("content").notNull(),
+    kind: text("kind"),
+    metadata: text("metadata"),
     createdAt: text("created_at").$defaultFn(() => new Date().toISOString()),
   }, (table) => [
     index("idx_chat_messages_lookup").on(table.characterId, table.npcId, table.createdAt),
+    index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
   ]);
 
   // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
@@ -987,4 +995,4 @@ if (isPostgres) {
   console.log(`[server-db] SQLite mode — Drizzle ORM initialized (${dbPath})`);
 }
 
-module.exports = { db, schema, isPostgres, eq, and, desc, sql, ensureSqliteBaseSchema, ensureSqliteCompatibility };
+module.exports = { db, schema, isPostgres, eq, and, or, desc, sql, isNull, ensureSqliteBaseSchema, ensureSqliteCompatibility };
