@@ -31,14 +31,16 @@ type RawBody = {
 };
 
 async function forwardSocketEmit(channelId: string, payload: unknown): Promise<void> {
-  const url = `${internalTransport.getInternalSocketBaseUrl()}/api/_internal/emit`;
+  // /_internal/emit의 표준 body 형식: { event, room, payload } — 다른 internal routes
+  // (npcs, tasks, llm-usage)와 동일. room=channelId로 io.to(room).emit(event, payload).
+  const url = `${internalTransport.getInternalSocketBaseUrl()}/_internal/emit`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...internalTransport.buildInternalAuthHeaders(),
     },
-    body: JSON.stringify({ channelId, event: "npc:push-message", payload }),
+    body: JSON.stringify({ event: "npc:push-message", room: channelId, payload }),
   });
   if (!res.ok) {
     throw new Error(`socket emit forward failed: ${res.status}`);
