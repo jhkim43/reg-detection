@@ -435,7 +435,15 @@ function GamePageInner() {
 
   const showToastNotification = useCallback((id: string, message: string, onClick?: () => void) => {
     setToastMessage(message);
-    setToastAction(() => onClick ?? null);
+    // onClick wrap — 토스트 클릭 시 해당 notification을 read 처리. 설정→알림 목록에서도
+    // 같이 정리되도록.
+    const wrappedAction = onClick
+      ? () => {
+          setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+          onClick();
+        }
+      : null;
+    setToastAction(() => wrappedAction);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     // 클릭 가능한 토스트는 사용자가 누를 시간을 주기 위해 8초, 그 외는 4초
     toastTimerRef.current = setTimeout(() => {
