@@ -437,10 +437,11 @@ function GamePageInner() {
     setToastMessage(message);
     setToastAction(() => onClick ?? null);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    // 클릭 가능한 토스트는 사용자가 누를 시간을 주기 위해 8초, 그 외는 4초
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
       setToastAction(null);
-    }, 4000);
+    }, onClick ? 8000 : 4000);
     setNotifications((prev) =>
       [{ id, message, timestamp: Date.now(), read: false }, ...prev].slice(0, 20),
     );
