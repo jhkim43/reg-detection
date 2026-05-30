@@ -643,6 +643,8 @@ async function streamNpcResponse(
         character_id: characterId,
         channel_id: _channelId,
         parent_npc_id: npcConfigAny._openclawAgentId || agentId,
+        // nanobot 팀원 요청 (2026-05-30): NPC의 deskrpg UUID
+        npc_id: npcId,
       };
       const response = await gateway.chatSend(
         agentId,

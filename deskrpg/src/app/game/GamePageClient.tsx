@@ -18,6 +18,7 @@ import MeetingRoom from "@/components/MeetingRoom";
 import NpcHireModal from "@/components/NpcHireModal";
 import type { NpcChatMessage } from "@/components/NpcDialog";
 import ReportPanel from "@/components/ReportPanel";
+import ReportHistoryModal from "@/components/ReportHistoryModal";
 import PasswordModal from "@/components/PasswordModal";
 import ChannelSettingsModal from "@/components/ChannelSettingsModal";
 import TaskBoard from "@/components/TaskBoard";
@@ -237,6 +238,9 @@ function GamePageInner() {
 
   // Ref to track current dialogNpc for use inside socket listeners (must be declared before sync effect)
   const dialogNpcRef = useRef<{ npcId: string; npcName: string } | null>(null);
+  // 원격(토스트/카드/popover)으로 열린 dialog는 player 근접 자동닫기 무시.
+  // ESC/X로 명시 닫을 때만 해제.
+  const dialogOpenedRemotelyRef = useRef(false);
 
   // NPC dialog state — all managed here, ChatPanel is pure display
   const [dialogNpc, setDialogNpc] = useState<{ npcId: string; npcName: string } | null>(null);
@@ -274,6 +278,7 @@ function GamePageInner() {
     creatorNpcName: string | null;
     creatorSubAgentLabel: string | null;
   }>>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Notification state
   const [notifications, setNotifications] = useState<GameNotification[]>([]);
@@ -758,10 +763,6 @@ function GamePageInner() {
       }) => {
         setUnreadReportCount((n) => n + 1);
 
-        // 해당 NPC sprite 위에 "..." 말풍선 — 사용자에게 새 보고서 도착 시각 신호.
-        // 사용자가 그 NPC 대화 열면 자동 clear (handleMovementArrived와 동일 정리 로직).
-        EventBus.emit("npc:bubble", { npcId: data.npcId });
-
         if (dialogNpcRef.current?.npcId === data.npcId) {
           // 같은 NPC — 채팅 카드 (실시간) 추가
           setNpcMessages((prev) => [
@@ -779,7 +780,9 @@ function GamePageInner() {
             },
           ]);
         } else {
-          // 다른 NPC — 토스트 (클릭 시 NPC 전환)
+          // 다른 NPC — sprite 위 "..." bubble + 토스트 (클릭 시 NPC 전환)
+          // 같은 NPC + 대화 중일 땐 bubble 불필요 (사용자가 이미 그 NPC 보고 있음).
+          EventBus.emit("npc:bubble", { npcId: data.npcId });
           const npcMeta = channelNpcs.find((n) => n.id === data.npcId);
           const label = data.creatorSubAgentLabel || npcMeta?.name || "Agent";
           showToastNotification(
@@ -792,6 +795,7 @@ function GamePageInner() {
                 npcName: npcMeta?.name ?? data.creatorSubAgentLabel ?? "NPC",
               };
               dialogNpcRef.current = nextDialogNpc;
+              dialogOpenedRemotelyRef.current = true; // 원격 오픈 — auto-close 무시
               setDialogNpc(nextDialogNpc);
               EventBus.emit("dialog:open");
               EventBus.emit("npc:bubble-clear", { npcId: data.npcId });
@@ -1016,6 +1020,7 @@ function GamePageInner() {
   const resetDialog = useCallback(() => {
     setDialogNpc(null);
     dialogNpcRef.current = null;
+    dialogOpenedRemotelyRef.current = false;
     setNpcMessages([]);
     npcMessagesRef.current = [];
     setIsNpcStreaming(false);
@@ -1061,6 +1066,9 @@ function GamePageInner() {
 
     // NPC dialog auto-close (when walking away from NPC)
     const handleNpcDialogAutoClose = () => {
+      // 토스트/카드/popover로 원격 오픈한 dialog는 자동닫기 무시 — 사용자가 명시
+      // 닫기(ESC/X)할 때만 닫힘. 게임 NPC와의 근접 기반 dialog만 auto-close 적용.
+      if (dialogOpenedRemotelyRef.current) return;
       resetDialog();
       setInteractSelectList(null);
       EventBus.emit("dialog:close");
@@ -2006,6 +2014,14 @@ function GamePageInner() {
                     );
                   })
                 )}
+                {/* "전체 보기 →" link — ReportHistoryModal로 진입 */}
+                <button
+                  type="button"
+                  onClick={() => { setShowReportPopover(false); setShowHistoryModal(true); }}
+                  className="w-full text-left px-3 py-2 border-t border-border text-caption text-text-dim hover:bg-surface-raised hover:text-text-secondary font-medium"
+                >
+                  📚 전체 보기 →
+                </button>
               </div>
             )}
           </div>
@@ -2484,6 +2500,18 @@ function GamePageInner() {
               </div>
             )
           )}
+
+          {/* seed-v11 v11-backlog-7: ReportHistoryModal */}
+          <ReportHistoryModal
+            open={showHistoryModal}
+            onClose={() => setShowHistoryModal(false)}
+            onOpenReport={(reportId) => {
+              setSelectedReportId(reportId);
+              setReportPanelOpen(true);
+              setUnreadReportCount(0);
+              setNotifications((prev) => prev.map((n) => (n.id === `agent-report-${reportId}` ? { ...n, read: true } : n)));
+            }}
+          />
 
           {/* seed-v11 AC-003 (revised UX): ReportPanel — click-to-open (TRD-D-39 amendment).
               헤더 "보고서" 버튼 또는 채팅 카드 클릭 시 열림. always-on → on-demand. */}
