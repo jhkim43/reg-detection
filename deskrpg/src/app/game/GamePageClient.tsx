@@ -1993,6 +1993,7 @@ function GamePageInner() {
                           setSelectedReportId(r.id);
                           setReportPanelOpen(true);
                           setShowReportPopover(false);
+                          setNotifications((prev) => prev.map((n) => (n.id === `agent-report-${r.id}` ? { ...n, read: true } : n)));
                         }}
                         className="w-full text-left px-3 py-2 hover:bg-surface-raised text-body"
                       >
@@ -2530,6 +2531,8 @@ function GamePageInner() {
               setSelectedReportId(reportId);
               setReportPanelOpen(true);
               setUnreadReportCount(0);
+              // 설정→알림 목록의 해당 항목도 read 처리 (토스트 click과 일관)
+              setNotifications((prev) => prev.map((n) => (n.id === `agent-report-${reportId}` ? { ...n, read: true } : n)));
             }}
             npcMoveState={dialogNpc ? npcMoveStates[dialogNpc.npcId] : undefined}
             onReturnNpc={dialogNpc && npcCallers[dialogNpc.npcId] === socket?.id ? handleReturnNpc : undefined}
