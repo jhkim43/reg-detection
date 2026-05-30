@@ -16,7 +16,7 @@ fi
 # Development mode with auto-reload on file changes
 if [ "$DEV_MODE" = "1" ]; then
     echo "Development mode enabled: auto-reloading on /app/nanobot changes"
-    watchmedo auto-restart -R -d /app/nanobot -p '*.py' -- nanobot "$@"
+    watchmedo auto-restart -R -d /app/nanobot -p '*.py;*.md' -- nanobot "$@"
 else
     exec nanobot "$@"
 fi

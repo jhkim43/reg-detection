@@ -52,38 +52,66 @@ When composing a report, use the following structure. Adapt sections as needed f
 
 ## 🌐 Pushing Reports to DeskRPG ReportPanel
 
-After composing the markdown report, push it to DeskRPG's report API endpoint.
+After composing the markdown report, push it to DeskRPG's report API endpoint. **Use the DeskRPGClient Python class** (bundled in nanobot) instead of raw curl — the client reads `INTERNAL_RPC_SECRET` and `DESKRPG_INTERNAL_URL` from environment variables automatically, so you don't need to hardcode auth values.
 
 ### 3.1 Endpoint
 
-`POST {deskrpg_url}/api/internal/reports`
+`POST /api/internal/reports` via `DeskRPGClient.create_report()`
 
 ### 3.2 Authentication
 
-All requests require the `x-deskrpg-internal-secret` header.
+The `x-deskrpg-internal-secret` header is set automatically by `DeskRPGClient` using the `INTERNAL_RPC_SECRET` environment variable. Do NOT hardcode auth values.
 
-```bash
-AUTH="x-deskrpg-internal-secret: test-secret"
-BASE="http://deskrpg-app:3000"
-```
+### 3.3 Request Body Fields
 
-### 3.3 Request Body
-
-```json
+```python
 {
-  "channel_id": "{channel UUID from context}",
-  "npc_id": "{parent NPC UUID from context}",
-  "character_id": "{character UUID from context}",
-  "title": "📋 {Report Title}",
-  "body_markdown": "# Full markdown content...\n\n...",
-  "creator_sub_agent_label": "{your agent label}",
-  "metadata": {"source": "subagent", "skill": "report-composer"}
+    "channel_id": channel_id,                 # from DeskRPG Context
+    "npc_id": parent_npc_uuid,               # ⚠️ MUST be parent_npc_uuid, NOT your own npc_id
+    "character_id": character_id,             # from DeskRPG Context
+    "title": "📋 {Report Title}",
+    "body_markdown": body_markdown,           # full markdown content
+    "creator_sub_agent_label": "{your label}",
+    "metadata": {"source": "subagent", "skill": "report-composer"},
 }
 ```
 
-### 3.4 curl Example
+### 3.4 Python Example (preferred — uses correct auth)
 
-Write the markdown body to a temp file first, then push:
+Write the markdown to a variable, then use the bundled `DeskRPGClient`:
+
+```python
+import asyncio
+from nanobot.utils.deskrpg_client import DeskRPGClient
+
+body_md = """# 📋 일상관리 통합 리포트
+
+...full markdown content...
+"""
+
+async def push():
+    dc = DeskRPGClient()
+    # npc_id MUST be parent_npc_uuid (the parent NPC UUID), NOT subagent's own npc_id
+    result = await dc.create_report(
+        channel_id="{channel_id}",
+        npc_id="{parent_npc_uuid}",
+        character_id="{character_id}",
+        title="📋 {Report Title}",
+        body_markdown=body_md,
+        creator_sub_agent_label="{creator_label}",
+        metadata={"source": "subagent", "skill": "report-composer"},
+    )
+    if result:
+        print(f"Report pushed: {result.get('persisted_report_id')}")
+    else:
+        print("Report push failed (check auth/env)")
+
+asyncio.run(push())
+```
+
+### 3.5 curl Example (fallback — requires correct INTERNAL_RPC_SECRET)
+
+Only use curl when `INTERNAL_RPC_SECRET` is known to be set in the environment:
 
 ```bash
 # 1. Write the markdown to a temp file
@@ -94,6 +122,7 @@ cat > /tmp/report.md << 'REPORT_EOF'
 REPORT_EOF
 
 # 2. Push to DeskRPG ReportPanel
+# NOTE: AUTH uses $INTERNAL_RPC_SECRET env var, NOT hardcoded "test-secret"
 BODY=$(cat /tmp/report.md | python3 -c "
 import sys, json
 body_md = sys.stdin.read()
@@ -110,7 +139,7 @@ print(json.dumps(payload, ensure_ascii=False))
 ")
 
 curl -s -X POST "{deskrpg_url}/api/internal/reports" \
-  -H "$AUTH" \
+  -H "x-deskrpg-internal-secret: $INTERNAL_RPC_SECRET" \
   -H "Content-Type: application/json" \
   -d "$BODY"
 ```
@@ -138,14 +167,43 @@ On success (HTTP 201), log the report ID. On failure, log a warning — the main
 
 ---
 
+## ⏰ When to Spawn report-composer
+
+You should be spawned when the main agent determines a result needs structured formatting and push:
+
+| Condition | Action |
+|-----------|--------|
+| Result is simple (<100 chars) or failed | Just announce directly (default) |
+| Result contains structured data (tables, categorized items) OR exceeds 500 chars | **Spawn report-composer** to format and push |
+
+The spawning agent MUST pass the following context in the task prompt:
+- The full result text
+- `channel_id`, `npc_id` (the subagent's own temporary NPC ID)
+- `parent_npc_uuid` (the persistent parent NPC UUID — **this is what `create_report()` needs**)
+- `character_id`, `session_key`, `owner_user_id`
+
+> ⚠️ **Critical**: `npc_id` (your own temp NPC, deleted on completion) vs `parent_npc_uuid` (parent NPC, persistent). For `create_report()` and `chat_push()`, always use **`parent_npc_uuid`**.
+
+## 🔄 Multi-Step Workflow for Spawning Agents
+
+When orchestrating research → report:
+
+1. **Research phase** — Spawn a subagent to gather information.
+2. **Result review** — When the subagent completes, review its output.
+3. **Report phase** — If the result is structured (tables, categories, 500+ chars), spawn report-composer:
+   ```
+   SpawnTool(task="format report: [result] ... channel_id=xxx parent_npc_uuid=yyy character_id=zzz ...", skills=["report-composer"])
+   ```
+
 ## 🔗 Integration with Daily Management Workflow
 
 When you are spawned as the report composer after the daily management agent completes:
 
 1. You will receive the daily management agent's results as your task context.
-2. Read the raw results — they contain meal and exercise recommendations.
-3. Format them into the **Daily Integrated Report Template** (Section 2.4).
-4. Push the formatted report to DeskRPG using the curl method (Section 3.4).
-5. The report will appear in DeskRPG's ReportPanel and as a chat card.
+2. Your system prompt includes a **Session Context** section (from `subagent_system.md`) with channel_id, npc_id, parent_npc_uuid, character_id, and other context fields.
+3. Read the raw results — they contain meal and exercise recommendations.
+4. Format them into the **Daily Integrated Report Template** (Section 2.4).
+5. Push the formatted report to DeskRPG using DeskRPGClient (Section 3.4), using the Session Context variables from your system prompt.
+6. The report will appear in DeskRPG's ReportPanel and as a chat card.
 
-The `channel_id`, `npc_id`, and `character_id` needed for the push MUST be passed to you as part of your task prompt by the spawning agent.
+The channel_id, npc_id, parent_npc_uuid, and character_id are automatically available from your system prompt's Session Context section when the spawning agent has passed them.
