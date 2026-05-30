@@ -1,0 +1,463 @@
+# Seed Specification v11 — RegTrack
+# Generated: 2026-05-29
+# Supersedes: seed-v10.yaml (v10-backlog-6 진화 — nanobot → user 자율 보고 push endpoint + UI)
+# Source Interview: .harness/ouroboros/interviews/2026-05-29-v11-reports.yaml (ambiguity 0.09)
+# WARNING: This file is IMMUTABLE once merged to dev. To change after merge, create seed-v12.yaml.
+#          (Pre-merge amendments are tracked in `post_creation_amendments` below.)
+# 작성 원칙: 한국어 주 + 영어 기술 용어 병기. TODO/TBD 금지.
+
+version: 11
+created: "2026-05-29T00:00:00"
+interview_ref: ".harness/ouroboros/interviews/2026-05-29-v11-reports.yaml"
+supersedes: "seed-v10.yaml"
+evolves: "v10-backlog-6"
+
+# ─────────────────────────────────────────────────────────────────────
+# Post-creation Amendments — PR 머지 전 정정 (현재 빈 list)
+# ─────────────────────────────────────────────────────────────────────
+post_creation_amendments:
+  - date: "2026-05-29"
+    field: "테이블명: agent_reports → agent_reports"
+    reason: |
+      Discovery 단계에서 발견 — `agent_reports`는 0000_big_karnak.sql부터 존재하는 active
+      legacy 테이블 (task-driven delivery queue, task_id FK + target_user_id + status
+      pending/delivered/consumed lifecycle). src/lib/task-reporting.ts + socket-handlers.ts
+      7개 call site에서 사용 중. seed-v11이 정의한 Claude Artifacts 본문 보관 도메인과
+      완전히 다른 개념이라 같은 이름 쓰면 충돌. 해결: 본 v11 cycle의 테이블만 `agent_reports`로
+      rename (사용자 옵션 A 선택). 도메인 명("보고서"/"ReportPanel")은 유지, DB 테이블명만 분리.
+    affected_refs:
+      - "constraints.must (테이블 저장 위치 명시)"
+      - "AC-001 description (테이블·인덱스명)"
+      - "ontology.entities[Report].table"
+      - "tech_decisions D-37"
+      - "migration_strategy.steps"
+      - "glossary.report"
+
+# ─────────────────────────────────────────────────────────────────────
+# Goal — north star
+# ─────────────────────────────────────────────────────────────────────
+goal:
+  summary: |
+    사용자가 받은 분석 보고서를 채팅창 옆에 항상 펼쳐놓고 일한다 — nanobot이
+    push한 자유 마크다운 보고서를 Claude Artifacts 스타일 패널에 sanitize 렌더,
+    NPC 단위로 자연 전환, 영속·복원 보장.
+
+  detail: |
+    seed-v10에서 sub-agent의 짧은 한 줄 보고는 chat-push로 영속됐지만 (phase 6),
+    실제로 nanobot이 분석·요약·리포트 형태로 뽑은 **본문 큰 결과물**을 채팅 메시지
+    안에 박으면 UX가 깨진다 — 채팅은 흐름성·짧은 문장 위주라 다단 마크다운·표·
+    인용·섹션 헤딩 같은 보고서 톤이 살지 못함.
+
+    v11은 보고서를 **별 도메인**으로 분리한다:
+      - **새 테이블 `agent_reports`** — 자유 마크다운 본문 + 작성자 metadata snapshot
+      - **새 endpoint `POST /api/internal/reports`** — nanobot push 수신
+      - **새 UI 패널 (ReportPanel)** — 채팅창 우측에 슬라이드인, sanitize 렌더
+      - **새 socket event `npc:report-ready`** — 현재 NPC면 패널 갱신, 아니면 토스트
+
+    Claude Artifacts metaphor 그대로: "지금 대화 중인 NPC의 최근 작품이 옆에서
+    살아있다". 사용자는 채팅을 계속하면서 보고서를 참조·복사·재참조한다.
+
+    seed-v10 인프라(parent_npc_id metadata wiring, INTERNAL_RPC_SECRET 패턴,
+    chat-push handler 디자인) 그대로 재사용 — v11은 expand 패턴 (기존 흐름 미변경,
+    신규 트랙만 추가).
+
+  non_goals:
+    - "보고서 PDF/DOCX 파일 export — 1단계는 웹 렌더만, 필요해지면 ⬇ 버튼만 추가"
+    - "보고서 lifecycle update (in-progress → completed PATCH) — 단발성 push로 시작, 추후 nanobot 측 필요 시 진화"
+    - "보고서 본문 검색·풀텍스트 인덱싱 — history 모달 목록만"
+    - "보고서 공유 URL/외부 링크"
+    - "모바일 반응형 패널 — desktop 우선"
+    - "본문 크기 limit — YAGNI, 실제 운영 문제 시점에 추가"
+    - "Channel 단위 필터링 — channel_id는 metadata snapshot에만 보존 (future filter용 hook)"
+    - "nanobot fork 측 보고서 push 호출자 구현 — 다른 팀원 별 PR (contract만 정의)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Constraints
+# ─────────────────────────────────────────────────────────────────────
+constraints:
+  must:
+    - "보고서는 새 테이블 `agent_reports`에 저장 — chat_messages와 혼합 금지 (책임 분리)"
+    - "agent_reports.character_id (소유자) NOT NULL + agent_reports.npc_id (작성자) nullable + ON DELETE SET NULL"
+    - "endpoint `POST /api/internal/reports` 는 INTERNAL_RPC_SECRET 헤더(`x-deskrpg-internal-secret`) 인증 + body의 characterId/npcId로 식별 — `x-user-id` 헤더 불요 (v10 D-27 패턴 재사용)"
+    - "report.npc_id는 parent npc_id (Supervisor 등). sub-agent가 보냈더라도 nanobot은 session metadata의 parent_npc_id를 그대로 사용 — v10 phase3 metadata wiring (D-28) 재사용"
+    - "작성자 sub-agent 식별은 `metadata.creator_sub_agent_label` snapshot 문자열로 보존 — sub-agent NPC 삭제돼도 라벨 유지"
+    - "마크다운 렌더는 react-markdown + rehype-sanitize 표준. iframe/script/raw HTML 차단"
+    - "Idempotency-Key 헤더로 같은 보고서 중복 push dedup (v10 phase5 chat-push 패턴 재사용, TTL 10분 in-memory)"
+    - "socket event `npc:report-ready`는 channelId 기반 broadcast. 클라이언트는 현재 NPC면 패널 슬라이드인, 아니면 채팅 영역 토스트"
+    - "보고서는 새로고침 후에도 살아남음 — DB 영속 + 패널 mount 시 fetch"
+    - "NPC 삭제돼도 보고서 보존 — npc_id NULL로 SET, metadata.creator_sub_agent_label fallback 표시"
+
+  must_not:
+    - "chat_messages 테이블에 보고서 본문 저장 (책임 분리 위반)"
+    - "report 본문에서 raw HTML/script 렌더 (XSS + 렌더 안정성 위반)"
+    - "report endpoint를 user-auth(x-user-id)로 노출 — internal-secret 전용"
+    - "현재 NPC와 무관한 보고서를 패널에 자동 표시 (사용자 컨텍스트 혼선)"
+    - "단일 reportId에 PATCH/PUT 허용 (lifecycle update는 future, v11에선 단발성 push만)"
+    - "보고서 fetch 시 character_id 누락 (보고서함은 character 소유, 인증된 사용자만)"
+
+  should:
+    - "패널 슬라이드인 애니메이션 부드럽게 (Claude Artifacts 톤 — 200~300ms ease-out)"
+    - "history 모달에 작성자 NPC 라벨 + 작성 시각 + 본문 첫 줄 미리보기 노출"
+    - "보고서 push 실패 시 nanobot 측 at-least-once retry — deskrpg는 Idempotency-Key로 dedup"
+    - "다른 NPC 보고서 토스트 클릭 시 그 NPC 대화로 자연 전환 + 패널 갱신"
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance Criteria
+# ─────────────────────────────────────────────────────────────────────
+acceptance_criteria:
+  - id: "AC-001"
+    description: |
+      Drizzle migration 신설: `agent_reports` 테이블. 컬럼: id (uuid PK), character_id
+      (uuid FK characters.id NOT NULL ON DELETE CASCADE), npc_id (uuid FK npcs.id
+      NULL ON DELETE SET NULL), title (text), body_markdown (text NOT NULL),
+      metadata (jsonb — creator_sub_agent_label, channel_id_snapshot 등),
+      created_at (timestamptz default now). 인덱스: idx_agent_reports_character_created
+      (character_id, created_at desc) + idx_agent_reports_npc_created (npc_id, created_at desc).
+      schema.ts + schema-sqlite.ts + server-db.js (CJS PostgreSQL + SQLite) + sqlite-base-schema.js parity.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+
+  - id: "AC-002"
+    description: |
+      `POST /api/internal/reports` endpoint 신설. INTERNAL_RPC_SECRET 헤더 인증.
+      Idempotency-Key 헤더 지원 (in-memory TTL 10분 dedup, v10 chat-push 패턴 재사용).
+      body: {channelId, npcId, characterId, title?, bodyMarkdown, creatorSubAgentLabel?, metadata?}.
+      validation: 필수 필드 누락 → 400 missing_required_field. npc_id 존재 확인 → 404 npc_not_found.
+      channel 존재 + npc.channel_id 일치 확인 → 404 channel_not_found. 성공 → 201 + {persistedReportId}.
+      DB insert + socket emit npc:report-ready (channelId broadcast) 둘 다 트랜잭션 외 best-effort
+      (emit 실패 시 row는 영속, retry 가능).
+    verification: "automated"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-003"
+    description: |
+      ReportPanel 컴포넌트 신설 (`src/components/ReportPanel.tsx`). 채팅창 우측에 위치.
+      현재 NPC의 최신 보고서 1건만 표시 (agent_reports.npc_id = currentNpc.id ORDER BY created_at DESC LIMIT 1).
+      본문은 react-markdown + rehype-sanitize 렌더 (iframe/script 차단). 헤더에 title +
+      작성자 라벨 (npc.name 또는 metadata.creator_sub_agent_label snapshot fallback) +
+      작성 시각. NPC 전환 시 패널도 자연 교체. 보고서 없으면 빈 패널 (또는 placeholder).
+      슬라이드인 애니메이션 200~300ms ease-out.
+    verification: "both"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-004"
+    description: |
+      socket event `npc:report-ready` broadcast 추가. payload: {reportId, npcId, channelId,
+      title?, creatorSubAgentLabel?, createdAt}. GamePageClient socket listener:
+      - currentNpcId === payload.npcId → ReportPanel 데이터 refetch + 슬라이드인
+      - currentNpcId !== payload.npcId → 채팅 영역 위 토스트 `{npc.name 또는 label}가
+        보고서를 올렸어요` + 클릭 시 그 NPC로 전환 + 패널 갱신
+    verification: "both"
+    priority: "must"
+    complexity: "medium"
+
+  - id: "AC-005"
+    description: |
+      ReportPanel 옆 작은 "history" 버튼 + 클릭 시 ReportHistoryModal. 모달은 현재 character가
+      소유한 보고서 목록 (agent_reports.character_id = me, ORDER BY created_at DESC LIMIT 50).
+      각 row: 작성자 NPC 라벨 (npc.name 또는 metadata.creator_sub_agent_label snapshot) +
+      작성 시각 + title + 본문 첫 줄 미리보기 (50자). 클릭 시 패널에 해당 보고서 로드.
+      검색·필터 X (MVP).
+    verification: "both"
+    priority: "should"
+    complexity: "medium"
+
+  - id: "AC-006"
+    description: |
+      NPC 삭제 → 보고서 보존 검증: npc 삭제 시 agent_reports.npc_id가 NULL로 SET (ON DELETE SET NULL
+      FK). ReportPanel/HistoryModal에서 npc.name lookup 실패 시 metadata.creator_sub_agent_label
+      snapshot으로 fallback 표시. snapshot도 없으면 "삭제된 NPC" 라벨.
+    verification: "both"
+    priority: "must"
+    complexity: "low"
+
+  - id: "AC-007"
+    description: |
+      report push contract 문서화 — docs/api/internal-events-contract.md에 Section 12
+      추가. shape: {channelId, npcId, characterId, title?, bodyMarkdown, creatorSubAgentLabel?,
+      metadata?}. 401/400/404/409 에러 매핑. Idempotency-Key 헤더 사용법. socket event
+      payload shape. nanobot fork 측 (다른 팀원) 참조용.
+    verification: "manual"
+    priority: "must"
+    complexity: "low"
+
+  - id: "AC-008"
+    description: |
+      GET endpoint `GET /api/reports?characterId=&npcId=&limit=`. 인증: 기존 세션 쿠키
+      (user-auth — 내부 endpoint 아님, 사용자가 ReportPanel mount 시 fetch). 응답: 시간순 desc
+      max 50 rows. ReportPanel은 currentNpc.id로 fetch, HistoryModal은 character.id로 fetch.
+    verification: "automated"
+    priority: "must"
+    complexity: "low"
+
+# ─────────────────────────────────────────────────────────────────────
+# Ontology — 도메인 모델
+# ─────────────────────────────────────────────────────────────────────
+ontology:
+  entities:
+    - name: "Report"
+      table: "agent_reports"
+      fields:
+        - { name: "id", type: "uuid", required: true }
+        - { name: "characterId", type: "uuid (FK characters.id, ON DELETE CASCADE)", required: true }
+        - { name: "npcId", type: "uuid (FK npcs.id, ON DELETE SET NULL)", required: false }
+        - { name: "title", type: "text", required: false }
+        - { name: "bodyMarkdown", type: "text (자유 마크다운, sanitize는 render 시점)", required: true }
+        - { name: "metadata", type: "jsonb (creator_sub_agent_label, channel_id_snapshot 등 snapshot)", required: false }
+        - { name: "createdAt", type: "timestamptz", required: true }
+      relationships:
+        - { target: "Character", type: "belongs_to (cascade — 사용자 삭제 시 보고서도 삭제)" }
+        - { target: "NPC", type: "belongs_to (set null — NPC 삭제돼도 보고서 보존, snapshot fallback)" }
+      note: "v11에서 row 생성은 100% /api/internal/reports를 통해서만 (nanobot push). 읽기는 /api/reports (user-auth)"
+
+    - name: "ReportPushEvent"
+      shape: |
+        {
+          channel_id: uuid,
+          npc_id: uuid (parent npc_id, sub-agent가 아닌 main agent),
+          character_id: uuid (보고서 소유자),
+          title?: string,
+          body_markdown: string (자유 마크다운),
+          creator_sub_agent_label?: string (작성자 sub-agent 표시명 snapshot),
+          metadata?: {
+            channel_id_snapshot?: string,
+            ...(free-form)
+          }
+        }
+      transport: "POST /api/internal/reports (HTTP, INTERNAL_RPC_SECRET + Idempotency-Key)"
+      role: "nanobot → deskrpg push 이벤트의 stable shape. v10 ToolExecutionEvent와는 별 트랙"
+
+    - name: "ReportReadyEvent (socket broadcast)"
+      shape: |
+        {
+          reportId: uuid,
+          npcId: uuid,
+          channelId: uuid,
+          title?: string,
+          creatorSubAgentLabel?: string,
+          createdAt: ISO8601
+        }
+      transport: "socket.io broadcast (room=channelId, event='npc:report-ready')"
+      role: "deskrpg server → client. 현재 NPC면 패널 슬라이드인, 아니면 토스트"
+
+  actions:
+    - name: "push_report (nanobot → deskrpg)"
+      actor: "nanobot agent (sub-agent 또는 main agent emission hook — 다른 팀원 작업)"
+      input: "ReportPushEvent + INTERNAL_RPC_SECRET + Idempotency-Key"
+      output: "agent_reports row 생성 + persistedReportId 반환"
+      side_effects:
+        - "socket.io 'npc:report-ready' broadcast → 채널 내 클라이언트 즉시 반응"
+
+    - name: "render_panel (UI)"
+      actor: "user (deskrpg ReportPanel 컴포넌트)"
+      input: "currentNpcId"
+      output: "현재 NPC의 최신 보고서 1건 렌더 (sanitize markdown)"
+      side_effects:
+        - "NPC 전환 시 자동 refetch"
+        - "socket 이벤트 수신 시 자동 갱신"
+
+    - name: "notify_other_npc_report (UI)"
+      actor: "deskrpg socket listener"
+      input: "ReportReadyEvent (currentNpcId !== payload.npcId 일 때)"
+      output: "채팅 영역 위 토스트 알림"
+      side_effects:
+        - "클릭 시 그 NPC로 전환 + 패널 갱신"
+
+    - name: "fetch_history (UI)"
+      actor: "user (HistoryModal 클릭)"
+      input: "character.id"
+      output: "character 소유 보고서 목록 (max 50, desc)"
+      side_effects:
+        - "row 클릭 시 패널에 해당 보고서 로드 (currentNpcId 기준 아닌 reportId 기준 임시 렌더)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────────────────────────────────
+scope:
+  mvp:
+    - "AC-001: agent_reports schema + Drizzle 0009 migration"
+    - "AC-002: POST /api/internal/reports endpoint"
+    - "AC-003: ReportPanel UI 컴포넌트 + sanitize 렌더"
+    - "AC-004: socket event npc:report-ready + 클라이언트 listener (현재 NPC + 토스트 분기)"
+    - "AC-005: ReportHistoryModal"
+    - "AC-006: NPC 삭제 시 보고서 보존 + fallback 라벨"
+    - "AC-007: docs/api/internal-events-contract.md Section 12"
+    - "AC-008: GET /api/reports user-auth fetch endpoint"
+
+  future:
+    - "PDF/DOCX 다운로드 버튼 (⬇ icon)"
+    - "보고서 본문 검색 + 풀텍스트 인덱싱"
+    - "보고서 lifecycle update (in-progress → completed PATCH)"
+    - "모바일 반응형 패널"
+    - "보고서 공유 URL"
+    - "본문 크기 limit"
+    - "channel 단위 필터링 (current schema의 metadata.channel_id_snapshot 활용)"
+
+  out_of_scope_explicit:
+    - "nanobot fork 측 push 호출자 구현 — 다른 팀원 별 PR (contract만 정의)"
+    - "v11 cycle 외 v10 backlog (sprite tint AC-008, token measurement AC-009 등)"
+
+# ─────────────────────────────────────────────────────────────────────
+# Technical Decisions (D-31 ~ D-37, v10의 D-30까지 이어서)
+# ─────────────────────────────────────────────────────────────────────
+tech_decisions:
+  - decision: "D-31: 보고서 본문 = 자유 마크다운 + 렌더 시점 sanitize"
+    reason: |
+      Claude Artifacts·Notion·Linear 다 같은 패턴. 고정 섹션 스키마(summary/findings 등)는
+      nanobot 측에서 매번 형식 강제 + 파싱 로직 필요해 부담. 자유 마크다운은 LLM이 가장 잘
+      뽑는 형식 + react-markdown + rehype-sanitize로 안정 렌더 가능. raw HTML 허용은
+      CSS 충돌·React 트리 통제 불가·dark mode 깨짐 위험으로 거절.
+    alternatives_considered:
+      - "고정 섹션 스키마 (Perplexity 스타일) — 일관성은 좋으나 LLM 출력 강제·파싱 비용"
+      - "raw HTML 허용 — XSS + 렌더 안정성 + 운영 안정성 모두 열위"
+
+  - decision: "D-32: 보고서 scope = Character 주 + NPC 참조 nullable"
+    reason: |
+      NPC 단위는 보고서가 NPC별로 분산되어 "내 보고서함" 통합 뷰 불가. Channel 단위는
+      NPC 바뀌면 다른 NPC 보고서까지 보임 — 작품 귀속 혼선. Character 주 (소유자) + NPC
+      참조(작성자, nullable)가 가장 균형: 사용자의 개인 보고서함이면서 NPC가 누구인지도
+      추적, NPC 삭제돼도 보고서는 결과물로 보존.
+    alternatives_considered:
+      - "NPC 단위 (npc_id FK only) — 통합 뷰 불가, NPC 삭제 시 보고서 cascade 위험"
+      - "Channel 단위 — 작품 귀속 혼선, 다른 NPC 작품 혼입"
+      - "완전 Character 단위 (npc_id 미포함) — 작성자 정보 손실, '누가 만들었지?' 추적 불가"
+
+  - decision: "D-33: report.npc_id = parent npc_id (sub-agent가 아닌 main agent)"
+    reason: |
+      사용자가 직접 대화하는 건 main agent (Supervisor). sub-agent는 hidden background
+      actor. 패널 filter가 currentNpcId 기준이라 sub-agent npc_id로 저장하면 패널에 안 보임.
+      nanobot이 v10 phase3에서 깔린 session metadata에 parent_npc_id 들고 있으므로
+      그대로 사용. 작성자 sub-agent는 metadata.creator_sub_agent_label snapshot으로 라벨링.
+    alternatives_considered:
+      - "sub-agent 자기 npc_id로 저장 — 패널 쿼리 복잡 (parent_agent_id FK join) + 사용자가 sub-agent와 대화 안 함"
+
+  - decision: "D-34: 패널 슬롯 1개 + history 모달"
+    reason: |
+      탭 여러 개는 화면 폭 잠식 + 5개 넘으면 정리 필요 (드롭다운/검색) — MVP 과스펙. 슬롯
+      1개로 시작하면 사용자 인지 부담 최소, "이전 보고서" 모달로 history 접근. Claude
+      Artifacts와 동일 톤.
+    alternatives_considered:
+      - "탭 누적 (Notion 스타일) — 폭 잠식 + 5+ 정리 인프라 부담"
+      - "패널 1개 + 항상 화면에 history 리스트 (Granola 스타일) — 화면 분할 과도, 모바일 future도 어려워짐"
+
+  - decision: "D-35: lifecycle = 단발성 push (PATCH 미지원, future)"
+    reason: |
+      MVP 단순성. nanobot 측이 in-progress → completed 흐름 필요해지면 그 때 PATCH 추가.
+      처음부터 lifecycle 지원하면 클라이언트 상태 관리·낙관적 업데이트·충돌 처리 부담.
+    alternatives_considered:
+      - "처음부터 in-progress → completed 지원 — 클라이언트 상태 복잡, 사용 미확정 기능 선구현"
+      - "버전 누적 (v1, v2, v3) — 사용자가 이전 버전 토글 필요성 불확실"
+
+  - decision: "D-36: 동시 다수 push = 현재 NPC 패널 + 다른 NPC는 채팅 영역 토스트"
+    reason: |
+      현재 NPC만 패널 자동 갱신해야 사용자 컨텍스트 안 깨짐. 다른 NPC 보고서를 패널이
+      덮어쓰면 작업 중인 NPC 컨텍스트 손실. 토스트 + 클릭 전환이 알림성 + 사용자 의도
+      존중. 다른 NPC 보고서도 DB엔 즉시 저장되어 누락 없음.
+    alternatives_considered:
+      - "다른 NPC 보고서 무시 (조용히 저장) — 사용자가 알 방법 없어 누락 경험"
+      - "패널 즉시 갱신 (현재 NPC 무시) — 현재 작업 컨텍스트 손실"
+
+  - decision: "D-37: 별 테이블 agent_reports (chat_messages와 분리)"
+    reason: |
+      보고서는 본문 크기(수 KB~수십 KB), 생명주기, 검색 패턴, 메타데이터가 chat 한 줄과
+      너무 다름. 같은 테이블에 kind 컬럼만 다르게 두면 chat 1만 줄에 보고서 5건이 섞여
+      쿼리·인덱스 비효율. 책임 분리가 한 달 뒤 유지보수에 결정적.
+    alternatives_considered:
+      - "chat_messages.kind='report' 재활용 — 인프라 변경 적으나 본문 크기·검색 패턴 부조화"
+
+# ─────────────────────────────────────────────────────────────────────
+# Non-blocking Backlog (post-merge 트래킹)
+# ─────────────────────────────────────────────────────────────────────
+non_blocking_backlog:
+  - id: "v11-backlog-1"
+    title: "PDF/DOCX 다운로드 버튼"
+    priority: "medium"
+    owner: "본인 (deskrpg)"
+    detail: |
+      ReportPanel 우상단 `⬇` 버튼. 마크다운 → PDF는 (a) 클라이언트 html2pdf.js 또는
+      (b) 서버 Puppeteer/pandoc. 한글 폰트 임베드 주의. 사용자가 실제로 파일로 받아갈
+      use case 발생 시 결정.
+
+  - id: "v11-backlog-2"
+    title: "보고서 lifecycle update (PATCH)"
+    priority: "low"
+    owner: "다른 팀원 (nanobot fork) — 검토 필요"
+    detail: |
+      nanobot이 분석 진행 단계별로 보고서를 업데이트하고 싶을 때. 같은 reportId로
+      PATCH. 클라이언트는 socket 이벤트로 patch 부분만 갱신. 사용 시나리오 확정되면 진행.
+
+  - id: "v11-backlog-3"
+    title: "보고서 본문 검색 + 풀텍스트 인덱싱"
+    priority: "low"
+    owner: "본인 (deskrpg)"
+    detail: |
+      history 모달에 검색 입력. PostgreSQL tsvector 또는 외부 검색엔진. 보고서 누적량이
+      100건 넘기 시작하면 필요.
+
+  - id: "v11-backlog-4"
+    title: "모바일 반응형 ReportPanel"
+    priority: "low"
+    owner: "본인 (deskrpg)"
+    detail: |
+      desktop 우선이라 패널은 우측 고정. 모바일에선 하단 슬라이드업 시트 또는 fullscreen.
+      디자인 라운드 필요.
+
+  - id: "v11-backlog-5"
+    title: "보고서 공유 URL"
+    priority: "low"
+    owner: "본인 (deskrpg)"
+    detail: |
+      `/reports/{id}` public 또는 token-gated. 외부 공유 use case 발생 시 진행.
+
+  - id: "v11-backlog-6"
+    title: "본문 크기 limit + 운영 정책"
+    priority: "low"
+    owner: "본인 (deskrpg)"
+    detail: |
+      현재는 limit 없음 (YAGNI). 실제 운영에서 보고서가 100KB+ 자주 들어오거나 DB 비대해지면
+      max 50KB + 초과 시 첨부 분리.
+
+# ─────────────────────────────────────────────────────────────────────
+# Migration Strategy
+# ─────────────────────────────────────────────────────────────────────
+migration_strategy:
+  phase: "expand (parallel-change)"
+  precondition: |
+    v10 cycle 머지 완료 — parent_npc_id metadata wiring (phase3) + INTERNAL_RPC_SECRET
+    + chat-push handler 패턴이 안착되어 있어야 함. v10 phase6 PR 머지 후 시작 권장 (또는
+    독립 브랜치로 시작 후 phase6 머지되면 rebase).
+  steps:
+    - "1. /trd로 layer mapping + interface design (Data: schema/migration / Logic: handler / Presentation: API + UI)"
+    - "2. /decompose로 atomic task 분해"
+    - "3. AC-001 (schema + 0009 migration) — DB 변경 먼저"
+    - "4. AC-002 (POST /api/internal/reports) — push 받을 곳 준비"
+    - "5. AC-007 (contract 문서화) — 다른 팀원과 sync"
+    - "6. AC-008 (GET /api/reports) — UI 데이터 fetch 준비"
+    - "7. AC-004 (socket event broadcast + listener)"
+    - "8. AC-003 (ReportPanel 컴포넌트 + sanitize 렌더)"
+    - "9. AC-005 (HistoryModal)"
+    - "10. AC-006 (NPC 삭제 시 fallback 검증)"
+  rollback: "expand 패턴이라 기존 흐름 미변경. 새 endpoint·테이블·컴포넌트가 추가만 됨 → 회귀 시 endpoint 비활성 + 컴포넌트 unmount만으로 복원 가능."
+
+# ─────────────────────────────────────────────────────────────────────
+# Glossary — 본 cycle 핵심 용어
+# ─────────────────────────────────────────────────────────────────────
+glossary:
+  report:
+    definition: "nanobot이 분석·요약·리포트 형태로 push하는 본문 큰 마크다운 결과물. agent_reports 테이블에 1 row = 1 보고서"
+    not_to_be_confused_with: "chat_messages.kind='subagent_push' (phase 6) — 짧은 한 줄 알림. 보고서는 본문 큰 결과물로 별 트랙"
+
+  report_panel:
+    definition: "ReportPanel.tsx — 채팅창 우측 고정 패널. 현재 NPC의 최신 보고서 1건을 sanitize markdown으로 렌더. Claude Artifacts metaphor"
+
+  creator_sub_agent_label:
+    definition: "metadata 안에 저장되는 작성자 sub-agent의 표시명 snapshot. sub-agent NPC가 삭제돼도 라벨이 살아남아 '리서치담당이 작성' 같은 fallback 표시 가능"
+
+  artifact_metaphor:
+    definition: "Claude Artifacts UX 패턴 — 채팅 좌측 + 풍부한 결과물(아티팩트)이 우측 패널에. 사용자가 채팅을 계속하면서 아티팩트를 참조"
+
+  expand_phase:
+    definition: "parallel-change 흐름의 expand 단계 — 새 인프라(endpoint·테이블·UI)를 추가만 함. 기존 흐름 미변경. migrate·contract 단계는 future"

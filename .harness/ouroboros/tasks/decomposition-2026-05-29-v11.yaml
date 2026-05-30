@@ -1,0 +1,344 @@
+decomposition:
+  seed_ref: "seed-v11.yaml"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-29-v11-reports.md"
+  generated: "2026-05-29"
+  total_tasks: 18
+  layer_distribution:
+    data: 3
+    logic: 4
+    presentation: 10
+    documentation: 1
+
+  tasks:
+    # ─────────────────────────────────────────────────────────
+    # Phase 1 — Data Layer (저장소 준비)
+    # ─────────────────────────────────────────────────────────
+    - id: "T-V11-001"
+      ac_ref: "AC-001"
+      layer: "data"
+      description: |
+        agentReports Drizzle 정의 추가 (PG + SQLite parity). 컬럼: id (uuid PK
+        defaultRandom), characterId (FK characters.id ON DELETE CASCADE NOT NULL),
+        npcId (FK npcs.id ON DELETE SET NULL nullable), title (text nullable),
+        bodyMarkdown (text NOT NULL), metadata (jsonb / SQLite text), createdAt
+        (timestamptz NOT NULL defaultNow). 인덱스 idx_agent_reports_character_created
+        + idx_agent_reports_npc_created.
+      files:
+        - "deskrpg/src/db/schema.ts"
+        - "deskrpg/src/db/schema-sqlite.ts"
+      test: "schema 컴파일 + drizzle generate 명령 시도 (선택)"
+      depends_on: []
+      estimated_minutes: 20
+
+    - id: "T-V11-002"
+      ac_ref: "AC-001"
+      layer: "data"
+      description: |
+        server-db.js (CJS) inline schema에 agentReports 정의 + module.exports에 노출.
+        sqlite-base-schema.js CREATE TABLE IF NOT EXISTS agent_reports 추가 (+ 두
+        인덱스). v10 phase6 chat_messages 추가 패턴 그대로 따름.
+      files:
+        - "deskrpg/src/db/server-db.js"
+        - "deskrpg/src/db/sqlite-base-schema.js"
+      test: "SQLite dev 시작 시 테이블 자동 생성 확인 (서버 재시작 후 PRAGMA로 검증)"
+      depends_on: ["T-V11-001"]
+      estimated_minutes: 20
+
+    - id: "T-V11-003"
+      ac_ref: "AC-001"
+      layer: "data"
+      description: |
+        Drizzle migration 0009_v11_agent_reports.sql 작성 — CREATE TABLE + 2 인덱스.
+        meta/_journal.json에 idx 9 entry 추가. PG 환경에서 자동 적용 검증.
+      files:
+        - "deskrpg/drizzle/0009_v11_agent_reports.sql"
+        - "deskrpg/drizzle/meta/_journal.json"
+      test: "deskrpg-app 컨테이너 restart 시 migrate.js가 0009 자동 실행 + agent_reports 테이블 + 두 인덱스 존재 확인 (\\d+ agent_reports)"
+      depends_on: ["T-V11-001"]
+      estimated_minutes: 15
+
+    # ─────────────────────────────────────────────────────────
+    # Phase 2 — Logic Layer
+    # ─────────────────────────────────────────────────────────
+    - id: "T-V11-004"
+      ac_ref: "AC-002"
+      layer: "logic"
+      description: |
+        internal-report-handler.ts 신규. v10 internal-chat-push-handler.ts 패턴 모방.
+        ReportPushInput / ReportPushResult 타입 + handleReportPush(input, deps) 구현.
+        파이프라인: validate → idempotency cache 검사 → channel 존재 → npc 존재 +
+        channel 일치 → character 존재 → DB insert (returning id) → socket emit
+        npc:report-ready → idempotency cache 채우기. emit 실패 시 row 영속 + 500
+        internal_error 반환 (TRD-D-41).
+      files:
+        - "deskrpg/src/lib/internal-report-handler.ts"
+      test: "다음 task(T-V11-005)에서 단위 테스트"
+      depends_on: ["T-V11-002"]
+      estimated_minutes: 30
+
+    - id: "T-V11-005"
+      ac_ref: "AC-002"
+      layer: "logic"
+      description: |
+        internal-report-handler.test.ts 작성. 케이스: missing_required_field 각 필드별,
+        channel_not_found, npc_not_found, npc-channel 불일치, character_not_found,
+        idempotency 중복 → 409, 정상 → 201 + persistedReportId, emit 실패 → 500
+        (row는 영속). mock 범위: db handle + emit. 다른 helper는 mock 안 함.
+      files:
+        - "deskrpg/src/lib/internal-report-handler.test.ts"
+      test: "npx tsx --test 로 8+ subtest pass"
+      depends_on: ["T-V11-004"]
+      estimated_minutes: 25
+
+    - id: "T-V11-006"
+      ac_ref: "AC-008"
+      layer: "logic"
+      description: |
+        report-list-service.ts 신규. listReportsByCharacter(characterId, {npcId?, limit?})
+        함수. Drizzle LEFT JOIN npcs → creatorNpcName 가져옴 (npc 삭제된 경우 null).
+        metadata.creator_sub_agent_label 그대로 노출. ORDER BY created_at DESC LIMIT
+        (default 1, max 50).
+      files:
+        - "deskrpg/src/lib/report-list-service.ts"
+      test: "다음 task(T-V11-007)에서 단위 테스트"
+      depends_on: ["T-V11-002"]
+      estimated_minutes: 25
+
+    - id: "T-V11-007"
+      ac_ref: "AC-008"
+      layer: "logic"
+      description: |
+        report-list-service.test.ts. 케이스: npcId 지정 시 그 NPC만 + LIMIT 1, npcId
+        미지정 시 character 전체 max 50, npc 삭제된 row (npc_id NULL) → creatorNpcName
+        NULL + metadata.creator_sub_agent_label fallback, limit boundary (50 초과 요청
+        → 50 clamp).
+      files:
+        - "deskrpg/src/lib/report-list-service.test.ts"
+      test: "npx tsx --test pass"
+      depends_on: ["T-V11-006"]
+      estimated_minutes: 20
+
+    # ─────────────────────────────────────────────────────────
+    # Phase 3 — Presentation Layer (HTTP API + docs)
+    # ─────────────────────────────────────────────────────────
+    - id: "T-V11-008"
+      ac_ref: "AC-002"
+      layer: "presentation"
+      description: |
+        POST /api/internal/reports route.ts 신규. x-deskrpg-internal-secret 검증 →
+        401, snake_case body 파싱 → camelCase 변환 → handleReportPush 호출 →
+        ReportPushResult를 HTTP 응답으로 변환 (statusCode 매핑). emit 의존성 주입:
+        v10 phase5 forwardSocketEmit /_internal/emit 패턴 사용.
+      files:
+        - "deskrpg/src/app/api/internal/reports/route.ts"
+      test: "다음 task(T-V11-009)에서 integration"
+      depends_on: ["T-V11-005"]
+      estimated_minutes: 25
+
+    - id: "T-V11-009"
+      ac_ref: "AC-002"
+      layer: "presentation"
+      description: |
+        POST /api/internal/reports route.test.ts. 케이스: 정상 201 (DB row 검증 +
+        persistedReportId 반환), 401 secret 누락, 400 필수 필드 누락, 404 npc 없음,
+        409 Idempotency-Key 중복, snake_case ↔ camelCase 변환 정확성.
+      files:
+        - "deskrpg/src/app/api/internal/reports/route.test.ts"
+      test: "npx tsx --test pass"
+      depends_on: ["T-V11-008"]
+      estimated_minutes: 25
+
+    - id: "T-V11-010"
+      ac_ref: "AC-008"
+      layer: "presentation"
+      description: |
+        GET /api/reports route.ts 신규. 세션 쿠키 인증 (기존 패턴 — getCurrentCharacter
+        등 v10 user-auth helper 재사용). query npcId/limit 파싱 → listReportsByCharacter
+        호출 → camelCase JSON 응답. 다른 character의 report 접근 차단 (session
+        character.id로만 fetch).
+      files:
+        - "deskrpg/src/app/api/reports/route.ts"
+      test: "다음 task(T-V11-011)에서 integration"
+      depends_on: ["T-V11-007"]
+      estimated_minutes: 20
+
+    - id: "T-V11-011"
+      ac_ref: "AC-008"
+      layer: "presentation"
+      description: |
+        GET /api/reports route.test.ts. 케이스: 미인증 → 401, npcId 지정 fetch,
+        npcId 미지정 fetch (character 전체), 다른 character의 report 못 가져옴,
+        limit clamp 50.
+      files:
+        - "deskrpg/src/app/api/reports/route.test.ts"
+      test: "npx tsx --test pass"
+      depends_on: ["T-V11-010"]
+      estimated_minutes: 20
+
+    - id: "T-V11-012"
+      ac_ref: "AC-007"
+      layer: "documentation"
+      description: |
+        docs/api/internal-events-contract.md Section 12 추가. POST /api/internal/reports
+        스펙: 인증 헤더, body shape (snake_case wire), 응답 코드, Idempotency-Key
+        사용법, socket event 'npc:report-ready' payload shape, 호출 예시 curl.
+        nanobot fork 측 참조 문서.
+      files:
+        - "docs/api/internal-events-contract.md"
+      test: "manual — 다른 팀원이 spec만 보고 push 호출 코드 작성 가능한지 검토"
+      depends_on: ["T-V11-008"]
+      estimated_minutes: 25
+
+    # ─────────────────────────────────────────────────────────
+    # Phase 4 — Presentation Layer (UI 컴포넌트)
+    # ─────────────────────────────────────────────────────────
+    - id: "T-V11-013"
+      ac_ref: "AC-003"
+      layer: "presentation"
+      description: |
+        react-markdown + rehype-sanitize + remark-gfm 의존성 추가 (deskrpg/package.json).
+        ReportPanel.tsx 컴포넌트 신규: props (currentNpcId, characterId), state (report,
+        isLoading, slideIn), useEffect로 mount/refetch, 헤더 (title + 작성자 라벨 fallback
+        + createdAt + 📚 버튼 placeholder), 본문 (react-markdown + remarkGfm +
+        rehypeSanitize). CSS slide-in transition 250ms ease-out.
+      files:
+        - "deskrpg/package.json"
+        - "deskrpg/src/components/ReportPanel.tsx"
+      test: "manual — 마크다운 표·코드·링크 렌더 + script 차단 (XSS payload 박은 body로 manual 검증)"
+      depends_on: ["T-V11-010"]
+      estimated_minutes: 30
+
+    - id: "T-V11-014"
+      ac_ref: "AC-003"
+      layer: "presentation"
+      description: |
+        NpcDialog.tsx 레이아웃 변경. 기존 단일 슬롯 → flex row, 좌측 채팅 + 우측
+        ReportPanel 슬롯. ReportPanel mount/unmount는 dialog open/close에 따라 자연.
+        ReportPanel에 currentNpcId + characterId 전달.
+      files:
+        - "deskrpg/src/components/NpcDialog.tsx"
+      test: "manual — NPC 대화 열기/닫기 시 패널 동반 등장/사라짐"
+      depends_on: ["T-V11-013"]
+      estimated_minutes: 20
+
+    - id: "T-V11-015"
+      ac_ref: "AC-004"
+      layer: "presentation"
+      description: |
+        ReportPanel 자체 socket listener 추가. socket.on('npc:report-ready', payload).
+        payload.npcId === currentNpcId 일 때만 GET /api/reports?npcId=... refetch +
+        slideIn 트리거. 다른 NPC payload는 무시 (GamePageClient가 별도 처리).
+      files:
+        - "deskrpg/src/components/ReportPanel.tsx"
+      test: "manual — curl로 POST 시 패널 자동 갱신 + 슬라이드인 애니메이션"
+      depends_on: ["T-V11-013", "T-V11-008"]
+      estimated_minutes: 15
+
+    - id: "T-V11-016"
+      ac_ref: "AC-004"
+      layer: "presentation"
+      description: |
+        GamePageClient.tsx socket listener 추가. socket.on('npc:report-ready', payload).
+        payload.npcId !== currentNpcId 일 때 토스트 알림 표시 ("{creatorSubAgentLabel
+        || npcName}가 보고서를 올렸어요"). 토스트 클릭 시 setCurrentNpcId(payload.npcId).
+        기존 'npc:push-message' listener 옆에 자연스럽게 배치.
+      files:
+        - "deskrpg/src/app/game/GamePageClient.tsx"
+      test: "manual — 두 개 NPC 동시 대화 시뮬레이션. NPC A 대화 중 NPC B용 보고서 push → 토스트 등장 → 클릭 시 NPC B 전환"
+      depends_on: ["T-V11-008"]
+      estimated_minutes: 20
+
+    - id: "T-V11-017"
+      ac_ref: "AC-005"
+      layer: "presentation"
+      description: |
+        ReportHistoryModal.tsx 신규. 모달 mount 시 GET /api/reports?limit=50 fetch.
+        리스트 row: 작성자 라벨 (creatorSubAgentLabel || creatorNpcName || "삭제된
+        NPC") + createdAt 상대시간 + title + bodyMarkdown 첫 줄 50자. row 클릭 시
+        ReportPanel에 selectedReportId 전달 (props 또는 context). ReportPanel 헤더
+        📚 버튼이 모달 열기.
+      files:
+        - "deskrpg/src/components/ReportHistoryModal.tsx"
+        - "deskrpg/src/components/ReportPanel.tsx"
+      test: "manual — 5건 push 후 history 모달 → 5건 노출 → 3번째 클릭 → 패널에 그 보고서 로드"
+      depends_on: ["T-V11-013", "T-V11-010"]
+      estimated_minutes: 25
+
+    # ─────────────────────────────────────────────────────────
+    # Phase 5 — Verification
+    # ─────────────────────────────────────────────────────────
+    - id: "T-V11-018"
+      ac_ref: "AC-006"
+      layer: "verification"
+      description: |
+        NPC 삭제 시나리오 통합 검증: (1) 보고서 push, (2) NPC 삭제 (DELETE /api/internal/npcs/{id}
+        또는 user UI), (3) DB에서 agent_reports.npc_id NULL 확인, (4) ReportPanel 또는
+        HistoryModal에서 metadata.creator_sub_agent_label snapshot fallback 표시 확인,
+        (5) snapshot도 없으면 "삭제된 NPC" 라벨 표시 확인. 시나리오 결과를 PR body에 기록.
+      files: []
+      test: "manual scenario + DB SQL 검증"
+      depends_on: ["T-V11-013", "T-V11-014", "T-V11-017"]
+      estimated_minutes: 20
+
+  execution_order:
+    - phase: 1
+      name: "Data Foundation"
+      tasks: ["T-V11-001"]
+    - phase: 2
+      name: "Data Parity + Migration"
+      tasks: ["T-V11-002", "T-V11-003"]
+    - phase: 3
+      name: "Logic Handler + Service (+ tests)"
+      tasks: ["T-V11-004", "T-V11-005", "T-V11-006", "T-V11-007"]
+    - phase: 4
+      name: "Presentation API + Docs"
+      tasks: ["T-V11-008", "T-V11-009", "T-V11-010", "T-V11-011", "T-V11-012"]
+    - phase: 5
+      name: "Presentation UI Core"
+      tasks: ["T-V11-013", "T-V11-014", "T-V11-015"]
+    - phase: 6
+      name: "Presentation UI History + Toast"
+      tasks: ["T-V11-016", "T-V11-017"]
+    - phase: 7
+      name: "Verification"
+      tasks: ["T-V11-018"]
+
+  pr_grouping:
+    - pr_no: 1
+      name: "feat(v11-phase1): agent_reports schema + Drizzle 0009 + handler/service Logic"
+      tasks: ["T-V11-001", "T-V11-002", "T-V11-003", "T-V11-004", "T-V11-005", "T-V11-006", "T-V11-007"]
+      branch_pattern: "feat/v11-phase1-reports-foundation"
+    - pr_no: 2
+      name: "feat(v11-phase2): POST/GET reports API + contract docs"
+      tasks: ["T-V11-008", "T-V11-009", "T-V11-010", "T-V11-011", "T-V11-012"]
+      branch_pattern: "feat/v11-phase2-reports-api"
+    - pr_no: 3
+      name: "feat(v11-phase3): ReportPanel UI + socket integration"
+      tasks: ["T-V11-013", "T-V11-014", "T-V11-015", "T-V11-016"]
+      branch_pattern: "feat/v11-phase3-report-panel"
+    - pr_no: 4
+      name: "feat(v11-phase4): HistoryModal + NPC delete verification"
+      tasks: ["T-V11-017", "T-V11-018"]
+      branch_pattern: "feat/v11-phase4-history-verify"
+
+  validation:
+    total_tasks: 18
+    by_layer:
+      data: 3
+      logic: 4
+      presentation: 10
+      documentation: 1
+    dependencies_valid: true
+    all_testable: true
+    all_under_30min: true
+    ac_coverage:
+      AC-001: ["T-V11-001", "T-V11-002", "T-V11-003"]
+      AC-002: ["T-V11-004", "T-V11-005", "T-V11-008", "T-V11-009"]
+      AC-003: ["T-V11-013", "T-V11-014"]
+      AC-004: ["T-V11-015", "T-V11-016"]
+      AC-005: ["T-V11-017"]
+      AC-006: ["T-V11-018"]
+      AC-007: ["T-V11-012"]
+      AC-008: ["T-V11-006", "T-V11-007", "T-V11-010", "T-V11-011"]
+    coverage_complete: true
+    result: "VALID"

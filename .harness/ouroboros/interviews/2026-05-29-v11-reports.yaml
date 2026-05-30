@@ -1,0 +1,91 @@
+date: "2026-05-29T00:00:00"
+topic: "v11 — nanobot 분석 결과를 채팅창 옆 보고서 패널(Claude Artifacts 스타일)에 띄우기"
+type: "brownfield"
+related_backlog: "seed-v10 non_blocking_backlog v10-backlog-6"
+
+dimensions:
+  goal_clarity: 0.95
+  constraint_clarity: 0.92
+  success_criteria: 0.90
+  context_clarity: 0.88
+ambiguity_score: 0.09
+
+answers:
+  - question: "보고서 push 트리거는?"
+    answer: "위 셋 다 가능 (nanobot 자유). deskrpg는 endpoint만 열고 받는 입장"
+    dimension: "goal"
+    clarity_delta: +0.10
+
+  - question: "보고서 scope (소유 단위)?"
+    answer: "Character 주 + NPC 참조 (npc_id ON DELETE SET NULL). NPC 삭제돼도 보고서 살아남고 작성자 라벨은 metadata snapshot으로 fallback"
+    dimension: "goal"
+    clarity_delta: +0.10
+
+  - question: "보고서 lifecycle?"
+    answer: "단발성 (한 번 push = 완성된 보고서). 추후 nanobot 측 필요 시 진화 가능"
+    dimension: "goal"
+    clarity_delta: +0.05
+
+  - question: "패널 표시 필터?"
+    answer: "현재 NPC의 최신 보고서만 (Claude Artifacts metaphor 그대로). NPC 바꾸면 패널도 자연 교체"
+    dimension: "goal"
+    clarity_delta: +0.05
+
+  - question: "동시 다수 보고서 push 처리?"
+    answer: "현재 NPC 패널 + 채팅 영역에 'OO가 보고서 올림' 토스트만. 다른 NPC 보고서는 DB 저장하고 토스트 알림 후 클릭 시 NPC 전환 + 패널 갱신"
+    dimension: "constraint"
+    clarity_delta: +0.15
+
+  - question: "마크다운 보안 수준?"
+    answer: "1번 sanitize (react-markdown + rehype-sanitize 표준). raw HTML/script 차단. 렌더 안정성·운영 안정성 둘 다 우월"
+    dimension: "constraint"
+    clarity_delta: +0.10
+
+  - question: "보고서 양/크기 제한?"
+    answer: "안 두고 이슈 생기면 해결 (YAGNI). 운영 측에서 디스크·UI 문제 발생 시 그 때 limit 추가"
+    dimension: "constraint"
+    clarity_delta: +0.05
+
+  - question: "사용자 흐름 검증 (Supervisor → sub-agent spawn → 보고서 push → main이 완료 채팅)?"
+    answer: "흐름 100% 맞음. v11 신규 부분은 step 5 (sub-agent → /api/internal/reports) + step 5-2 (UI 패널 렌더). 나머지는 v10 인프라 재사용"
+    dimension: "goal"
+    clarity_delta: +0.05
+
+  - question: "npc_id 필드 값 — parent vs sub-agent?"
+    answer: "A 확정 (parent npc_id). nanobot session metadata에 이미 parent_npc_id 있음 (v10 phase3). 작성자 라벨은 metadata.creator_sub_agent_label snapshot. phase 6 chat-push와 정합"
+    dimension: "constraint"
+    clarity_delta: +0.07
+
+decisions:
+  - "보고서 = 자유 마크다운 + 웹 렌더 (rehype-sanitize). PDF/DOCX는 future."
+  - "패널 슬롯 1개 + history 모달. 무한 스크롤·검색 X (MVP)."
+  - "DB: 별 테이블 npc_reports. character_id FK + npc_id FK (ON DELETE SET NULL). channel_id는 metadata만 (future filter용)."
+  - "Endpoint: POST /api/internal/reports — INTERNAL_RPC_SECRET 인증. v10 internal endpoint 패턴 재사용."
+  - "Socket event: npc:report-ready broadcast. 현재 NPC면 패널 자동 슬라이드인, 아니면 채팅 위 토스트."
+  - "Lifecycle: 단발성. 같은 reportId로 PATCH 미지원 (future)."
+  - "npc_id = parent (Supervisor 등). 작성자 sub-agent는 metadata.creator_sub_agent_label로 snapshot."
+
+assumptions_surfaced:
+  - "nanobot 측은 sub-agent 완료 시점에 /api/internal/reports + (선택) 채팅 완료 메시지 두 가지를 보낼 책임. 이 cycle은 endpoint만 열고 nanobot 호출자는 별 PR (다른 팀원)"
+  - "Claude Artifacts는 PDF가 아닌 웹 렌더링 (헷갈리지 않게 명시)"
+  - "report.npc_id가 parent 기준이라 sub-agent npc 그 자체는 보고서 패널과 직접 연결 안 됨 (사용자가 sub-agent와 직접 대화 안 하므로 자연)"
+  - "chat-push (phase 6, 한 줄 알림)과 reports (v11, 본문 큰 보고서)는 책임 분리 — 같은 table 안 씀"
+  - "INTERNAL_RPC_SECRET 외 추가 보안 (rate limit 등)은 future. v10 endpoint들과 동일 수준"
+
+mvp_scenarios:
+  - "POST /api/internal/reports 호출 → npc_reports row 생성 + socket emit"
+  - "패널: 현재 NPC의 최신 보고서를 우측 패널에 마크다운 보고서 톤으로 렌더 (sanitize 거침)"
+  - "다른 NPC 동시 보고서 push → 채팅 영역 위 토스트 'OO가 보고서 올림' + 클릭 시 NPC 전환 + 패널 갱신"
+  - "새로고침 후 보고서 영속 (DB에서 다시 fetch)"
+  - "NPC 삭제 후 보고서 살아남음 (npc_id NULL, metadata.creator_sub_agent_label fallback 표시)"
+  - "패널 옆 'history' 버튼 → 모달에 character의 보고서 목록 (최신순, NPC 라벨 포함)"
+  - "INTERNAL_RPC_SECRET 누락 → 401"
+
+out_of_scope:
+  - "PDF/DOCX 다운로드 (future)"
+  - "보고서 본문 검색 (future)"
+  - "보고서 lifecycle update (in-progress → completed PATCH; future)"
+  - "모바일 반응형 (desktop 우선)"
+  - "보고서 공유 URL"
+  - "본문 크기 limit"
+  - "channel 단위 필터링 (channel_id는 metadata에만)"

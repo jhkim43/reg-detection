@@ -262,6 +262,22 @@ export const chatMessages = sqliteTable("chat_messages", {
   index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
 ]);
 
+// seed-v11 AC-001: schema.ts와 parity. jsonb → text (jsonForDb 사용).
+export const agentReports = sqliteTable("agent_reports", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  characterId: text("character_id").notNull()
+    .references(() => characters.id, { onDelete: "cascade" }),
+  npcId: text("npc_id")
+    .references(() => npcs.id, { onDelete: "set null" }),
+  title: text("title"),
+  bodyMarkdown: text("body_markdown").notNull(),
+  metadata: text("metadata"),
+  createdAt: text("created_at").$defaultFn(() => new Date().toISOString()).notNull(),
+}, (table) => [
+  index("idx_agent_reports_character_created").on(table.characterId, table.createdAt),
+  index("idx_agent_reports_npc_created").on(table.npcId, table.createdAt),
+]);
+
 export const meetingMinutes = sqliteTable("meeting_minutes", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),

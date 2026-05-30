@@ -268,6 +268,27 @@ export const chatMessages = pgTable("chat_messages", {
   index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
 ]);
 
+// seed-v11 AC-001: Claude Artifacts 스타일 보고서 본문 보관. 기존 npc_reports (task queue,
+// 0000_big_karnak.sql)와 도메인이 달라 별 테이블로 분리.
+//   - character_id NOT NULL CASCADE: 보고서 소유자 (character 삭제 시 보고서도 삭제).
+//   - npc_id nullable SET NULL: 작성자 NPC. NPC 삭제돼도 보고서는 결과물로 보존.
+//   - body_markdown: 자유 마크다운 (sanitize는 render 시점 — react-markdown + rehype-sanitize).
+//   - metadata: creator_sub_agent_label snapshot, channel_id_snapshot 등 free-form.
+export const agentReports = pgTable("agent_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  characterId: uuid("character_id").notNull()
+    .references(() => characters.id, { onDelete: "cascade" }),
+  npcId: uuid("npc_id")
+    .references(() => npcs.id, { onDelete: "set null" }),
+  title: text("title"),
+  bodyMarkdown: text("body_markdown").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_agent_reports_character_created").on(table.characterId, table.createdAt),
+  index("idx_agent_reports_npc_created").on(table.npcId, table.createdAt),
+]);
+
 export const meetingMinutes = pgTable("meeting_minutes", {
   id: uuid("id").primaryKey().defaultRandom(),
   channelId: uuid("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
