@@ -750,6 +750,10 @@ function GamePageInner() {
       }) => {
         setUnreadReportCount((n) => n + 1);
 
+        // 해당 NPC sprite 위에 "..." 말풍선 — 사용자에게 새 보고서 도착 시각 신호.
+        // 사용자가 그 NPC 대화 열면 자동 clear (handleMovementArrived와 동일 정리 로직).
+        EventBus.emit("npc:bubble", { npcId: data.npcId });
+
         if (dialogNpcRef.current?.npcId === data.npcId) {
           // 같은 NPC — 채팅 카드 (실시간) 추가
           setNpcMessages((prev) => [
@@ -774,11 +778,18 @@ function GamePageInner() {
             `agent-report-${data.reportId}`,
             `${label}가 보고서를 올렸어요 — 클릭해서 열기`,
             () => {
-              // NPC 전환 — channelNpcs find가 실패해도 payload 정보로 전환
-              setDialogNpc({
+              // NPC 전환 + 채팅 history fetch (handleMovementArrived 흐름과 동일)
+              const nextDialogNpc = {
                 npcId: data.npcId,
                 npcName: npcMeta?.name ?? data.creatorSubAgentLabel ?? "NPC",
-              });
+              };
+              dialogNpcRef.current = nextDialogNpc;
+              setDialogNpc(nextDialogNpc);
+              EventBus.emit("dialog:open");
+              EventBus.emit("npc:bubble-clear", { npcId: data.npcId });
+              if (socketRef.current) {
+                socketRef.current.emit("npc:history", { npcId: data.npcId });
+              }
               setSelectedReportId(data.reportId);
               setReportPanelOpen(true);
               setUnreadReportCount(0);
