@@ -280,6 +280,18 @@ function ensureSqliteBaseSchema(sqlite) {
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lookup ON chat_messages(character_id, npc_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_npc_kind ON chat_messages(npc_id, kind, created_at);
 
+    CREATE TABLE IF NOT EXISTS agent_reports (
+      id TEXT PRIMARY KEY NOT NULL,
+      character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      npc_id TEXT REFERENCES npcs(id) ON DELETE SET NULL,
+      title TEXT,
+      body_markdown TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_reports_character_created ON agent_reports(character_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_reports_npc_created ON agent_reports(npc_id, created_at);
+
     CREATE TABLE IF NOT EXISTS meeting_minutes (
       id TEXT PRIMARY KEY NOT NULL,
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,

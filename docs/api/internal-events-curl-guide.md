@@ -219,9 +219,106 @@ curl -sS -X POST "$DESKRPG_URL/api/internal/tasks" \
 
 ---
 
-## 4. 동작 확인 — DB + 화면
+## 4. Chat-push (sub-agent → parent NPC chat 한 줄 메시지) — `POST /api/internal/chat-push`
 
-### 4.1 DB 확인
+v10 phase 5/6에서 안착된 endpoint. sub-agent의 비동기 완료·진행 보고를 parent NPC chat에 한 줄 prefix 메시지로 표시하기 위한 push 통로. 클라이언트는 socket `npc:push-message` listener로 즉시 표시하고, 새로고침 후엔 `chat_messages` history fetch로 자연 복원.
+
+> 본문 큰 마크다운 보고서는 **v11 reports endpoint** (`POST /api/internal/reports`, phase 2 머지 후) 별 트랙. chat-push는 짧은 알림성 메시지 전용.
+
+### 정상 요청
+
+```bash
+# Idempotency-Key는 선택 — 짧은 시간 내 중복 push 방지 (TTL 10분 in-memory)
+IDEMP_KEY="subagent-research-001-completed-$(date +%s)"
+
+curl -sS -X POST "$DESKRPG_URL/api/internal/chat-push" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: $IDEMP_KEY" \
+  -d '{
+    "session_key":"api:ot-247148b5-Supervisor-dm-6060c836",
+    "channel_id":"'"$CHANNEL_ID"'",
+    "npc_id":"'"$PARENT_NPC_ID"'",
+    "message":"리서치 1단계 완료 — 주요 사건 5건 정리됨",
+    "kind":"subagent_push",
+    "subagent_id":"agent-research-001",
+    "subagent_label":"리서치담당",
+    "task_npc_task_id":"task-research-001",
+    "metadata":{"phase":"intermediate"}
+  }' | jq
+```
+
+**기대 응답** (`201`):
+```json
+{ "persisted_message_id": "<chat-messages row uuid>" }
+```
+
+### 동작
+
+1. `chat_messages` row insert — `role="assistant"`, `kind="subagent_push"`, `character_id=NULL`, `metadata={subagentId, subagentLabel, taskNpcTaskId, ...}`
+2. socket `npc:push-message` broadcast (room=channelId) — 클라이언트가 `[리서치담당] 리서치 1단계 완료 ...` prefix로 표시
+3. 새로고침 후 `chat_messages` history fetch가 `character_id IS NULL` 케이스도 포함해 push 메시지 복원 (loadHistory)
+
+### npc_id 결정 규칙 (D-33 / v10 phase3)
+
+`npc_id`는 **parent NPC** (Supervisor 등) 의 deskrpg uuid. sub-agent 자체가 아님. nanobot은 v10 phase3에서 깔린 session metadata의 `parent_npc_id`를 그대로 전달.
+
+### 흔한 에러 케이스
+
+| 응답 | errorCode | 원인 |
+|---|---|---|
+| 201 | — | 정상 |
+| 400 | `missing_required_field` | `session_key`/`channel_id`/`npc_id`/`message` 중 하나 누락 또는 빈 문자열 |
+| 401 | `unauthorized` | `x-deskrpg-internal-secret` 누락 또는 불일치 |
+| 404 | `channel_not_found` | `channel_id`가 DB에 없음 |
+| 404 | `npc_not_found` | `npc_id`가 DB에 없거나 NPC의 channel_id가 본 요청의 channel_id와 다름 |
+| 409 | `duplicate_message` | 같은 `Idempotency-Key`로 10분 내 재호출 (TTL in-memory) |
+| 500 | `internal_error` | DB insert 실패 또는 socket emit 실패 (emit 실패 시에도 row는 영속됨 — retry 가능) |
+
+### Idempotency-Key 동작 검증
+
+```bash
+# 1차 — 201
+curl -sS -X POST "$DESKRPG_URL/api/internal/chat-push" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: dup-test-key" \
+  -d '{"session_key":"s","channel_id":"'"$CHANNEL_ID"'","npc_id":"'"$PARENT_NPC_ID"'","message":"first"}' -i | head -3
+
+# 2차 — 같은 Idempotency-Key → 409 duplicate_message
+curl -sS -X POST "$DESKRPG_URL/api/internal/chat-push" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: dup-test-key" \
+  -d '{"session_key":"s","channel_id":"'"$CHANNEL_ID"'","npc_id":"'"$PARENT_NPC_ID"'","message":"second"}' -i | head -3
+```
+
+### DB 확인
+
+```bash
+docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
+  SELECT id, npc_id, role, kind, character_id, content,
+         metadata->>'subagentLabel' AS sub_label,
+         metadata->>'taskNpcTaskId' AS task_npc_task_id
+  FROM chat_messages
+  WHERE kind = 'subagent_push'
+  ORDER BY created_at DESC LIMIT 5;
+"
+```
+
+→ `character_id` 모두 NULL, `metadata.subagentLabel` 채워짐 확인.
+
+### 화면 확인
+
+채널 페이지 열린 상태에서 curl 호출 → 채팅 영역에 `[리서치담당] 리서치 1단계 완료 — 주요 사건 5건 정리됨` 즉시 추가 (새로고침 불요).
+
+새로고침 후 dialog 재오픈해도 같은 메시지가 history에 보존됨 (T-V37 loadHistory의 `character_id IS NULL` OR 절이 push 메시지를 함께 fetch).
+
+---
+
+## 5. 동작 확인 — DB + 화면
+
+### 5.1 DB 확인
 
 ```bash
 docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
@@ -235,17 +332,17 @@ docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
 "
 ```
 
-### 4.2 실시간 화면 (T-V28 client wiring)
+### 5.2 실시간 화면 (T-V28 client wiring)
 
 `docker compose -f docker-compose-integration.yml up -d deskrpg-app`로 deskrpg 띄운 후 브라우저에서 채널 페이지 열어두면 — curl 호출이 socket.io broadcast → **새로고침 없이** 화면에 sub-agent sprite + 태스크보드 카드 실시간 등장/소멸.
 
-### 4.3 backlog-A snapshot 검증
+### 5.3 backlog-A snapshot 검증
 
 NPC DELETE 후에도 tasks row는 살아남고 (FK `ON DELETE SET NULL`), 카드의 작업자 라벨은 `npc_name_snapshot`으로 보존됨. dummy NPC + task lifecycle 한 사이클 돌려보면 확인 가능.
 
 ---
 
-## 5. 자주 발생하는 함정
+## 6. 자주 발생하는 함정
 
 1. **`x-deskrpg-internal-secret` 헤더 누락** → 401. `$JWT_SECRET` 환경변수가 deskrpg와 nanobot 컨테이너 양쪽에 같은 값이어야.
 2. **`parentAgentId`는 agentId 문자열** (UUID 아님). nanobot의 spawn metadata의 `parent_npc_id`도 agentId.
@@ -255,7 +352,7 @@ NPC DELETE 후에도 tasks row는 살아남고 (FK `ON DELETE SET NULL`), 카드
 
 ---
 
-## 6. nanobot 측 → 우리 endpoint 호출 디버깅 가이드
+## 7. nanobot 측 → 우리 endpoint 호출 디버깅 가이드
 
 nanobot에서 `[DeskRPG Sync Error]` 발생 시 로그에 추가 출력:
 ```python
@@ -270,9 +367,9 @@ log.error(f"[DeskRPG Sync Error] {method} {url} body={json.dumps(body)} status={
 
 ---
 
-## 7. 참고
+## 8. 참고
 
 - contract spec: `docs/api/internal-events-contract.md`
-- handler 구현: `deskrpg/src/lib/internal-{task,npc}-handler.ts`
-- route: `deskrpg/src/app/api/internal/{tasks,npcs}/route.ts`
-- 통합 시나리오 검증 결과: `feat/v10-phase1-2-internal-endpoints` PR description
+- handler 구현: `deskrpg/src/lib/internal-{task,npc,chat-push}-handler.ts`
+- route: `deskrpg/src/app/api/internal/{tasks,npcs,chat-push}/route.ts`
+- 통합 시나리오 검증 결과: `feat/v10-phase1-2-internal-endpoints` + phase5/6 PR description

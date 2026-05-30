@@ -614,6 +614,20 @@ if (isPostgres) {
     index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
   ]);
 
+  // seed-v11 AC-001: Claude Artifacts 보고서 본문 보관 (기존 npc_reports task queue 와 도메인 별개).
+  const agentReports = pgTable("agent_reports", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    characterId: uuid("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+    npcId: uuid("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+    title: text("title"),
+    bodyMarkdown: text("body_markdown").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  }, (table) => [
+    index("idx_agent_reports_character_created").on(table.characterId, table.createdAt),
+    index("idx_agent_reports_npc_created").on(table.npcId, table.createdAt),
+  ]);
+
   // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
   const nanobotAgentSessions = pgTable("nanobot_agent_sessions", {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -650,6 +664,7 @@ if (isPostgres) {
     tasks,
     npcReports,
     chatMessages,
+    agentReports,
     nanobotAgentSessions,
   };
 
@@ -943,6 +958,20 @@ if (isPostgres) {
     index("idx_chat_messages_npc_kind").on(table.npcId, table.kind, table.createdAt),
   ]);
 
+  // seed-v11 AC-001: parity with PG. jsonb → text (jsonForDb helper 사용).
+  const agentReports = sqliteTable("agent_reports", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+    npcId: text("npc_id").references(() => npcs.id, { onDelete: "set null" }),
+    title: text("title"),
+    bodyMarkdown: text("body_markdown").notNull(),
+    metadata: text("metadata"),
+    createdAt: text("created_at").$defaultFn(() => new Date().toISOString()).notNull(),
+  }, (table) => [
+    index("idx_agent_reports_character_created").on(table.characterId, table.createdAt),
+    index("idx_agent_reports_npc_created").on(table.npcId, table.createdAt),
+  ]);
+
   // seed-v9 AC-013/AC-014 — nanobot 게이트웨이 chat 세션 추적. schema.ts와 parity.
   const nanobotAgentSessions = sqliteTable("nanobot_agent_sessions", {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -979,6 +1008,7 @@ if (isPostgres) {
     tasks,
     npcReports,
     chatMessages,
+    agentReports,
     nanobotAgentSessions,
   };
 
