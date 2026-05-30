@@ -511,6 +511,8 @@ async function main() {
       character_id: characterId,
       channel_id: channelId,
       parent_npc_id: npcConfig._openclawAgentId || agentId,
+      // nanobot 팀원 요청 (2026-05-30): NPC의 deskrpg UUID도 함께
+      npc_id: npcId,
     };
 
     try {

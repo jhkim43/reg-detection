@@ -285,15 +285,23 @@ session_id = "ot-{channelId8}-{agentId}-dm-{userUUID}"
   session_id: "ot-{ch8}-{agentId}-dm-{userUUID}",
   stream: true,
 
-  // ★ 신규 (AC-006)
+  // ★ 신규 (AC-006), 2026-05-30 npc_id 추가
   metadata: {
     user_id: string (UUID),         // 사용자 user.id — internal endpoint body의 ownerUserId
     character_id: string (UUID),    // 사용자 character.id — internal endpoint body의 assignerCharacterId
     channel_id: string (UUID),
-    parent_npc_id?: string (UUID)   // sub-agent의 chat인 경우 parent NPC의 npcs.id
+    parent_npc_id?: string,         // openclawConfig.agentId 문자열 (예: "Supervisor", "pm-a")
+                                    // — internal-npc-handler.findParentNpc가 이걸로 매칭
+    npc_id?: string (UUID)          // 현재 chat 대상 NPC의 npcs.id (DB row PK)
+                                    // — 2026-05-30 nanobot 팀원 요청. session 식별 시 사용
   }
 }
 ```
+
+`parent_npc_id` vs `npc_id` 차이:
+- `parent_npc_id`: nanobot agent loop의 self-식별자 (string, openclawConfig.agentId)
+- `npc_id`: deskrpg DB의 npc row의 PK (UUID, npcs.id)
+- 둘은 다른 식별자 — sub-agent flow에서 parent에 대해 동일 값이지만 형식이 다름
 
 ### 현재 nanobot 코드의 metadata 처리 상태
 
