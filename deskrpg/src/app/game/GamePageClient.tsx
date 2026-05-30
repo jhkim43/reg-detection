@@ -774,7 +774,11 @@ function GamePageInner() {
             `agent-report-${data.reportId}`,
             `${label}가 보고서를 올렸어요 — 클릭해서 열기`,
             () => {
-              if (npcMeta) setDialogNpc({ npcId: npcMeta.id, npcName: npcMeta.name });
+              // NPC 전환 — channelNpcs find가 실패해도 payload 정보로 전환
+              setDialogNpc({
+                npcId: data.npcId,
+                npcName: npcMeta?.name ?? data.creatorSubAgentLabel ?? "NPC",
+              });
               setSelectedReportId(data.reportId);
               setReportPanelOpen(true);
               setUnreadReportCount(0);
