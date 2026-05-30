@@ -258,6 +258,7 @@ function GamePageInner() {
   const [channelChatOpen, setChannelChatOpen] = useState(false);
   const [channelChatInputDisabled, setChannelChatInputDisabled] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<(() => void) | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Notification state
@@ -418,10 +419,14 @@ function GamePageInner() {
     };
   }, [channelId]);
 
-  const showToastNotification = useCallback((id: string, message: string) => {
+  const showToastNotification = useCallback((id: string, message: string, onClick?: () => void) => {
     setToastMessage(message);
+    setToastAction(() => onClick ?? null);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), 4000);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+      setToastAction(null);
+    }, 4000);
     setNotifications((prev) =>
       [{ id, message, timestamp: Date.now(), read: false }, ...prev].slice(0, 20),
     );
@@ -705,6 +710,30 @@ function GamePageInner() {
 
       socketInstance.on("npc:returning", (data: { npcId: string }) => {
         EventBus.emit("npc:start-return", { npcId: data.npcId });
+      });
+
+      // seed-v11 AC-004 / T-V11-016: agent-report:ready 토스트 (다른 NPC인 경우만).
+      // 현재 NPC와 일치하는 경우는 ReportPanel 자체 listener가 처리 (T-V11-015).
+      socketInstance.on("agent-report:ready", (data: {
+        reportId: string;
+        npcId: string;
+        channelId: string;
+        title?: string | null;
+        creatorSubAgentLabel?: string | null;
+        createdAt?: string;
+      }) => {
+        if (dialogNpcRef.current?.npcId === data.npcId) return;
+        const npcMeta = channelNpcs.find((n) => n.id === data.npcId);
+        const label = data.creatorSubAgentLabel || npcMeta?.name || "Agent";
+        showToastNotification(
+          `agent-report-${data.reportId}`,
+          `${label}가 보고서를 올렸어요 — 클릭해서 열기`,
+          () => {
+            if (npcMeta) {
+              setDialogNpc({ npcId: npcMeta.id, npcName: npcMeta.name });
+            }
+          },
+        );
       });
 
       // NPC response streaming — DM messages only
@@ -2297,11 +2326,25 @@ function GamePageInner() {
             </div>
           )}
 
-          {/* Bottom toast */}
+          {/* Bottom toast — clickable if toastAction is set (e.g. agent-report:ready 토스트 → 그 NPC로 전환) */}
           {toastMessage && !interactSelectList && (
-            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 text-text text-body bg-surface/90 backdrop-blur px-5 py-2 rounded-full shadow-lg border border-border/50">
-              {toastMessage}
-            </div>
+            toastAction ? (
+              <button
+                onClick={() => {
+                  toastAction();
+                  setToastMessage(null);
+                  setToastAction(null);
+                  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+                }}
+                className="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 text-text text-body bg-surface/90 backdrop-blur px-5 py-2 rounded-full shadow-lg border border-border/50 cursor-pointer hover:bg-surface transition-colors"
+              >
+                {toastMessage}
+              </button>
+            ) : (
+              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 text-text text-body bg-surface/90 backdrop-blur px-5 py-2 rounded-full shadow-lg border border-border/50">
+                {toastMessage}
+              </div>
+            )
           )}
 
           {/* Left-side chat panel — resizable */}
