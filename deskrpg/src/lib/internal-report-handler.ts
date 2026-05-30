@@ -6,7 +6,8 @@
 // 패턴: v10 phase5/6 internal-chat-push-handler.ts 답습.
 //   - 필수 필드 validation + channel/npc/character 존재 확인 + npc-channel 일치
 //   - in-memory idempotency cache (Idempotency-Key 헤더, TTL 10분)
-//   - agent_reports row insert + socket emit "npc:report-ready"
+//   - agent_reports row insert + socket emit "agent-report:ready"
+//     (기존 npc_reports task queue의 "npc:report-ready"와는 도메인 다름 — rename으로 분리)
 //   - emit 실패 시 row 영속 + 500 (TRD-D-41) — 다음 history fetch에서 클라이언트 복원
 
 import { eq } from "drizzle-orm";
