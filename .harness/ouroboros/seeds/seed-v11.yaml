@@ -17,6 +17,30 @@ evolves: "v10-backlog-6"
 # ─────────────────────────────────────────────────────────────────────
 post_creation_amendments:
   - date: "2026-05-30"
+    field: "UX 모델 + 사용자 검증 폴리시 (phase3 진행 중 다수 결정)"
+    reason: |
+      phase3 사용자 화면 검증 중 UX 모델이 크게 진화. TRD-D-39(always-on 슬롯)에서
+      click-to-open으로 전환. 사용자 명시 요구:
+      (1) ReportPanel은 기본 닫힘, 헤더 "📄 보고서" 버튼 또는 채팅 카드/popover로 열기
+      (2) 채팅 카드 영속 — chat_messages kind="report_card" row 영속 저장 + history 복원
+      (3) 모던 보고서 톤 (A1) — 화이트 + 네이비(#1a2547) + 골드(#c8943c). Claude DOCX 영감.
+      (4) 슬라이드 모드 (마크다운 '---' 구분자 → 📄/📊 토글, ← → 키보드)
+      (5) PDF 다운로드 (zero-dep window.print 임베드 CSS)
+      (6) 다수 노이즈 정리: "Press / to talk", 자동 인사 알람, 가까이 가면 뜨는 "..."
+      (7) 채팅 메시지 시:분 표시, 카드 실제 createdAt 기반 상대시간
+      (8) 토스트 wider window (8초) + 클릭 시 history fetch + NPC sprite bubble 신호
+      (9) 알림 read 통합 — 토스트/카드/popover 모든 진입에서 일관
+      TRD-D-39은 amendment 처리 (옵션 a → click-to-open). 시드의 must는 그대로 (슬롯
+      1개 + history 모달 — 단 history 모달은 v11-backlog-7로 트래킹, popover 5건이 우선).
+    affected_refs:
+      - "TRD-D-39 (Panel mount = on-demand)"
+      - "TRD-D-40 (📚 history 버튼 → 헤더 popover로 일부 대체)"
+      - "AC-003 description (UX 모델)"
+      - "AC-004 description (토스트 + 카드 + sprite bubble)"
+      - "AC-005 description (HistoryModal → v11-backlog-7)"
+      - "non_blocking_backlog (v11-backlog-7 추가)"
+
+  - date: "2026-05-30"
     field: "socket event 이름: npc:report-ready → agent-report:ready"
     reason: |
       phase2 curl 검증 중 발견 — `npc:report-ready`는 0000_big_karnak.sql부터 존재하는
@@ -437,6 +461,17 @@ non_blocking_backlog:
     detail: |
       현재는 limit 없음 (YAGNI). 실제 운영에서 보고서가 100KB+ 자주 들어오거나 DB 비대해지면
       max 50KB + 초과 시 첨부 분리.
+
+  - id: "v11-backlog-7"
+    title: "ReportHistoryModal (50건 + 검색·필터)"
+    priority: "low"
+    owner: "본인 (deskrpg)"
+    detail: |
+      phase3에서 도입한 헤더 popover(5건)로 일반 사용 충분. 누적량이 30+ 넘어가면 모달
+      형태로 50건 + 검색·필터·작성자 NPC별 그룹 등 추가. 사용 패턴 보고 진행. AC-005
+      (T-V11-017) 작업이 이 backlog로 이관.
+      detail_extra: |
+        진입 위치 후보: popover 하단 "전체 보기 →" 링크, 또는 헤더 보고서 버튼 long-press.
 
 # ─────────────────────────────────────────────────────────────────────
 # Migration Strategy
