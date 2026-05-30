@@ -14,6 +14,13 @@ export interface NpcChatMessage {
   role: "player" | "npc";
   content: string;
   taskCard?: { taskId: string; npcTaskId: string; title: string; status: string };
+  // seed-v11 AC-004 (revised UX): 보고서 도착 알림 카드 (1회성, history 영속 X)
+  reportCard?: {
+    reportId: string;
+    title: string | null;
+    creatorSubAgentLabel: string | null;
+    createdAt: string;
+  };
 }
 
 interface NpcDialogProps {

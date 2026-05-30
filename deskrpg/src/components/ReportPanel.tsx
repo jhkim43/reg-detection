@@ -174,6 +174,57 @@ export default function ReportPanel({ reportId, currentNpcId, socket, onClose }:
 
   const bodyToRender = viewMode === "slide" && slideEligible ? slides[safeIndex] : report?.bodyMarkdown ?? "";
 
+  // PDF 다운로드 — 새 의존성 없이 window.print() + Save as PDF.
+  //   - 패널 본문(rendered HTML)을 새 창에 복사 + 임베드 CSS + auto print.
+  //   - 사용자는 인쇄 대화상자에서 "PDF로 저장" 선택. 한글 폰트는 시스템 처리.
+  const handleDownloadPdf = useCallback(() => {
+    if (!report) return;
+    const bodyEl = document.querySelector<HTMLElement>("[data-report-body-content]");
+    const html = bodyEl?.innerHTML ?? "";
+    const win = window.open("", "_blank", "width=820,height=1100");
+    if (!win) return;
+    const safeTitle = (report.title ?? "보고서").replace(/[<>&"']/g, (c) =>
+      ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c] ?? c),
+    );
+    const headerLine = `${creatorLabel ?? ""} · ${new Date(report.createdAt).toLocaleString("ko-KR")}`;
+    win.document.write(`<!doctype html><html lang="ko"><head>
+<meta charset="utf-8" />
+<title>${safeTitle}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Pretendard", "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Noto Sans KR", sans-serif; color: #334155; padding: 0; background: #fff; line-height: 1.7; }
+  .report-title { font-size: 26px; font-weight: 800; color: #1a2547; padding-bottom: 12px; border-bottom: 3px solid #c8943c; margin: 0 0 8px 0; letter-spacing: -0.01em; }
+  .report-meta { color: #64748b; font-size: 12px; margin-bottom: 24px; }
+  h1 { font-size: 22px; font-weight: 700; color: #1a2547; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #c8943c; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; font-weight: 700; color: #1a2547; margin: 22px 0 8px; }
+  h3 { font-size: 15px; font-weight: 600; color: #1a2547; margin: 16px 0 6px; }
+  p { color: #334155; margin: 8px 0; }
+  strong { color: #1a2547; font-weight: 700; }
+  em { color: #475569; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { color: #334155; margin: 4px 0; }
+  blockquote { border-left: 4px solid #c8943c; background: #f8fafc; padding: 8px 16px; margin: 12px 0; color: #334155; }
+  blockquote p { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  thead { background: #1a2547; }
+  th { color: #fff; padding: 9px 12px; text-align: left; border: 1px solid #1a2547; font-weight: 600; }
+  td { padding: 8px 12px; border: 1px solid #e2e8f0; color: #334155; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  a { color: #c8943c; text-decoration: underline; font-weight: 500; }
+  code { background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 4px; overflow-x: auto; }
+  hr { border: 0; border-top: 1px solid #e2e8f0; margin: 16px 0; }
+</style>
+</head><body>
+  <div class="report-title">${safeTitle}</div>
+  <div class="report-meta">${headerLine}</div>
+  ${html}
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 120); };</script>
+</body></html>`);
+    win.document.close();
+  }, [report, creatorLabel]);
+
   return (
     <div
       className="w-[460px] bg-gray-900 border-2 border-amber-500 rounded-lg shadow-2xl overflow-hidden flex flex-col"
@@ -218,6 +269,14 @@ export default function ReportPanel({ reportId, currentNpcId, socket, onClose }:
           </div>
         )}
         <button
+          onClick={handleDownloadPdf}
+          disabled={!report}
+          className="text-gray-400 hover:text-white text-sm px-2 py-1 shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+          title="PDF로 다운로드 (인쇄 대화상자에서 'PDF로 저장' 선택)"
+        >
+          ⬇
+        </button>
+        <button
           onClick={onClose}
           className="text-gray-400 hover:text-white text-sm px-2 py-1 shrink-0"
           title="닫기 (ESC)"
@@ -228,6 +287,7 @@ export default function ReportPanel({ reportId, currentNpcId, socket, onClose }:
 
       {/* Body — 모던 보고서 (Claude DOCX 영감) */}
       <div
+        data-report-body-content
         className={`flex-1 overflow-y-auto text-sm ${DOC_THEME_CLASSES}`}
         style={{
           fontFamily: '"Pretendard", "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif',
