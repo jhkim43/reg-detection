@@ -53,6 +53,8 @@ interface ChatPanelProps {
   channelChatInputDisabled?: boolean;
   onSendChannelChat: (message: string) => void;
   currentPlayerName?: string;
+  // seed-v11 AC-004 (revised UX) — 채팅 카드 클릭 시 ReportPanel 열기
+  onOpenReport?: (reportId: string) => void;
 }
 
 const MIN_WIDTH = 250;
@@ -65,6 +67,7 @@ export default function ChatPanel({
   channelMessages, channelChatOpen, channelChatInputDisabled, onSendChannelChat, currentPlayerName,
   npcMoveState, onReturnNpc, socket, onDeleteTask, onRequestReportTask, onResumeTask, onCompleteTask,
   taskMessages, isTaskStreaming, onTaskSend, activeTaskId, onSetActiveTaskId,
+  onOpenReport,
 }: ChatPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [manualOpen, setManualOpen] = useState(false);
@@ -262,12 +265,32 @@ export default function ChatPanel({
                   )}
                   {npcMessages.map((msg, i) => (
                     <div key={i}>
-                      <ChatBubble
-                        sender={msg.role === "player" ? "player" : "npc"}
-                        streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
-                      >
-                        {msg.content}
-                      </ChatBubble>
+                      {msg.reportCard && onOpenReport && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenReport(msg.reportCard!.reportId)}
+                          className="my-1 w-full text-left rounded-md border border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-colors px-3 py-2"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base" aria-hidden>📄</span>
+                            <span className="flex-1 truncate text-text font-medium">
+                              {msg.reportCard.title || "보고서가 도착했습니다"}
+                            </span>
+                            <span className="text-caption text-amber-400 font-semibold">열기 →</span>
+                          </div>
+                          <div className="text-caption text-text-dim ml-6">
+                            {msg.reportCard.creatorSubAgentLabel || "Agent"} · 방금 전
+                          </div>
+                        </button>
+                      )}
+                      {msg.content && (
+                        <ChatBubble
+                          sender={msg.role === "player" ? "player" : "npc"}
+                          streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
+                        >
+                          {msg.content}
+                        </ChatBubble>
+                      )}
                     </div>
                   ))}
                 </div>

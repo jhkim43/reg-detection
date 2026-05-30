@@ -17,6 +17,7 @@ import ChatPanel, { type ChannelChatMessage } from "@/components/ChatPanel";
 import MeetingRoom from "@/components/MeetingRoom";
 import NpcHireModal from "@/components/NpcHireModal";
 import type { NpcChatMessage } from "@/components/NpcDialog";
+import ReportPanel from "@/components/ReportPanel";
 import PasswordModal from "@/components/PasswordModal";
 import ChannelSettingsModal from "@/components/ChannelSettingsModal";
 import TaskBoard from "@/components/TaskBoard";
@@ -260,6 +261,19 @@ function GamePageInner() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<(() => void) | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // seed-v11 AC-003 (revised UX) — ReportPanel click-to-open + 5건 popover + 알림 배지
+  const [reportPanelOpen, setReportPanelOpen] = useState(false);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [unreadReportCount, setUnreadReportCount] = useState(0);
+  const [showReportPopover, setShowReportPopover] = useState(false);
+  const [recentReports, setRecentReports] = useState<Array<{
+    id: string;
+    title: string | null;
+    createdAt: string;
+    creatorNpcName: string | null;
+    creatorSubAgentLabel: string | null;
+  }>>([]);
 
   // Notification state
   const [notifications, setNotifications] = useState<GameNotification[]>([]);
@@ -569,11 +583,17 @@ function GamePageInner() {
       });
 
       // NPC chat history (sent on demand) — only apply if it matches the current dialog
-      socketInstance.on("npc:history", (data: { npcId: string; messages: { role: string; content: string }[] }) => {
+      socketInstance.on("npc:history", (data: { npcId: string; messages: Array<{
+        role: string;
+        content: string;
+        reportCard?: NpcChatMessage["reportCard"];
+      }> }) => {
         if (!dialogNpcRef.current || dialogNpcRef.current.npcId !== data.npcId) return;
         const historyMessages = (data.messages || []).map<NpcChatMessage>((m) => ({
           role: m.role === "npc" ? "npc" : "player",
           content: m.role === "npc" ? sanitizeNpcResponseText(m.content) : m.content,
+          // seed-v11: report_card row의 reportCard field 보존 (rowToMemory가 채워줌)
+          ...(m.reportCard ? { reportCard: m.reportCard } : {}),
         }));
         setNpcMessages(appendPendingReportToDialog(data.npcId, historyMessages));
       });
@@ -712,8 +732,10 @@ function GamePageInner() {
         EventBus.emit("npc:start-return", { npcId: data.npcId });
       });
 
-      // seed-v11 AC-004 / T-V11-016: agent-report:ready 토스트 (다른 NPC인 경우만).
-      // 현재 NPC와 일치하는 경우는 ReportPanel 자체 listener가 처리 (T-V11-015).
+      // seed-v11 AC-004 (revised UX): agent-report:ready
+      //   - 모든 케이스: unreadReportCount++ (헤더 보고서 버튼 배지)
+      //   - 현재 NPC 일치: 채팅 카드 1회성 추가 (ephemeral, history 영속 X)
+      //   - 다른 NPC: 토스트 + 클릭 시 그 NPC로 전환
       socketInstance.on("agent-report:ready", (data: {
         reportId: string;
         npcId: string;
@@ -722,18 +744,37 @@ function GamePageInner() {
         creatorSubAgentLabel?: string | null;
         createdAt?: string;
       }) => {
-        if (dialogNpcRef.current?.npcId === data.npcId) return;
-        const npcMeta = channelNpcs.find((n) => n.id === data.npcId);
-        const label = data.creatorSubAgentLabel || npcMeta?.name || "Agent";
-        showToastNotification(
-          `agent-report-${data.reportId}`,
-          `${label}가 보고서를 올렸어요 — 클릭해서 열기`,
-          () => {
-            if (npcMeta) {
-              setDialogNpc({ npcId: npcMeta.id, npcName: npcMeta.name });
-            }
-          },
-        );
+        setUnreadReportCount((n) => n + 1);
+
+        if (dialogNpcRef.current?.npcId === data.npcId) {
+          // 같은 NPC — 채팅 카드 (1회성) 추가
+          setNpcMessages((prev) => [
+            ...prev,
+            {
+              role: "npc",
+              content: "",
+              reportCard: {
+                reportId: data.reportId,
+                title: data.title ?? null,
+                creatorSubAgentLabel: data.creatorSubAgentLabel ?? null,
+                createdAt: data.createdAt ?? new Date().toISOString(),
+              },
+            },
+          ]);
+        } else {
+          // 다른 NPC — 토스트 (클릭 시 NPC 전환)
+          const npcMeta = channelNpcs.find((n) => n.id === data.npcId);
+          const label = data.creatorSubAgentLabel || npcMeta?.name || "Agent";
+          showToastNotification(
+            `agent-report-${data.reportId}`,
+            `${label}가 보고서를 올렸어요 — 클릭해서 열기`,
+            () => {
+              if (npcMeta) setDialogNpc({ npcId: npcMeta.id, npcName: npcMeta.name });
+              setSelectedReportId(data.reportId);
+              setReportPanelOpen(true);
+            },
+          );
+        }
       });
 
       // NPC response streaming — DM messages only
@@ -1872,6 +1913,72 @@ function GamePageInner() {
             })()}
           </button>
 
+          {/* seed-v11 AC-003 (revised UX) — 보고서 버튼 + 5건 popover + 알림 배지 */}
+          <div className="relative">
+            <button
+              onClick={async () => {
+                const next = !showReportPopover;
+                setShowReportPopover(next);
+                if (next) {
+                  setUnreadReportCount(0);
+                  try {
+                    const res = await fetch("/api/reports?limit=5", { credentials: "include" });
+                    if (res.ok) {
+                      const body = await res.json() as { reports: Array<{ id: string; title: string | null; createdAt: string; creatorNpcName: string | null; creatorSubAgentLabel: string | null }> };
+                      setRecentReports(body.reports);
+                    }
+                  } catch (err) {
+                    console.warn("[reports popover] fetch failed:", err);
+                  }
+                }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 bg-amber-700/80 hover:bg-amber-700 text-white rounded-md text-caption font-semibold relative"
+              title="보고서"
+            >
+              📄 보고서
+              {unreadReportCount > 0 && (
+                <span className="bg-white/30 px-1.5 rounded-full text-micro">{unreadReportCount}</span>
+              )}
+            </button>
+            {showReportPopover && (
+              <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-lg shadow-xl w-80 z-50 py-1">
+                <div className="px-3 py-2 text-caption text-text-dim border-b border-border">최근 보고서 (최대 5건)</div>
+                {recentReports.length === 0 ? (
+                  <div className="px-3 py-4 text-caption text-text-dim italic text-center">아직 받은 보고서가 없습니다.</div>
+                ) : (
+                  recentReports.map((r) => {
+                    const creator = r.creatorSubAgentLabel || r.creatorNpcName || "삭제된 NPC";
+                    const time = (() => {
+                      const t = new Date(r.createdAt).getTime();
+                      const d = (Date.now() - t) / 1000;
+                      if (d < 60) return "방금 전";
+                      if (d < 3600) return `${Math.floor(d / 60)}분 전`;
+                      if (d < 86400) return `${Math.floor(d / 3600)}시간 전`;
+                      return new Date(r.createdAt).toLocaleDateString("ko-KR");
+                    })();
+                    return (
+                      <button
+                        key={r.id}
+                        onClick={() => {
+                          setSelectedReportId(r.id);
+                          setReportPanelOpen(true);
+                          setShowReportPopover(false);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-surface-raised text-body"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base" aria-hidden>📄</span>
+                          <span className="truncate flex-1 text-text font-medium">{r.title || "(제목 없음)"}</span>
+                        </div>
+                        <div className="text-caption text-text-dim ml-6">{creator} · {time}</div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Separator */}
           <div className="w-px h-5 bg-border" />
 
@@ -2347,6 +2454,22 @@ function GamePageInner() {
             )
           )}
 
+          {/* seed-v11 AC-003 (revised UX): ReportPanel — click-to-open (TRD-D-39 amendment).
+              헤더 "보고서" 버튼 또는 채팅 카드 클릭 시 열림. always-on → on-demand. */}
+          {reportPanelOpen && (
+            <div
+              className="fixed z-30"
+              style={{ right: "16px", top: "60px" }}
+            >
+              <ReportPanel
+                reportId={selectedReportId}
+                currentNpcId={dialogNpc?.npcId ?? null}
+                socket={socket}
+                onClose={() => { setReportPanelOpen(false); setSelectedReportId(null); }}
+              />
+            </div>
+          )}
+
           {/* Left-side chat panel — resizable */}
           <ChatPanel
             dialogNpc={dialogNpc}
@@ -2373,6 +2496,10 @@ function GamePageInner() {
             channelChatInputDisabled={channelChatInputDisabled || !socketConnected}
             onSendChannelChat={handleChannelChatSend}
             currentPlayerName={character?.name}
+            onOpenReport={(reportId) => {
+              setSelectedReportId(reportId);
+              setReportPanelOpen(true);
+            }}
             npcMoveState={dialogNpc ? npcMoveStates[dialogNpc.npcId] : undefined}
             onReturnNpc={dialogNpc && npcCallers[dialogNpc.npcId] === socket?.id ? handleReturnNpc : undefined}
             socket={socket}
