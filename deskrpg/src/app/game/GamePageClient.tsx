@@ -238,6 +238,9 @@ function GamePageInner() {
 
   // Ref to track current dialogNpc for use inside socket listeners (must be declared before sync effect)
   const dialogNpcRef = useRef<{ npcId: string; npcName: string } | null>(null);
+  // 원격(토스트/카드/popover)으로 열린 dialog는 player 근접 자동닫기 무시.
+  // ESC/X로 명시 닫을 때만 해제.
+  const dialogOpenedRemotelyRef = useRef(false);
 
   // NPC dialog state — all managed here, ChatPanel is pure display
   const [dialogNpc, setDialogNpc] = useState<{ npcId: string; npcName: string } | null>(null);
@@ -794,6 +797,7 @@ function GamePageInner() {
                 npcName: npcMeta?.name ?? data.creatorSubAgentLabel ?? "NPC",
               };
               dialogNpcRef.current = nextDialogNpc;
+              dialogOpenedRemotelyRef.current = true; // 원격 오픈 — auto-close 무시
               setDialogNpc(nextDialogNpc);
               EventBus.emit("dialog:open");
               EventBus.emit("npc:bubble-clear", { npcId: data.npcId });
@@ -1018,6 +1022,7 @@ function GamePageInner() {
   const resetDialog = useCallback(() => {
     setDialogNpc(null);
     dialogNpcRef.current = null;
+    dialogOpenedRemotelyRef.current = false;
     setNpcMessages([]);
     npcMessagesRef.current = [];
     setIsNpcStreaming(false);
@@ -1063,6 +1068,9 @@ function GamePageInner() {
 
     // NPC dialog auto-close (when walking away from NPC)
     const handleNpcDialogAutoClose = () => {
+      // 토스트/카드/popover로 원격 오픈한 dialog는 자동닫기 무시 — 사용자가 명시
+      // 닫기(ESC/X)할 때만 닫힘. 게임 NPC와의 근접 기반 dialog만 auto-close 적용.
+      if (dialogOpenedRemotelyRef.current) return;
       resetDialog();
       setInteractSelectList(null);
       EventBus.emit("dialog:close");
