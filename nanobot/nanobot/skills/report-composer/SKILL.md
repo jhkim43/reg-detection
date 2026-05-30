@@ -52,105 +52,47 @@ When composing a report, use the following structure. Adapt sections as needed f
 
 ## 🌐 Pushing Reports to DeskRPG ReportPanel
 
-After composing the markdown report, push it to DeskRPG's report API endpoint. **Use the DeskRPGClient Python class** (bundled in nanobot) instead of raw curl — the client reads `INTERNAL_RPC_SECRET` and `DESKRPG_INTERNAL_URL` from environment variables automatically, so you don't need to hardcode auth values.
+After composing the markdown report, call the **`push_report` tool** — no `exec()` or `curl` needed. The tool is automatically available in your tool registry and handles auth and HTTP internally.
 
-### 3.1 Endpoint
+### 3.1 Tool Signature
 
-`POST /api/internal/reports` via `DeskRPGClient.create_report()`
-
-### 3.2 Authentication
-
-The `x-deskrpg-internal-secret` header is set automatically by `DeskRPGClient` using the `INTERNAL_RPC_SECRET` environment variable. Do NOT hardcode auth values.
-
-### 3.3 Request Body Fields
-
-```python
-{
-    "channel_id": channel_id,                 # from DeskRPG Context
-    "npc_id": parent_npc_uuid,               # ⚠️ MUST be parent_npc_uuid, NOT your own npc_id
-    "character_id": character_id,             # from DeskRPG Context
-    "title": "📋 {Report Title}",
-    "body_markdown": body_markdown,           # full markdown content
-    "creator_sub_agent_label": "{your label}",
-    "metadata": {"source": "subagent", "skill": "report-composer"},
-}
+```
+push_report(
+    channel_id: str,        # from Session Context
+    npc_id: str,            # ⚠️ MUST be parent_npc_uuid, NOT your own npc_id
+    character_id: str,      # from Session Context
+    body_markdown: str,     # full markdown content
+    title: str = None,      # optional report title
+    creator_sub_agent_label: str = None,  # your subagent label
+)
 ```
 
-### 3.4 Python Example (preferred — uses correct auth)
+### 3.2 How to Call It
 
-Write the markdown to a variable, then use the bundled `DeskRPGClient`:
+Your system prompt has a **Session Context** section with `channel_id`, `npc_id`, `parent_npc_uuid`, `character_id`, etc. Use `parent_npc_uuid` as the `npc_id` parameter.
 
-```python
-import asyncio
-from nanobot.utils.deskrpg_client import DeskRPGClient
+Example call:
+```
+push_report(
+    channel_id="{channel_id}",
+    npc_id="{parent_npc_uuid}",
+    character_id="{character_id}",
+    body_markdown="""# 📋 6·3 지방선거 사전투표 잠정집계
 
-body_md = """# 📋 일상관리 통합 리포트
-
-...full markdown content...
-"""
-
-async def push():
-    dc = DeskRPGClient()
-    # npc_id MUST be parent_npc_uuid (the parent NPC UUID), NOT subagent's own npc_id
-    result = await dc.create_report(
-        channel_id="{channel_id}",
-        npc_id="{parent_npc_uuid}",
-        character_id="{character_id}",
-        title="📋 {Report Title}",
-        body_markdown=body_md,
-        creator_sub_agent_label="{creator_label}",
-        metadata={"source": "subagent", "skill": "report-composer"},
-    )
-    if result:
-        print(f"Report pushed: {result.get('persisted_report_id')}")
-    else:
-        print("Report push failed (check auth/env)")
-
-asyncio.run(push())
+## 📌 핵심 요약
+...
+""",
+    title="📋 6·3 지방선거 사전투표 리포트",
+    creator_sub_agent_label="report-composer",
+)
 ```
 
-### 3.5 curl Example (fallback — requires correct INTERNAL_RPC_SECRET)
+### 3.3 Success Response
 
-Only use curl when `INTERNAL_RPC_SECRET` is known to be set in the environment:
+On success the tool returns: `Report pushed successfully. persisted_report_id: <uuid>`
+On failure it returns an error message explaining what went wrong (check auth, NPC ID, etc.).
 
-```bash
-# 1. Write the markdown to a temp file
-cat > /tmp/report.md << 'REPORT_EOF'
-# 📋 일상관리 통합 리포트
-
-...full markdown content...
-REPORT_EOF
-
-# 2. Push to DeskRPG ReportPanel
-# NOTE: AUTH uses $INTERNAL_RPC_SECRET env var, NOT hardcoded "test-secret"
-BODY=$(cat /tmp/report.md | python3 -c "
-import sys, json
-body_md = sys.stdin.read()
-payload = {
-    'channel_id': '{channel_id}',
-    'npc_id': '{npc_id}',
-    'character_id': '{character_id}',
-    'title': '📋 {Report Title}',
-    'body_markdown': body_md,
-    'creator_sub_agent_label': '{creator_label}',
-    'metadata': {'source': 'subagent', 'skill': 'report-composer'},
-}
-print(json.dumps(payload, ensure_ascii=False))
-")
-
-curl -s -X POST "{deskrpg_url}/api/internal/reports" \
-  -H "x-deskrpg-internal-secret: $INTERNAL_RPC_SECRET" \
-  -H "Content-Type: application/json" \
-  -d "$BODY"
-```
-
-### 3.5 Success Response
-
-```json
-{"persisted_report_id": "uuid-string"}
-```
-
-On success (HTTP 201), log the report ID. On failure, log a warning — the main flow should continue.
+> ⚠️ **Critical**: `npc_id` parameter MUST be `parent_npc_uuid`, NOT your own temporary `npc_id` (which is deleted on completion).
 
 ---
 

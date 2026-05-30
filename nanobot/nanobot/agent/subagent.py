@@ -223,6 +223,8 @@ class SubagentManager:
                         user_agent=self.web_config.user_agent,
                     )
                 )
+            from nanobot.agent.tools.push_report import PushReportTool
+            tools.register(PushReportTool())
             system_prompt = self._build_subagent_prompt(deskrpg_meta=status.deskrpg_meta)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},

@@ -33,11 +33,12 @@ SKILL.md provides structured commands, curl examples, or tool usage patterns.
 Your job: read the skill, pick the right commands, execute them, and return the result.
 
 ### Active Push Skills
-The SKILL.md includes formatting templates and a push mechanism (API calls, curl, etc.).
+The SKILL.md includes formatting templates and a push mechanism. The `push_report` tool
+is available for pushing formatted markdown results to external endpoints.
 Your job:
 1. Read SKILL.md to learn the template and push instructions.
 2. Apply the template to the raw data in your task prompt.
-3. Execute the push command from the skill to submit the result.
+3. Call `push_report` (or follow the skill's instructions) to submit the result.
 4. Include the push outcome in your final response.
 
 {{ skills_summary }}
