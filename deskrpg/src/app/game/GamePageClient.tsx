@@ -763,10 +763,6 @@ function GamePageInner() {
       }) => {
         setUnreadReportCount((n) => n + 1);
 
-        // 해당 NPC sprite 위에 "..." 말풍선 — 사용자에게 새 보고서 도착 시각 신호.
-        // 사용자가 그 NPC 대화 열면 자동 clear (handleMovementArrived와 동일 정리 로직).
-        EventBus.emit("npc:bubble", { npcId: data.npcId });
-
         if (dialogNpcRef.current?.npcId === data.npcId) {
           // 같은 NPC — 채팅 카드 (실시간) 추가
           setNpcMessages((prev) => [
@@ -784,7 +780,9 @@ function GamePageInner() {
             },
           ]);
         } else {
-          // 다른 NPC — 토스트 (클릭 시 NPC 전환)
+          // 다른 NPC — sprite 위 "..." bubble + 토스트 (클릭 시 NPC 전환)
+          // 같은 NPC + 대화 중일 땐 bubble 불필요 (사용자가 이미 그 NPC 보고 있음).
+          EventBus.emit("npc:bubble", { npcId: data.npcId });
           const npcMeta = channelNpcs.find((n) => n.id === data.npcId);
           const label = data.creatorSubAgentLabel || npcMeta?.name || "Agent";
           showToastNotification(
