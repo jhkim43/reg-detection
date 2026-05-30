@@ -316,9 +316,170 @@ docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
 
 ---
 
-## 5. 동작 확인 — DB + 화면
+## 5. Reports (Claude Artifacts 스타일 본문 큰 보고서) — `POST /api/internal/reports`
 
-### 5.1 DB 확인
+v11 phase2 endpoint. nanobot이 분석·요약·리포트 형태로 **본문 큰 마크다운 결과물**을 사용자의 보고서 패널(ReportPanel)에 push할 때 호출. §4 chat-push와는 별 트랙:
+
+| | chat-push (§4) | reports (§5) |
+|---|---|---|
+| 본문 크기 | 한 줄 (~수십 자) | 마크다운 (~수 KB) |
+| 저장 위치 | `chat_messages` | `agent_reports` (별 테이블) + `chat_messages` (kind="report_card" 알림 카드) |
+| UI | 채팅 메시지 prefix | 채팅 카드(클릭) / 헤더 보고서 버튼 → ReportPanel 슬라이드인 |
+| socket event | `npc:push-message` | `agent-report:ready` |
+| 용도 | 진행 알림 | 완성된 결과물 |
+
+### 정상 요청
+
+```bash
+# Idempotency-Key는 선택 (TTL 10분 in-memory)
+IDEMP_KEY="report-research-001-completed-$(date +%s)"
+
+curl -sS -X POST "$DESKRPG_URL/api/internal/reports" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: $IDEMP_KEY" \
+  -d '{
+    "channel_id":"'"$CHANNEL_ID"'",
+    "npc_id":"'"$PARENT_NPC_ID"'",
+    "character_id":"'"$CHARACTER_ID"'",
+    "title":"📊 주간 매물 분석",
+    "body_markdown":"## 핵심 요약\n\n신규 매물 **47건** 등록, 전주 대비 +12%.\n\n## 가격대별 분포\n\n| 가격대 | 건수 | 비중 |\n|---|---|---|\n| 5억 미만 | 18 | 38% |\n| 5~10억 | 21 | 45% |\n| 10억 이상 | 8 | 17% |\n\n## 권장 액션\n\n- 5~10억 구간 집중 모니터링\n- [상세 데이터 →](https://example.com/reports/weekly)\n",
+    "creator_sub_agent_label":"리서치담당",
+    "metadata":{"source":"curl-test"}
+  }' | jq
+```
+
+**기대 응답** (`201`):
+```json
+{ "persisted_report_id": "<agent-reports row uuid>" }
+```
+
+### 동작
+
+1. `agent_reports` row insert — body_markdown 그대로 영속
+2. `chat_messages` row insert (kind="report_card", metadata.reportId=...) — 채팅 카드 영속 (사용자 UX 결정 2026-05-30)
+3. socket `agent-report:ready` broadcast (room=channelId):
+   ```ts
+   io.to(channelId).emit("agent-report:ready", {
+     reportId, npcId, channelId, title, creatorSubAgentLabel, createdAt,
+   })
+   ```
+4. 정상 시 Idempotency-Key cache 저장 + `201 { persisted_report_id }`
+
+### npc_id 결정 규칙 (D-33)
+
+`npc_id`는 **parent NPC**의 deskrpg uuid (Supervisor 등). sub-agent 자기 자신이 아님. nanobot은 v10 phase3에서 깔린 session metadata의 `parent_npc_id`를 그대로 사용. 작성자 sub-agent 식별은 `creator_sub_agent_label` snapshot으로 보존.
+
+### 흔한 에러 케이스
+
+| 응답 | errorCode | 원인 |
+|---|---|---|
+| 201 | — | 정상 |
+| 400 | `missing_required_field` | `channel_id`/`npc_id`/`character_id`/`body_markdown` 중 하나 누락 |
+| 400 | `invalid_json` | body가 valid JSON 아님 |
+| 401 | `unauthorized` | secret 누락/불일치 |
+| 404 | `channel_not_found` | channelId DB에 없음 |
+| 404 | `npc_not_found` | npcId 없거나 npc.channel_id 불일치 |
+| 404 | `character_not_found` | characterId 없음 |
+| 409 | `duplicate_message` | 같은 Idempotency-Key 10분 내 재호출 |
+| 500 | `internal_error` | DB 또는 socket emit 실패 (emit 실패 시에도 row 영속 — TRD-D-41) |
+
+### 사용자 측 fetch — `GET /api/reports?npcId=...&limit=N`
+
+브라우저(클라이언트)가 ReportPanel + 보고서 popover 채울 때 호출. 인증은 **세션 쿠키 JWT** (middleware가 처리, `x-user-id` 단독 X).
+
+```bash
+# 1. JWT 토큰 생성 (deskrpg 컨테이너 jose 사용)
+TOKEN=$(docker compose -f docker-compose-integration.yml exec -T deskrpg-app node -e "
+const { SignJWT } = require('jose');
+const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+new SignJWT({ userId: '$OWNER_USER_ID', nickname: 'team4' })
+  .setProtectedHeader({ alg: 'HS256' })
+  .setExpirationTime('7d').setIssuedAt()
+  .sign(secret).then(t => process.stdout.write(t));
+" | tr -d '\r\n')
+
+# 2. ReportPanel용 (특정 NPC 최신 1건)
+curl -sS "$DESKRPG_URL/api/reports?npcId=$PARENT_NPC_ID&limit=1" \
+  -H "Cookie: token=$TOKEN" | jq
+
+# 3. 헤더 보고서 popover용 (character 전체 최근 5건)
+curl -sS "$DESKRPG_URL/api/reports?limit=5" \
+  -H "Cookie: token=$TOKEN" | jq
+```
+
+응답:
+```json
+{
+  "reports": [{
+    "id": "<uuid>",
+    "characterId": "<uuid>",
+    "npcId": "<uuid> | null",
+    "title": "string | null",
+    "bodyMarkdown": "string",
+    "metadata": {"creatorSubAgentLabel": "...", "channelIdSnapshot": "..."},
+    "createdAt": "ISO8601",
+    "creatorNpcName": "string | null (npc 삭제 시 null)",
+    "creatorSubAgentLabel": "string | null"
+  }]
+}
+```
+
+### DB 확인
+
+```bash
+docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
+SELECT id, title, substring(body_markdown FROM 1 FOR 40) AS body_preview,
+       metadata->>'creatorSubAgentLabel' AS sub_label,
+       npc_id IS NOT NULL AS has_npc
+FROM agent_reports
+WHERE character_id = '$CHARACTER_ID'
+ORDER BY created_at DESC LIMIT 5;
+"
+
+# 영속화된 chat 카드 확인 (kind='report_card')
+docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
+SELECT id, npc_id, kind,
+       metadata->>'reportId' AS report_id,
+       metadata->>'title' AS title,
+       metadata->>'creatorSubAgentLabel' AS sub_label
+FROM chat_messages
+WHERE kind = 'report_card'
+ORDER BY created_at DESC LIMIT 5;
+"
+```
+
+### 화면 확인
+
+1. **헤더 `📄 보고서` 버튼** — 알림 배지 (도착 시 +1)
+2. **버튼 클릭** → popover 최근 5건 → 선택 → ReportPanel 슬라이드인
+3. **NPC 채팅 영역에 카드** — `📄 {title} / {label} · 방금 전 / 열기 →` (영속, 새로고침해도 유지)
+4. **카드 클릭** → ReportPanel
+5. **다른 NPC 보고서** → 채팅 영역 위 토스트 + 클릭 시 NPC 전환
+
+### Idempotency-Key 동작 검증
+
+```bash
+# 1차 — 201
+curl -sS -X POST "$DESKRPG_URL/api/internal/reports" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: report-dup-test" \
+  -d '{"channel_id":"'"$CHANNEL_ID"'","npc_id":"'"$PARENT_NPC_ID"'","character_id":"'"$CHARACTER_ID"'","body_markdown":"first"}' -i | head -3
+
+# 2차 — 같은 Idempotency-Key → 409 duplicate_message
+curl -sS -X POST "$DESKRPG_URL/api/internal/reports" \
+  -H "x-deskrpg-internal-secret: $SECRET" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: report-dup-test" \
+  -d '{"channel_id":"'"$CHANNEL_ID"'","npc_id":"'"$PARENT_NPC_ID"'","character_id":"'"$CHARACTER_ID"'","body_markdown":"second"}' -i | head -3
+```
+
+---
+
+## 6. 동작 확인 — DB + 화면
+
+### 6.1 DB 확인
 
 ```bash
 docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
@@ -332,17 +493,17 @@ docker exec reg-detection-db psql -U deskrpg -d deskrpg -c "
 "
 ```
 
-### 5.2 실시간 화면 (T-V28 client wiring)
+### 6.2 실시간 화면 (T-V28 client wiring)
 
 `docker compose -f docker-compose-integration.yml up -d deskrpg-app`로 deskrpg 띄운 후 브라우저에서 채널 페이지 열어두면 — curl 호출이 socket.io broadcast → **새로고침 없이** 화면에 sub-agent sprite + 태스크보드 카드 실시간 등장/소멸.
 
-### 5.3 backlog-A snapshot 검증
+### 6.3 backlog-A snapshot 검증
 
 NPC DELETE 후에도 tasks row는 살아남고 (FK `ON DELETE SET NULL`), 카드의 작업자 라벨은 `npc_name_snapshot`으로 보존됨. dummy NPC + task lifecycle 한 사이클 돌려보면 확인 가능.
 
 ---
 
-## 6. 자주 발생하는 함정
+## 7. 자주 발생하는 함정
 
 1. **`x-deskrpg-internal-secret` 헤더 누락** → 401. `$JWT_SECRET` 환경변수가 deskrpg와 nanobot 컨테이너 양쪽에 같은 값이어야.
 2. **`parentAgentId`는 agentId 문자열** (UUID 아님). nanobot의 spawn metadata의 `parent_npc_id`도 agentId.
@@ -352,7 +513,7 @@ NPC DELETE 후에도 tasks row는 살아남고 (FK `ON DELETE SET NULL`), 카드
 
 ---
 
-## 7. nanobot 측 → 우리 endpoint 호출 디버깅 가이드
+## 8. nanobot 측 → 우리 endpoint 호출 디버깅 가이드
 
 nanobot에서 `[DeskRPG Sync Error]` 발생 시 로그에 추가 출력:
 ```python
@@ -367,9 +528,10 @@ log.error(f"[DeskRPG Sync Error] {method} {url} body={json.dumps(body)} status={
 
 ---
 
-## 8. 참고
+## 9. 참고
 
-- contract spec: `docs/api/internal-events-contract.md`
-- handler 구현: `deskrpg/src/lib/internal-{task,npc,chat-push}-handler.ts`
-- route: `deskrpg/src/app/api/internal/{tasks,npcs,chat-push}/route.ts`
-- 통합 시나리오 검증 결과: `feat/v10-phase1-2-internal-endpoints` + phase5/6 PR description
+- contract spec: `docs/api/internal-events-contract.md` (v11 reports = Section 12)
+- handler 구현: `deskrpg/src/lib/internal-{task,npc,chat-push,report}-handler.ts`
+- route: `deskrpg/src/app/api/internal/{tasks,npcs,chat-push,reports}/route.ts`
+- 사용자측 fetch route: `deskrpg/src/app/api/reports/route.ts` (세션 쿠키 인증)
+- 통합 시나리오 검증 결과: `feat/v10-phase1-2-internal-endpoints` + phase5/6 + v11 phase2 PR descriptions
