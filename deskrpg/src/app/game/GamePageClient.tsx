@@ -1051,10 +1051,11 @@ function GamePageInner() {
     };
 
     const handleNpcAutoGreet = (data: { npcId: string; npcName: string }) => {
+      // greeting은 npcGreetings ref에만 저장 — dialog 열릴 때 첫 메시지로 표시.
+      // 토스트/알림은 노이즈라 제거 (UX 정리 2026-05-30).
       const greeting = t("game.npcGreeting", { name: data.npcName });
       npcGreetings.current.set(data.npcId, greeting);
       EventBus.emit("npc:bubble", { npcId: data.npcId });
-      showToastNotification(`greet-${data.npcId}-${Date.now()}`, t("game.npcGreeting", { name: data.npcName }));
     };
 
     const handleToastShow = (data: { message: string }) => {
