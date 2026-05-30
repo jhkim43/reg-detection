@@ -772,6 +772,7 @@ function GamePageInner() {
               if (npcMeta) setDialogNpc({ npcId: npcMeta.id, npcName: npcMeta.name });
               setSelectedReportId(data.reportId);
               setReportPanelOpen(true);
+              setUnreadReportCount(0);
             },
           );
         }
@@ -2499,6 +2500,7 @@ function GamePageInner() {
             onOpenReport={(reportId) => {
               setSelectedReportId(reportId);
               setReportPanelOpen(true);
+              setUnreadReportCount(0);
             }}
             npcMoveState={dialogNpc ? npcMoveStates[dialogNpc.npcId] : undefined}
             onReturnNpc={dialogNpc && npcCallers[dialogNpc.npcId] === socket?.id ? handleReturnNpc : undefined}
