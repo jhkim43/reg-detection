@@ -18,6 +18,7 @@ import MeetingRoom from "@/components/MeetingRoom";
 import NpcHireModal from "@/components/NpcHireModal";
 import type { NpcChatMessage } from "@/components/NpcDialog";
 import ReportPanel from "@/components/ReportPanel";
+import ReportHistoryModal from "@/components/ReportHistoryModal";
 import PasswordModal from "@/components/PasswordModal";
 import ChannelSettingsModal from "@/components/ChannelSettingsModal";
 import TaskBoard from "@/components/TaskBoard";
@@ -274,6 +275,7 @@ function GamePageInner() {
     creatorNpcName: string | null;
     creatorSubAgentLabel: string | null;
   }>>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Notification state
   const [notifications, setNotifications] = useState<GameNotification[]>([]);
@@ -2006,6 +2008,14 @@ function GamePageInner() {
                     );
                   })
                 )}
+                {/* "전체 보기 →" link — ReportHistoryModal로 진입 */}
+                <button
+                  type="button"
+                  onClick={() => { setShowReportPopover(false); setShowHistoryModal(true); }}
+                  className="w-full text-left px-3 py-2 border-t border-border text-caption text-text-dim hover:bg-surface-raised hover:text-text-secondary font-medium"
+                >
+                  📚 전체 보기 →
+                </button>
               </div>
             )}
           </div>
@@ -2484,6 +2494,18 @@ function GamePageInner() {
               </div>
             )
           )}
+
+          {/* seed-v11 v11-backlog-7: ReportHistoryModal */}
+          <ReportHistoryModal
+            open={showHistoryModal}
+            onClose={() => setShowHistoryModal(false)}
+            onOpenReport={(reportId) => {
+              setSelectedReportId(reportId);
+              setReportPanelOpen(true);
+              setUnreadReportCount(0);
+              setNotifications((prev) => prev.map((n) => (n.id === `agent-report-${reportId}` ? { ...n, read: true } : n)));
+            }}
+          />
 
           {/* seed-v11 AC-003 (revised UX): ReportPanel — click-to-open (TRD-D-39 amendment).
               헤더 "보고서" 버튼 또는 채팅 카드 클릭 시 열림. always-on → on-demand. */}
