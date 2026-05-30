@@ -54,9 +54,9 @@ class _SubagentHook(AgentHook):
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         for tool_call in context.tool_calls:
             args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-            logger.debug(
-                "Subagent [{}] executing: {} with arguments: {}",
-                self._task_id, tool_call.name, args_str,
+            logger.info(
+                "Subagent [{}] Tool call: {}({})",
+                self._task_id, tool_call.name, args_str[:200],
             )
 
     async def after_iteration(self, context: AgentHookContext) -> None:
@@ -223,7 +223,7 @@ class SubagentManager:
                         user_agent=self.web_config.user_agent,
                     )
                 )
-            system_prompt = self._build_subagent_prompt()
+            system_prompt = self._build_subagent_prompt(deskrpg_meta=status.deskrpg_meta)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -297,6 +297,9 @@ class SubagentManager:
         )
 
         # Inject as system message to trigger main agent.
+        # Preserve deskrpg_meta in broadcast metadata so follow-up subagents
+        # (e.g. report-composer) can recover channel_id/npc_id/character_id
+        # when spawned from the result announcement.
         override = origin.get("session_key") or f"{origin['channel']}:{origin['chat_id']}"
         metadata: dict[str, Any] = {
             "injected_event": "subagent_result",
@@ -304,6 +307,13 @@ class SubagentManager:
         }
         if origin_message_id:
             metadata["origin_message_id"] = origin_message_id
+        if deskrpg_meta:
+            metadata["deskrpg_channel_id"] = deskrpg_meta.get("channel_id")
+            metadata["deskrpg_npc_id"] = deskrpg_meta.get("npc_id")
+            metadata["deskrpg_character_id"] = deskrpg_meta.get("character_id")
+            metadata["deskrpg_parent_npc_uuid"] = deskrpg_meta.get("parent_npc_uuid")
+            metadata["deskrpg_session_key"] = deskrpg_meta.get("session_key")
+            metadata["deskrpg_owner_user_id"] = deskrpg_meta.get("owner_user_id")
         msg = InboundMessage(
             channel="system",
             sender_id="subagent",
@@ -352,60 +362,37 @@ class SubagentManager:
                     metadata={"phase": "complete"} if is_ok else {"phase": "failed"},
                 )
 
-            # task complete / cancel
-            if is_ok:
-                self._publish_deskrpg_task_action(
-                    meta, task_id, label, task,
-                    sync_type="task_complete", status_str="complete",
-                )
-            else:
-                self._publish_deskrpg_task_action(
-                    meta, task_id, label, task,
-                    sync_type="task_cancel", status_str="cancelled",
-                )
-
-            # NPC delete (always — subagent NPC removed when done)
+            # task complete / cancel (await before NPC delete to avoid 404)
+            dc_task = DeskRPGClient()
+            task_action = "complete" if is_ok else "cancel"
+            task_status = "complete" if is_ok else "cancelled"
+            npc_task_id = meta.get("subagent_id", task_id)
             logger.info(
-                "[DeskRPG Subagent] npc_delete: npc_id={}",
-                meta.get("npc_id"),
+                "[DeskRPG Subagent] task_{}: task_id={} label={}",
+                task_action, task_id, label,
             )
-            dc = DeskRPGClient()
-            await dc.delete_npc(meta["npc_id"])
-
-    # ------------------------------------------------------------------
-    # DeskRPG sync helpers (publish OutboundMessage to deskrpg channel)
-    # ------------------------------------------------------------------
-
-    def _publish_deskrpg_task_action(
-        self,
-        meta: dict,
-        task_id: str,
-        label: str,
-        task: str,
-        sync_type: str,
-        status_str: str,
-    ) -> None:
-        """Publish a task_complete / task_cancel via DeskRPGClient directly."""
-        logger.info(
-            "[DeskRPG Subagent] task {}: task_id={} label={}",
-            sync_type, task_id, label,
-        )
-        action_map = {"task_complete": "complete", "task_cancel": "cancel"}
-        # npc_task_id must match the subagent_id used at task_create time
-        npc_task_id = meta.get("subagent_id", task_id)
-        asyncio.ensure_future(
-            DeskRPGClient().push_task(
+            await dc_task.push_task(
                 channel_id=meta["channel_id"],
                 npc_id=meta["npc_id"],
                 npc_task_id=npc_task_id,
                 title=label,
                 summary=task[:200],
-                status=status_str,
-                action=action_map.get(sync_type, "complete"),
-                assigner_character_id=meta.get("character_id") or None,
-                owner_user_id=meta.get("owner_user_id") or None,
+                status=task_status,
+                action=task_action,
+                assigner_character_id=meta.get("character_id") or "",
+                owner_user_id=meta.get("owner_user_id") or "",
             )
-        )
+
+            # NPC delete
+            logger.info(
+                "[DeskRPG Subagent] npc_delete: npc_id={}",
+                meta.get("npc_id"),
+            )
+            await dc_task.delete_npc(meta["npc_id"])
+
+    # ------------------------------------------------------------------
+    # DeskRPG checkpoint helpers
+    # ------------------------------------------------------------------
 
     def _publish_deskrpg_task_update(
         self,
@@ -428,8 +415,8 @@ class SubagentManager:
                 summary=summary,
                 status="in_progress",
                 action="update",
-                assigner_character_id=meta.get("character_id") or None,
-                owner_user_id=meta.get("owner_user_id") or None,
+                assigner_character_id=meta.get("character_id") or "",
+                owner_user_id=meta.get("owner_user_id") or "",
             )
         )
 
@@ -454,7 +441,7 @@ class SubagentManager:
             lines.append(f"- {result.error}")
         return "\n".join(lines) or (result.error or "Error: subagent execution failed.")
 
-    def _build_subagent_prompt(self) -> str:
+    def _build_subagent_prompt(self, deskrpg_meta: dict | None = None) -> str:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.context import ContextBuilder
         from nanobot.agent.skills import SkillsLoader
@@ -469,6 +456,7 @@ class SubagentManager:
             time_ctx=time_ctx,
             workspace=str(self.workspace),
             skills_summary=skills_summary or "",
+            deskrpg_meta=deskrpg_meta or {},
         )
 
     async def cancel_by_session(self, session_key: str) -> int:

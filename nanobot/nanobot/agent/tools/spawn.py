@@ -125,17 +125,24 @@ class SpawnTool(Tool):
                     "[DeskRPG Spawn] task_create: npc={} agent_id={} label={}",
                     npc_uuid, subagent_id, label,
                 )
-                await client.push_task(
-                    channel_id=channel_uuid,
-                    npc_id=npc_uuid,
-                    npc_task_id=subagent_id,
-                    title=label,
-                    summary=task[:200],
-                    status="in_progress",
-                    action="create",
-                    assigner_character_id=self._character_id.get(),
-                    owner_user_id=owner_id,
-                )
+                character_id_val = self._character_id.get()
+                if not character_id_val:
+                    logger.warning(
+                        "[SpawnTool] Skipping task_create: character_id not available "
+                        "(must send valid characters.id UUID in metadata.character_id)",
+                    )
+                else:
+                    await client.push_task(
+                        channel_id=channel_uuid,
+                        npc_id=npc_uuid,
+                        npc_task_id=subagent_id,
+                        title=label,
+                        summary=task[:200],
+                        status="in_progress",
+                        action="create",
+                        assigner_character_id=character_id_val,
+                        owner_user_id=owner_id,
+                    )
             else:
                 logger.warning("[SpawnTool] DeskRPG NPC creation failed for {}", label)
 

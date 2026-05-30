@@ -32,7 +32,12 @@ class DeskRPGClient:
         ) or os.environ.get(
             "REGTRACK_INTERNAL_URL", "http://deskrpg-app:3000"
         )).rstrip("/")
-        self.secret = secret or os.environ.get("INTERNAL_RPC_SECRET", "test-secret")
+        self.secret = secret or os.environ.get("INTERNAL_RPC_SECRET")
+        if not self.secret:
+            logger.warning(
+                "[DeskRPG] INTERNAL_RPC_SECRET not set — requests will fail with 401. "
+                "Set env var INTERNAL_RPC_SECRET to match deskrpg's x-deskrpg-internal-secret.",
+            )
 
     # ------------------------------------------------------------------
     # Public API methods
@@ -105,11 +110,9 @@ class DeskRPGClient:
             "summary": summary,
             "status": status,
             "action": action,
+            "assignerCharacterId": assigner_character_id or "",
+            "ownerUserId": owner_user_id or "",
         }
-        if assigner_character_id:
-            payload["assignerCharacterId"] = assigner_character_id
-        if owner_user_id:
-            payload["ownerUserId"] = owner_user_id
         if metadata:
             payload["metadata"] = metadata
         return await self._request("POST", "/api/internal/tasks", payload)
