@@ -147,6 +147,35 @@ class DeskRPGClient:
             payload["metadata"] = metadata
         return await self._request("POST", "/api/internal/chat-push", payload)
 
+    async def create_report(
+        self,
+        channel_id: str,
+        npc_id: str,
+        character_id: str,
+        body_markdown: str,
+        title: str | None = None,
+        creator_sub_agent_label: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """POST /api/internal/reports — push a long markdown report to the ReportPanel.
+
+        Best for full analysis results (KB-scale markdown).
+        Returns the response JSON (containing ``persisted_report_id``) or None.
+        """
+        payload: dict[str, Any] = {
+            "channel_id": channel_id,
+            "npc_id": npc_id,
+            "character_id": character_id,
+            "body_markdown": body_markdown,
+        }
+        if title:
+            payload["title"] = title
+        if creator_sub_agent_label:
+            payload["creator_sub_agent_label"] = creator_sub_agent_label
+        if metadata:
+            payload["metadata"] = metadata
+        return await self._request("POST", "/api/internal/reports", payload)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
