@@ -16,10 +16,28 @@ evolves: "v10-backlog-6"
 # Post-creation Amendments — PR 머지 전 정정 (현재 빈 list)
 # ─────────────────────────────────────────────────────────────────────
 post_creation_amendments:
-  - date: "2026-05-29"
-    field: "테이블명: agent_reports → agent_reports"
+  - date: "2026-05-30"
+    field: "socket event 이름: npc:report-ready → agent-report:ready"
     reason: |
-      Discovery 단계에서 발견 — `agent_reports`는 0000_big_karnak.sql부터 존재하는 active
+      phase2 curl 검증 중 발견 — `npc:report-ready`는 0000_big_karnak.sql부터 존재하는
+      legacy npc_reports task delivery queue가 이미 사용 중. GamePageClient.tsx:680에도
+      기존 listener 존재 (data: PendingNpcReport 형식 — message/kind/npcName 등). v11
+      payload({reportId, npcId, channelId, title, creatorSubAgentLabel, createdAt})로
+      덮어쓰면 기존 listener가 undefined 필드로 NPC sprite 호출 → UI 오작동.
+      해결: v11 socket event를 `agent-report:ready`로 rename (테이블명 agent_reports와
+      일관). 사용자 옵션 A 선택. legacy 흐름은 그대로 유지.
+    affected_refs:
+      - "goal.detail (socket event 명시)"
+      - "constraints.should (broadcast 흐름)"
+      - "AC-002 description (handler emit)"
+      - "AC-004 description (클라이언트 listener)"
+      - "ontology.entities[ReportReadyEvent].transport"
+      - "ontology.actions[push_report].side_effects"
+
+  - date: "2026-05-29"
+    field: "테이블명: npc_reports → agent_reports"
+    reason: |
+      Discovery 단계에서 발견 — `npc_reports`는 0000_big_karnak.sql부터 존재하는 active
       legacy 테이블 (task-driven delivery queue, task_id FK + target_user_id + status
       pending/delivered/consumed lifecycle). src/lib/task-reporting.ts + socket-handlers.ts
       7개 call site에서 사용 중. seed-v11이 정의한 Claude Artifacts 본문 보관 도메인과
@@ -52,7 +70,7 @@ goal:
       - **새 테이블 `agent_reports`** — 자유 마크다운 본문 + 작성자 metadata snapshot
       - **새 endpoint `POST /api/internal/reports`** — nanobot push 수신
       - **새 UI 패널 (ReportPanel)** — 채팅창 우측에 슬라이드인, sanitize 렌더
-      - **새 socket event `npc:report-ready`** — 현재 NPC면 패널 갱신, 아니면 토스트
+      - **새 socket event `agent-report:ready`** — 현재 NPC면 패널 갱신, 아니면 토스트
 
     Claude Artifacts metaphor 그대로: "지금 대화 중인 NPC의 최근 작품이 옆에서
     살아있다". 사용자는 채팅을 계속하면서 보고서를 참조·복사·재참조한다.
@@ -83,7 +101,7 @@ constraints:
     - "작성자 sub-agent 식별은 `metadata.creator_sub_agent_label` snapshot 문자열로 보존 — sub-agent NPC 삭제돼도 라벨 유지"
     - "마크다운 렌더는 react-markdown + rehype-sanitize 표준. iframe/script/raw HTML 차단"
     - "Idempotency-Key 헤더로 같은 보고서 중복 push dedup (v10 phase5 chat-push 패턴 재사용, TTL 10분 in-memory)"
-    - "socket event `npc:report-ready`는 channelId 기반 broadcast. 클라이언트는 현재 NPC면 패널 슬라이드인, 아니면 채팅 영역 토스트"
+    - "socket event `agent-report:ready`는 channelId 기반 broadcast. 클라이언트는 현재 NPC면 패널 슬라이드인, 아니면 채팅 영역 토스트"
     - "보고서는 새로고침 후에도 살아남음 — DB 영속 + 패널 mount 시 fetch"
     - "NPC 삭제돼도 보고서 보존 — npc_id NULL로 SET, metadata.creator_sub_agent_label fallback 표시"
 
@@ -125,7 +143,7 @@ acceptance_criteria:
       body: {channelId, npcId, characterId, title?, bodyMarkdown, creatorSubAgentLabel?, metadata?}.
       validation: 필수 필드 누락 → 400 missing_required_field. npc_id 존재 확인 → 404 npc_not_found.
       channel 존재 + npc.channel_id 일치 확인 → 404 channel_not_found. 성공 → 201 + {persistedReportId}.
-      DB insert + socket emit npc:report-ready (channelId broadcast) 둘 다 트랜잭션 외 best-effort
+      DB insert + socket emit agent-report:ready (channelId broadcast) 둘 다 트랜잭션 외 best-effort
       (emit 실패 시 row는 영속, retry 가능).
     verification: "automated"
     priority: "must"
@@ -145,7 +163,7 @@ acceptance_criteria:
 
   - id: "AC-004"
     description: |
-      socket event `npc:report-ready` broadcast 추가. payload: {reportId, npcId, channelId,
+      socket event `agent-report:ready` broadcast 추가. payload: {reportId, npcId, channelId,
       title?, creatorSubAgentLabel?, createdAt}. GamePageClient socket listener:
       - currentNpcId === payload.npcId → ReportPanel 데이터 refetch + 슬라이드인
       - currentNpcId !== payload.npcId → 채팅 영역 위 토스트 `{npc.name 또는 label}가
@@ -240,7 +258,7 @@ ontology:
           creatorSubAgentLabel?: string,
           createdAt: ISO8601
         }
-      transport: "socket.io broadcast (room=channelId, event='npc:report-ready')"
+      transport: "socket.io broadcast (room=channelId, event='agent-report:ready')"
       role: "deskrpg server → client. 현재 NPC면 패널 슬라이드인, 아니면 토스트"
 
   actions:
@@ -249,7 +267,7 @@ ontology:
       input: "ReportPushEvent + INTERNAL_RPC_SECRET + Idempotency-Key"
       output: "agent_reports row 생성 + persistedReportId 반환"
       side_effects:
-        - "socket.io 'npc:report-ready' broadcast → 채널 내 클라이언트 즉시 반응"
+        - "socket.io 'agent-report:ready' broadcast → 채널 내 클라이언트 즉시 반응"
 
     - name: "render_panel (UI)"
       actor: "user (deskrpg ReportPanel 컴포넌트)"
@@ -281,7 +299,7 @@ scope:
     - "AC-001: agent_reports schema + Drizzle 0009 migration"
     - "AC-002: POST /api/internal/reports endpoint"
     - "AC-003: ReportPanel UI 컴포넌트 + sanitize 렌더"
-    - "AC-004: socket event npc:report-ready + 클라이언트 listener (현재 NPC + 토스트 분기)"
+    - "AC-004: socket event agent-report:ready + 클라이언트 listener (현재 NPC + 토스트 분기)"
     - "AC-005: ReportHistoryModal"
     - "AC-006: NPC 삭제 시 보고서 보존 + fallback 라벨"
     - "AC-007: docs/api/internal-events-contract.md Section 12"

@@ -578,7 +578,7 @@ sub-agent 또는 main agent가 분석·요약·리포트 형태로 **본문 큰 
 | 본문 크기 | 짧은 한 줄 (~수십 자) | 큰 마크다운 (~수 KB) |
 | 저장 위치 | `chat_messages` | `agent_reports` (별 테이블) |
 | UI 표시 | 채팅 메시지 (`[리서치담당] ...` prefix) | 우측 ReportPanel (sanitize markdown 렌더) |
-| socket event | `npc:push-message` | `npc:report-ready` |
+| socket event | `npc:push-message` | `agent-report:ready` |
 | 영속화 | v10 phase6 완료 | v11 phase1 완료 |
 | 용도 | 진행 알림 | 완성된 결과물 |
 
@@ -605,7 +605,7 @@ Content-Type: application/json
 
 | status | body | 의미 |
 |---|---|---|
-| `201` | `{ "persisted_report_id": "<uuid>" }` | 정상 — agent_reports row 영속 + `npc:report-ready` socket broadcast 완료 |
+| `201` | `{ "persisted_report_id": "<uuid>" }` | 정상 — agent_reports row 영속 + `agent-report:ready` socket broadcast 완료 |
 | `400` | `{ "errorCode": "missing_required_field", "field": "<name>" }` | `channel_id`/`npc_id`/`character_id`/`body_markdown` 중 하나 누락 또는 빈 문자열 |
 | `400` | `{ "errorCode": "invalid_json" }` | body가 valid JSON 아님 |
 | `401` | `{ "errorCode": "unauthorized" }` | `x-deskrpg-internal-secret` 누락 또는 불일치 |
@@ -626,7 +626,7 @@ Content-Type: application/json
 7. `npcs.id == npc_id` + `npc.channelId == channel_id` 일치 → 미일치 시 404 npc_not_found
 8. `characters.id == character_id` → 없으면 404 character_not_found
 9. `agent_reports` row insert (metadata에 `creatorSubAgentLabel` + `channelIdSnapshot` snapshot 합쳐 보존)
-10. socket emit `npc:report-ready` (room=channelId):
+10. socket emit `agent-report:ready` (room=channelId):
     ```ts
     io.to(channelId).emit("npc:report-ready", {
       reportId, npcId, channelId, title, creatorSubAgentLabel, createdAt,
@@ -703,7 +703,7 @@ x-user-id: <session user uuid>
 | `report-list-service.ts` Logic + 단위 테스트 | deskrpg (본인) | ✅ v11 phase1 |
 | `POST /api/internal/reports` route + 통합 테스트 | deskrpg (본인) | ✅ v11 phase2 |
 | `GET /api/reports` route + 통합 테스트 | deskrpg (본인) | ✅ v11 phase2 |
-| `npc:report-ready` socket emit | deskrpg (본인) | ✅ v11 phase2 (route 통합) |
+| `agent-report:ready` socket emit | deskrpg (본인) | ✅ v11 phase2 (route 통합) |
 | 클라이언트 ReportPanel + HistoryModal + socket listener | deskrpg (본인) | v11 phase3/4 |
 | `SubagentManager` 완료 hook → notify_deskrpg_report | nanobot 팀원 | 별도 PR |
 | Idempotency-Key 생성 | nanobot 팀원 | 별도 PR |
@@ -725,4 +725,4 @@ x-user-id: <session user uuid>
 - 2026-05-23T17:00:00 — Section 5 (cleanup endpoint) 제거. 사용자 + 다른 팀원 합의로 NPC 삭제 시 nanobot 측 파일은 그대로 유지 (layer 경계 명확성 우선). AC-007 + P-NB03 작업 둘 다 불필요. Section 6 (body.metadata) motivation + 현재 nanobot 코드 상태 + wiring 가이드 보강.
 - 2026-05-27 — Section 11 (chat-push endpoint, planned) draft 추가. sub-agent 비동기 완료 결과를 parent session에 push하기 위한 신규 endpoint. deskrpg + nanobot 양쪽 동시 구현 필요. seed-v10 phase4 T-V-spec.
 - 2026-05-27 — Section 11 draft → v1 finalize (seed-v10 phase5 T-V34). 미결정 사항 3개 모두 결론 (session_key parsing=0, kind 3개 고정, 일반 chat history append). deskrpg-side 구현 완료 표시 (route/handler/socket emit/클라이언트 listener). chat_messages 영속화는 의도적 제외 (현 schema characterId NOT NULL 이슈 — 별도 phase). nanobot 팀원이 본 spec 따라 SubagentManager 완료 hook + Idempotency-Key 생성 추가하면 end-to-end 완성.
-- 2026-05-30 — Section 12 (reports endpoint) 신설. seed-v11 AC-002 — Claude Artifacts 스타일 본문 큰 마크다운 보고서 push. `agent_reports` 별 테이블 + `POST /api/internal/reports` (internal-secret) + `GET /api/reports` (user-auth). socket event `npc:report-ready`. §11 chat-push와는 책임 분리 (한 줄 알림 vs 본문 큰 결과물). deskrpg-side phase1 (Data+Logic) + phase2 (Presentation API) 완료. UI (ReportPanel/HistoryModal)는 phase3/4. nanobot 팀원이 본 spec 따라 SubagentManager 완료 시점에 push.
+- 2026-05-30 — Section 12 (reports endpoint) 신설. seed-v11 AC-002 — Claude Artifacts 스타일 본문 큰 마크다운 보고서 push. `agent_reports` 별 테이블 + `POST /api/internal/reports` (internal-secret) + `GET /api/reports` (user-auth). socket event `agent-report:ready`. §11 chat-push와는 책임 분리 (한 줄 알림 vs 본문 큰 결과물). deskrpg-side phase1 (Data+Logic) + phase2 (Presentation API) 완료. UI (ReportPanel/HistoryModal)는 phase3/4. nanobot 팀원이 본 spec 따라 SubagentManager 완료 시점에 push.

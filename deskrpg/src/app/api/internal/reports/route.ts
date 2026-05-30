@@ -39,7 +39,7 @@ async function forwardSocketEmit(channelId: string, payload: unknown): Promise<v
       "Content-Type": "application/json",
       ...internalTransport.buildInternalAuthHeaders(),
     },
-    body: JSON.stringify({ event: "npc:report-ready", room: channelId, payload }),
+    body: JSON.stringify({ event: "agent-report:ready", room: channelId, payload }),
   });
   if (!res.ok) {
     throw new Error(`socket emit forward failed: ${res.status}`);

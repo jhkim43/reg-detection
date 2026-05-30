@@ -155,7 +155,7 @@ test("(3) 정상 → 201 + persisted_report_id (snake_case) + DB row + emit 호�
   assert.ok(emitReceived.length > beforeEmits, "emit forwarded");
   const last = emitReceived[emitReceived.length - 1];
   const emitBody = last.body as { event: string; room: string; payload: Record<string, unknown> };
-  assert.equal(emitBody.event, "npc:report-ready");
+  assert.equal(emitBody.event, "agent-report:ready");
   assert.equal(emitBody.room, channelId);
   assert.equal(emitBody.payload.npcId, npcId);
   assert.equal(emitBody.payload.title, "주간 매물 분석");

@@ -21,7 +21,7 @@
 1. 사용자가 Supervisor에게 "보고서 만들어줘"
 2. nanobot이 sub-agent spawn (v10 인프라)
 3. sub-agent 작업 완료 시 `POST /api/internal/reports`로 본문 push (v11 신규)
-4. deskrpg 수신 → `agent_reports` 영속 + socket `npc:report-ready` broadcast
+4. deskrpg 수신 → `agent_reports` 영속 + socket `agent-report:ready` broadcast
 5. 클라이언트:
    - 현재 NPC === report.npcId → ReportPanel 슬라이드인
    - 다른 NPC → 채팅 영역 위 토스트 알림 (클릭 시 그 NPC로 전환)
@@ -113,7 +113,7 @@
 | 위치 | `deskrpg/src/components/ReportPanel.tsx` |
 | Mount 조건 | NpcDialog 열려있을 때 (D-2번 결정 = 옵션 a) |
 | 위치 (UI) | NpcDialog 우측 고정 슬롯 (flex row) |
-| 트리거 | currentNpcId 변경 + socket `npc:report-ready` (currentNpcId 일치) |
+| 트리거 | currentNpcId 변경 + socket `agent-report:ready` (currentNpcId 일치) |
 
 **Props**:
 ```ts
@@ -131,7 +131,7 @@
 
 **Behavior**:
 1. mount 시 `GET /api/reports?npcId={currentNpcId}&limit=1` → 최신 1건 fetch
-2. socket `npc:report-ready` 수신, payload.npcId === currentNpcId 일 때 → refetch + slideIn 트리거
+2. socket `agent-report:ready` 수신, payload.npcId === currentNpcId 일 때 → refetch + slideIn 트리거
 3. 헤더: title + 작성자 (creatorSubAgentLabel || creatorNpcName || "삭제된 NPC") + createdAt
 4. 본문: `<ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{report.bodyMarkdown}</ReactMarkdown>`
 5. 헤더 우측 `📚` 버튼 → HistoryModal 열기 (D-3번 결정 = 옵션 a)
@@ -156,7 +156,7 @@
 
 기존 `npc:push-message` listener 옆에 추가:
 ```ts
-socketInstance.on("npc:report-ready", (data: ReportReadyPayload) => {
+socketInstance.on("agent-report:ready", (data: ReportReadyPayload) => {
   if (data.npcId === currentNpcId) {
     // 패널이 알아서 refetch + slide in (ReportPanel 자체 listener)
   } else {
@@ -224,7 +224,7 @@ type ReportPushDeps = {
 5. character 존재 확인 (소유자 검증)
 6. DB insert (Drizzle) → returning id
 7. `metadata` 풀어서 `creatorSubAgentLabel`이 metadata 안에도 묻혀 들어가게 정규화
-8. socket emit `npc:report-ready` (channelId broadcast) — best-effort, 실패해도 row는 보존
+8. socket emit `agent-report:ready` (channelId broadcast) — best-effort, 실패해도 row는 보존
 9. idempotency cache 채우기
 
 **Side-effect 경계**:
@@ -493,7 +493,7 @@ mock 범위: `db` (Drizzle client) + `emit` (소켓). 다른 helper는 mock 안 
 
 ### Phase 4: Presentation UI
 7. **AC-003 ReportPanel** + markdown 의존성 추가 (TRD-D-38) + NpcDialog 슬롯 변경
-8. **AC-004 socket listener** GamePageClient `npc:report-ready` handler + 토스트 분기
+8. **AC-004 socket listener** GamePageClient `agent-report:ready` handler + 토스트 분기
 9. **AC-005 ReportHistoryModal** + 패널 헤더 버튼
 
 ### Phase 5: 검증
