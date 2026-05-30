@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
 import ChatInput from "./ChatInput";
+import ReportPanel from "./ReportPanel";
 import TaskChatView, { type TaskMessage } from "./TaskChatView";
 import TaskInlineCard from "./TaskInlineCard";
 import TaskPanel from "./TaskPanel";
@@ -100,7 +101,7 @@ export default function NpcDialog({
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
+    <div className="fixed inset-x-0 bottom-0 z-50 flex items-end justify-center gap-3 px-2 pointer-events-none">
       <div className="w-full max-w-[800px] pointer-events-auto">
         <div className="bg-gray-900 border-t-2 border-x-2 border-amber-500 rounded-t-lg shadow-2xl">
           {/* Header */}
@@ -226,6 +227,11 @@ export default function NpcDialog({
             </div>
           )}
         </div>
+      </div>
+
+      {/* seed-v11 AC-003: ReportPanel — NpcDialog 옆 고정 슬롯 (TRD-D-39 = 옵션 a) */}
+      <div className="hidden md:block pointer-events-auto">
+        <ReportPanel currentNpcId={npcId} socket={socket ?? null} />
       </div>
     </div>
   );
