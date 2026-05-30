@@ -22,6 +22,7 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import AgentDefaults, ExecToolConfig, WebToolsConfig
 from nanobot.providers.base import LLMProvider
+from nanobot.utils.deskrpg_client import DeskRPGClient
 from nanobot.utils.prompt_templates import render_template
 
 
@@ -39,6 +40,7 @@ class SubagentStatus:
     usage: dict = field(default_factory=dict)          # token usage
     stop_reason: str | None = None
     error: str | None = None
+    deskrpg_meta: dict = field(default_factory=dict)   # DeskRPG sync metadata
 
 
 class _SubagentHook(AgentHook):
@@ -117,6 +119,7 @@ class SubagentManager:
         origin_chat_id: str = "direct",
         session_key: str | None = None,
         origin_message_id: str | None = None,
+        deskrpg_meta: dict | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -128,6 +131,7 @@ class SubagentManager:
             label=display_label,
             task_description=task,
             started_at=time.monotonic(),
+            deskrpg_meta=deskrpg_meta or {},
         )
         self._task_statuses[task_id] = status
 
@@ -166,6 +170,17 @@ class SubagentManager:
         async def _on_checkpoint(payload: dict) -> None:
             status.phase = payload.get("phase", status.phase)
             status.iteration = payload.get("iteration", status.iteration)
+            # DeskRPG task_update on every 3rd iteration
+            if (
+                status.deskrpg_meta
+                and status.iteration > 0
+                and status.iteration % 3 == 0
+            ):
+                self._publish_deskrpg_task_update(
+                    task_id=task_id,
+                    status=status,
+                    summary=f"진행 중 (iteration {status.iteration})",
+                )
 
         try:
             # Build subagent tools (no message tool, no spawn tool)
@@ -235,23 +250,29 @@ class SubagentManager:
                     task_id, label, task,
                     self._format_partial_progress(result),
                     origin, "error", origin_message_id,
+                    deskrpg_meta=status.deskrpg_meta,
                 )
             elif result.stop_reason == "error":
                 await self._announce_result(
                     task_id, label, task,
                     result.error or "Error: subagent execution failed.",
                     origin, "error", origin_message_id,
+                    deskrpg_meta=status.deskrpg_meta,
                 )
             else:
                 final_result = result.final_content or "Task completed but no final response was generated."
                 logger.info("Subagent [{}] completed successfully", task_id)
-                await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
+                await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id,
+                    deskrpg_meta=status.deskrpg_meta,
+                )
 
         except Exception as e:
             status.phase = "error"
             status.error = str(e)
             logger.exception("Subagent [{}] failed", task_id)
-            await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
+            await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id,
+                deskrpg_meta=status.deskrpg_meta,
+            )
 
     async def _announce_result(
         self,
@@ -262,8 +283,9 @@ class SubagentManager:
         origin: dict[str, str],
         status: str,
         origin_message_id: str | None = None,
+        deskrpg_meta: dict | None = None,
     ) -> None:
-        """Announce the subagent result to the main agent via the message bus."""
+        """Announce the subagent result to the main agent loop and sync to DeskRPG."""
         status_text = "completed successfully" if status == "ok" else "failed"
 
         announce_content = render_template(
@@ -275,10 +297,6 @@ class SubagentManager:
         )
 
         # Inject as system message to trigger main agent.
-        # Use session_key_override to align with the main agent's effective
-        # session key (which accounts for unified sessions) so the result is
-        # routed to the correct pending queue (mid-turn injection) instead of
-        # being dispatched as a competing independent task.
         override = origin.get("session_key") or f"{origin['channel']}:{origin['chat_id']}"
         metadata: dict[str, Any] = {
             "injected_event": "subagent_result",
@@ -297,6 +315,123 @@ class SubagentManager:
 
         await self.bus.publish_inbound(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+
+        # DeskRPG sync: chat-push + task complete/cancel + NPC delete
+        deskrpg_meta = deskrpg_meta or {}
+        if deskrpg_meta.get("npc_id"):
+            is_ok = (status == "ok")
+            meta = deskrpg_meta
+            logger.info(
+                "[DeskRPG Subagent] Starting sync for task_id={} label={} status={} npc_id={}",
+                task_id, label, status, meta.get("npc_id"),
+            )
+
+            # chat-push: notify parent NPC chat via DeskRPGClient directly
+            push_msg = f"{label} 태스크 {'완료' if is_ok else '실패'}: {task[:120]}"
+            # chat-push npc_id = deskrpg npcs.id UUID (deskrpg app metadata의 parent_npc_uuid)
+            chat_push_npc_id = meta.get("parent_npc_uuid")
+            if not chat_push_npc_id:
+                logger.warning(
+                    "[DeskRPG Subagent] Skipping chat_push: parent_npc_uuid not available "
+                    "(deskrpg app must send parent_npc_uuid in metadata)",
+                )
+            else:
+                logger.info(
+                    "[DeskRPG Subagent] chat_push: label={} npc_id={} msg_len={}",
+                    label, chat_push_npc_id, len(push_msg),
+                )
+                dc = DeskRPGClient()
+                await dc.chat_push(
+                    session_key=meta.get("session_key", ""),
+                    channel_id=meta["channel_id"],
+                    npc_id=chat_push_npc_id,
+                    message=push_msg,
+                    subagent_id=meta.get("subagent_id", task_id),
+                    subagent_label=label,
+                    task_npc_task_id=meta.get("subagent_id", task_id),
+                    metadata={"phase": "complete"} if is_ok else {"phase": "failed"},
+                )
+
+            # task complete / cancel
+            if is_ok:
+                self._publish_deskrpg_task_action(
+                    meta, task_id, label, task,
+                    sync_type="task_complete", status_str="complete",
+                )
+            else:
+                self._publish_deskrpg_task_action(
+                    meta, task_id, label, task,
+                    sync_type="task_cancel", status_str="cancelled",
+                )
+
+            # NPC delete (always — subagent NPC removed when done)
+            logger.info(
+                "[DeskRPG Subagent] npc_delete: npc_id={}",
+                meta.get("npc_id"),
+            )
+            dc = DeskRPGClient()
+            await dc.delete_npc(meta["npc_id"])
+
+    # ------------------------------------------------------------------
+    # DeskRPG sync helpers (publish OutboundMessage to deskrpg channel)
+    # ------------------------------------------------------------------
+
+    def _publish_deskrpg_task_action(
+        self,
+        meta: dict,
+        task_id: str,
+        label: str,
+        task: str,
+        sync_type: str,
+        status_str: str,
+    ) -> None:
+        """Publish a task_complete / task_cancel via DeskRPGClient directly."""
+        logger.info(
+            "[DeskRPG Subagent] task {}: task_id={} label={}",
+            sync_type, task_id, label,
+        )
+        action_map = {"task_complete": "complete", "task_cancel": "cancel"}
+        # npc_task_id must match the subagent_id used at task_create time
+        npc_task_id = meta.get("subagent_id", task_id)
+        asyncio.ensure_future(
+            DeskRPGClient().push_task(
+                channel_id=meta["channel_id"],
+                npc_id=meta["npc_id"],
+                npc_task_id=npc_task_id,
+                title=label,
+                summary=task[:200],
+                status=status_str,
+                action=action_map.get(sync_type, "complete"),
+                assigner_character_id=meta.get("character_id") or None,
+                owner_user_id=meta.get("owner_user_id") or None,
+            )
+        )
+
+    def _publish_deskrpg_task_update(
+        self,
+        task_id: str,
+        status: SubagentStatus,
+        summary: str,
+    ) -> None:
+        """Push task_update via DeskRPGClient directly (checkpoint)."""
+        meta = status.deskrpg_meta
+        logger.info(
+            "[DeskRPG Subagent] task_update: task_id={} iteration={} label={}",
+            task_id, status.iteration, status.label,
+        )
+        asyncio.ensure_future(
+            DeskRPGClient().push_task(
+                channel_id=meta["channel_id"],
+                npc_id=meta["npc_id"],
+                npc_task_id=meta.get("subagent_id", task_id),
+                title=status.label,
+                summary=summary,
+                status="in_progress",
+                action="update",
+                assigner_character_id=meta.get("character_id") or None,
+                owner_user_id=meta.get("owner_user_id") or None,
+            )
+        )
 
     @staticmethod
     def _format_partial_progress(result) -> str:

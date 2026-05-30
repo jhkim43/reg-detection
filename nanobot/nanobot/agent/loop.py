@@ -482,6 +482,7 @@ class AgentLoop:
                         owner_id = None
                         channel_uuid = None
                         parent_agent_uuid = None
+                        character_id = None
 
                         if metadata:
                             # DeskRPG 라우터 바디 양식 우선 파싱 (JS Camel/Snake 혼용 회피)
@@ -495,14 +496,21 @@ class AgentLoop:
                                 metadata.get("channelId")
                             )
                             # 부모의 텍스트 기반 agentId 매칭 추출
-                            # 만약 대화 바디에 명시되지 않았다면, 1번 레이어의 세션명 정규화 파싱값 활용
                             parent_agent_uuid = (
                                 metadata.get("parent_npc_id") or 
                                 metadata.get("parentAgentId") or 
                                 metadata.get("parent_agent_id_fallback")
                             )
+                            character_id = (
+                                metadata.get("character_id") or
+                                metadata.get("characterId")
+                            )
+                            parent_npc_uuid = (
+                                metadata.get("npc_id") or
+                                metadata.get("parent_npc_uuid") or
+                                metadata.get("parentNpcUuid")
+                            )
 
-                        # 개선된 SpawnTool의 확장 컨텍스트 호출 인터페이스 실행
                         try:
                             tool.set_context(
                                 channel=channel,
@@ -510,7 +518,9 @@ class AgentLoop:
                                 effective_key=effective_key,
                                 owner_user_id=owner_id,
                                 channel_id=channel_uuid,
-                                parent_agent_id=parent_agent_uuid
+                                parent_agent_id=parent_agent_uuid,
+                                character_id=character_id,
+                                parent_npc_uuid=parent_npc_uuid,
                             )
                         except TypeError:
                             # 하위 호환성 예외 처리

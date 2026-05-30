@@ -27,6 +27,13 @@ class MessageBus:
 
     async def publish_outbound(self, msg: OutboundMessage) -> None:
         """Publish a response from the agent to channels."""
+        from loguru import logger
+        sync_type = msg.metadata.get("deskrpg_sync_type")
+        if sync_type:
+            logger.info(
+                "[DeskRPG Bus] publish_outbound: sync_type={} channel={} chat_id={}",
+                sync_type, msg.channel, msg.chat_id,
+            )
         await self.outbound.put(msg)
 
     async def consume_outbound(self) -> OutboundMessage:
