@@ -586,12 +586,15 @@ function GamePageInner() {
       socketInstance.on("npc:history", (data: { npcId: string; messages: Array<{
         role: string;
         content: string;
+        timestamp?: number;
         reportCard?: NpcChatMessage["reportCard"];
       }> }) => {
         if (!dialogNpcRef.current || dialogNpcRef.current.npcId !== data.npcId) return;
         const historyMessages = (data.messages || []).map<NpcChatMessage>((m) => ({
           role: m.role === "npc" ? "npc" : "player",
           content: m.role === "npc" ? sanitizeNpcResponseText(m.content) : m.content,
+          // 서버 rowToMemory가 row.createdAt → timestamp(ms) 변환해 보냄
+          ...(typeof m.timestamp === "number" ? { timestamp: m.timestamp } : {}),
           // seed-v11: report_card row의 reportCard field 보존 (rowToMemory가 채워줌)
           ...(m.reportCard ? { reportCard: m.reportCard } : {}),
         }));
@@ -747,12 +750,13 @@ function GamePageInner() {
         setUnreadReportCount((n) => n + 1);
 
         if (dialogNpcRef.current?.npcId === data.npcId) {
-          // 같은 NPC — 채팅 카드 (1회성) 추가
+          // 같은 NPC — 채팅 카드 (실시간) 추가
           setNpcMessages((prev) => [
             ...prev,
             {
               role: "npc",
               content: "",
+              timestamp: Date.now(),
               reportCard: {
                 reportId: data.reportId,
                 title: data.title ?? null,
@@ -792,10 +796,10 @@ function GamePageInner() {
             const last = prev[prev.length - 1];
             if (last && last.role === "npc") {
               const updated = [...prev];
-              updated[updated.length - 1] = { role: "npc", content: buffered };
+              updated[updated.length - 1] = { ...last, content: buffered };
               return updated;
             }
-            return [...prev, { role: "npc", content: buffered }];
+            return [...prev, { role: "npc", content: buffered, timestamp: Date.now() }];
           });
         }
         if (data.done) {
@@ -805,7 +809,7 @@ function GamePageInner() {
             const lastIdx = prev.length - 1;
             if (lastIdx >= 0 && prev[lastIdx].role === "npc") {
               const updated = [...prev];
-              updated[lastIdx] = { role: "npc", content: cleaned };
+              updated[lastIdx] = { ...prev[lastIdx], content: cleaned };
               return updated;
             }
             return prev;
@@ -1247,7 +1251,7 @@ function GamePageInner() {
       const displayMessage = files && files.length > 0
         ? `${message}\n📎 ${files.map((f) => f.name).join(", ")}`
         : message;
-      setNpcMessages((prev) => [...prev, { role: "player", content: displayMessage }]);
+      setNpcMessages((prev) => [...prev, { role: "player", content: displayMessage, timestamp: Date.now() }]);
       streamBufferRef.current = "";
 
       // Convert files to ArrayBuffers for socket transport

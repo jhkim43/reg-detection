@@ -5,6 +5,21 @@ import { useT } from "@/lib/i18n";
 import { Pencil, UserMinus, RotateCcw, MessageSquare, ClipboardList, Undo2 } from "lucide-react";
 import type { NpcChatMessage } from "./NpcDialog";
 import TaskPanel from "./TaskPanel";
+
+// 카드용 상대시간 + 메시지용 시:분 포맷
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return "방금 전";
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  return new Date(iso).toLocaleDateString("ko-KR");
+}
+function formatHm(ts: number): string {
+  if (!Number.isFinite(ts)) return "";
+  return new Date(ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
 import TaskChatView, { type TaskMessage } from "./TaskChatView";
 import ChatInput from "./ChatInput";
 import Tab from "./ui/Tab";
@@ -263,7 +278,10 @@ export default function ChatPanel({
                       {t("chat.npcPlaceholder", { name: dialogNpc!.npcName })}
                     </div>
                   )}
-                  {npcMessages.map((msg, i) => (
+                  {npcMessages.map((msg, i) => {
+                    const isStreaming = msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1;
+                    const timeText = msg.timestamp ? formatHm(msg.timestamp) : "";
+                    return (
                     <div key={i}>
                       {msg.reportCard && onOpenReport && (
                         <button
@@ -279,20 +297,23 @@ export default function ChatPanel({
                             <span className="text-caption text-amber-400 font-semibold">열기 →</span>
                           </div>
                           <div className="text-caption text-text-dim ml-6">
-                            {msg.reportCard.creatorSubAgentLabel || "Agent"} · 방금 전
+                            {msg.reportCard.creatorSubAgentLabel || "Agent"} · {relativeTime(msg.reportCard.createdAt)}
                           </div>
                         </button>
                       )}
                       {msg.content && (
-                        <ChatBubble
-                          sender={msg.role === "player" ? "player" : "npc"}
-                          streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
-                        >
-                          {msg.content}
-                        </ChatBubble>
+                        <div className={msg.role === "player" ? "flex flex-col items-end" : "flex flex-col items-start"}>
+                          <ChatBubble sender={msg.role === "player" ? "player" : "npc"} streaming={isStreaming}>
+                            {msg.content}
+                          </ChatBubble>
+                          {timeText && !isStreaming && (
+                            <span className="text-[10px] text-text-dim mt-0.5 px-1">{timeText}</span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {/* seed-v9 AC-014 T-026 — Abort 버튼: 응답 streaming 중에만 노출 */}
                 {isNpcStreaming && onAbort && dialogNpc && (
