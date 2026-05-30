@@ -567,9 +567,162 @@ Idempotency-Key: <nanobot-issued-unique-id>           // 선택 — 중복 push 
 
 ---
 
+## 12. `POST /api/internal/reports` (seed-v11 AC-002, Claude Artifacts 스타일 보고서 push)
+
+### 용도
+
+sub-agent 또는 main agent가 분석·요약·리포트 형태로 **본문 큰 마크다운 결과물**을 사용자의 보고서 패널(ReportPanel)에 push할 때 호출. Section 11 chat-push와는 별 트랙:
+
+| | chat-push (§11) | reports (§12) |
+|---|---|---|
+| 본문 크기 | 짧은 한 줄 (~수십 자) | 큰 마크다운 (~수 KB) |
+| 저장 위치 | `chat_messages` | `agent_reports` (별 테이블) |
+| UI 표시 | 채팅 메시지 (`[리서치담당] ...` prefix) | 우측 ReportPanel (sanitize markdown 렌더) |
+| socket event | `npc:push-message` | `npc:report-ready` |
+| 영속화 | v10 phase6 완료 | v11 phase1 완료 |
+| 용도 | 진행 알림 | 완성된 결과물 |
+
+### Request
+
+```http
+POST /api/internal/reports
+x-deskrpg-internal-secret: ${INTERNAL_RPC_SECRET}
+Idempotency-Key: report-<id>-<timestamp>        # (선택) 중복 push 회피, TTL 10분 in-memory
+Content-Type: application/json
+
+{
+  "channel_id": "<uuid>",
+  "npc_id": "<uuid>",                            # parent NPC (Supervisor 등). sub-agent 자신 아님
+  "character_id": "<uuid>",                      # 보고서 소유자 (사용자의 character)
+  "title": "주간 매물 분석",                     # 선택
+  "body_markdown": "## 요약\n...",               # 자유 마크다운 (GFM 지원, sanitize는 클라이언트 렌더 시점)
+  "creator_sub_agent_label": "리서치담당",       # 선택 — 작성자 sub-agent 표시명 snapshot
+  "metadata": { "any": "free-form jsonb" }       # 선택
+}
+```
+
+### Response
+
+| status | body | 의미 |
+|---|---|---|
+| `201` | `{ "persisted_report_id": "<uuid>" }` | 정상 — agent_reports row 영속 + `npc:report-ready` socket broadcast 완료 |
+| `400` | `{ "errorCode": "missing_required_field", "field": "<name>" }` | `channel_id`/`npc_id`/`character_id`/`body_markdown` 중 하나 누락 또는 빈 문자열 |
+| `400` | `{ "errorCode": "invalid_json" }` | body가 valid JSON 아님 |
+| `401` | `{ "errorCode": "unauthorized" }` | `x-deskrpg-internal-secret` 누락 또는 불일치 |
+| `404` | `{ "errorCode": "channel_not_found" }` | `channel_id`가 DB에 없음 |
+| `404` | `{ "errorCode": "npc_not_found" }` | `npc_id`가 DB에 없거나 NPC의 channel_id가 요청 channel_id와 불일치 |
+| `404` | `{ "errorCode": "character_not_found" }` | `character_id`가 DB에 없음 |
+| `409` | `{ "errorCode": "duplicate_message" }` | 같은 Idempotency-Key로 10분 내 재호출 |
+| `500` | `{ "errorCode": "internal_error" }` | DB insert 실패 또는 socket emit 실패 (emit 실패 시에도 row는 영속됨 — TRD-D-41) |
+
+### Handler 동작 흐름
+
+1. `x-deskrpg-internal-secret` 검증 → 401
+2. body JSON parse → 400 invalid_json
+3. wire snake_case → 내부 camelCase 정규화
+4. 필수 필드 4개 (`channelId`/`npcId`/`characterId`/`bodyMarkdown`) 비어있지 않음 검사 → 400 missing_required_field
+5. Idempotency-Key cache 검사 (in-memory TTL 10분) → 409 duplicate_message
+6. `channels.id == channel_id` → 없으면 404 channel_not_found
+7. `npcs.id == npc_id` + `npc.channelId == channel_id` 일치 → 미일치 시 404 npc_not_found
+8. `characters.id == character_id` → 없으면 404 character_not_found
+9. `agent_reports` row insert (metadata에 `creatorSubAgentLabel` + `channelIdSnapshot` snapshot 합쳐 보존)
+10. socket emit `npc:report-ready` (room=channelId):
+    ```ts
+    io.to(channelId).emit("npc:report-ready", {
+      reportId, npcId, channelId, title, creatorSubAgentLabel, createdAt,
+    })
+    ```
+11. Idempotency-Key cache 채우기 (있는 경우) + `201 { persisted_report_id }`
+
+### npc_id 결정 규칙 (D-33)
+
+`npc_id`는 **parent NPC**의 deskrpg UUID. sub-agent 자기 자신이 아님. 이유:
+- 사용자가 직접 대화하는 건 main agent (Supervisor). sub-agent는 hidden background actor.
+- UI 패널 filter가 `currentNpcId` 기준 (`agent_reports.npc_id = currentNpc.id`)이라 sub-agent npc_id로 저장하면 패널에 안 보임.
+- nanobot 측은 v10 phase3에서 깔린 session metadata의 `parent_npc_id`를 그대로 사용.
+- 작성자 sub-agent 식별은 `creator_sub_agent_label` snapshot으로 라벨링.
+
+### 클라이언트 표시 (D-34 / D-36)
+
+`socketInstance.on("npc:report-ready", payload)` listener — 두 분기:
+- `payload.npcId === currentNpcId` → **ReportPanel slide-in** (refetch + slideIn 트리거)
+- `payload.npcId !== currentNpcId` → 채팅 영역 위 **토스트** `"{creatorSubAgentLabel || npcName}가 보고서를 올렸어요"` (클릭 시 NPC 전환 + 패널 갱신)
+
+새로고침 후 보고서 영속 — `GET /api/reports?npcId={currentNpc}&limit=1`로 ReportPanel이 자연 복원.
+
+### `GET /api/reports` (user-auth fetch — v11 AC-008)
+
+ReportPanel mount 시 + HistoryModal 열 때 클라이언트가 직접 호출:
+
+```http
+GET /api/reports?npcId=<uuid>&limit=1
+x-user-id: <session user uuid>
+```
+
+- 인증: `x-user-id` 헤더 (v10 user-auth 패턴 재사용)
+- `npcId` 미지정 → character의 전체 보고서 (HistoryModal용)
+- `limit` 미지정 → 50 (max 50으로 clamp)
+- 응답:
+  ```json
+  {
+    "reports": [{
+      "id": "<uuid>",
+      "characterId": "<uuid>",
+      "npcId": "<uuid> | null",
+      "title": "string | null",
+      "bodyMarkdown": "string",
+      "metadata": { ... },
+      "createdAt": "ISO8601",
+      "creatorNpcName": "string | null (npc 삭제 시 null)",
+      "creatorSubAgentLabel": "string | null (metadata snapshot)"
+    }]
+  }
+  ```
+
+### Idempotency
+
+- 헤더 형식: `Idempotency-Key: report-<id>-<timestamp>` 권장
+- TTL: 10분 in-memory cache (process restart 시 비워짐)
+- nanobot 측은 SubagentManager 완료 hook에서 `report-{report_session_id}-completed-{ts}` 형태로 생성
+
+### chat_messages와의 책임 분리 (D-37)
+
+`agent_reports`는 새 테이블. 본문 크기·검색 패턴·생명주기가 chat 한 줄과 크게 다르므로 `chat_messages.kind='report'` 식 재활용 안 함. 책임 분리가 유지보수에 결정적.
+
+### nanobot-side 호출 위치 (가이드)
+
+- `nanobot/agent/subagent.py` SubagentManager의 **완료 시점** (성공 시 — 실패 시는 §11 chat-push가 더 적합)
+- main agent의 명시적 `report` tool 호출 시 (LLM이 보고서 생성 의도 표명한 경우)
+
+### 구현 작업 분담
+
+| 항목 | 담당 | 상태 |
+|---|---|---|
+| `agent_reports` schema + 0009 migration | deskrpg (본인) | ✅ v11 phase1 |
+| `internal-report-handler.ts` Logic + 단위 테스트 | deskrpg (본인) | ✅ v11 phase1 |
+| `report-list-service.ts` Logic + 단위 테스트 | deskrpg (본인) | ✅ v11 phase1 |
+| `POST /api/internal/reports` route + 통합 테스트 | deskrpg (본인) | ✅ v11 phase2 |
+| `GET /api/reports` route + 통합 테스트 | deskrpg (본인) | ✅ v11 phase2 |
+| `npc:report-ready` socket emit | deskrpg (본인) | ✅ v11 phase2 (route 통합) |
+| 클라이언트 ReportPanel + HistoryModal + socket listener | deskrpg (본인) | v11 phase3/4 |
+| `SubagentManager` 완료 hook → notify_deskrpg_report | nanobot 팀원 | 별도 PR |
+| Idempotency-Key 생성 | nanobot 팀원 | 별도 PR |
+
+### 결정 사항 (v1)
+
+1. **테이블 분리** — `agent_reports` 별 테이블 (D-37). 기존 `npc_reports` (task queue, 0000_big_karnak.sql)와 도메인 다름.
+2. **scope** — Character 주 + NPC 참조 nullable (D-32). NPC 삭제돼도 보고서 보존, metadata snapshot으로 fallback.
+3. **lifecycle** — 단발성 push (D-35). PATCH 미지원 (future).
+4. **본문 형식** — 자유 마크다운 + 렌더 시점 sanitize (react-markdown + rehype-sanitize, D-31). raw HTML 금지.
+5. **패널 동작** — 현재 NPC의 최신 1건 (D-34). 다른 NPC 보고서 도착 시 토스트 (D-36).
+6. **본문 크기 제한** — 없음 (MVP, YAGNI). 운영 이슈 시점에 추가.
+
+---
+
 ## 변경 이력
 
 - 2026-05-23T16:30:00 — Initial draft (seed-v10 spec phase, T-V06)
 - 2026-05-23T17:00:00 — Section 5 (cleanup endpoint) 제거. 사용자 + 다른 팀원 합의로 NPC 삭제 시 nanobot 측 파일은 그대로 유지 (layer 경계 명확성 우선). AC-007 + P-NB03 작업 둘 다 불필요. Section 6 (body.metadata) motivation + 현재 nanobot 코드 상태 + wiring 가이드 보강.
 - 2026-05-27 — Section 11 (chat-push endpoint, planned) draft 추가. sub-agent 비동기 완료 결과를 parent session에 push하기 위한 신규 endpoint. deskrpg + nanobot 양쪽 동시 구현 필요. seed-v10 phase4 T-V-spec.
 - 2026-05-27 — Section 11 draft → v1 finalize (seed-v10 phase5 T-V34). 미결정 사항 3개 모두 결론 (session_key parsing=0, kind 3개 고정, 일반 chat history append). deskrpg-side 구현 완료 표시 (route/handler/socket emit/클라이언트 listener). chat_messages 영속화는 의도적 제외 (현 schema characterId NOT NULL 이슈 — 별도 phase). nanobot 팀원이 본 spec 따라 SubagentManager 완료 hook + Idempotency-Key 생성 추가하면 end-to-end 완성.
+- 2026-05-30 — Section 12 (reports endpoint) 신설. seed-v11 AC-002 — Claude Artifacts 스타일 본문 큰 마크다운 보고서 push. `agent_reports` 별 테이블 + `POST /api/internal/reports` (internal-secret) + `GET /api/reports` (user-auth). socket event `npc:report-ready`. §11 chat-push와는 책임 분리 (한 줄 알림 vs 본문 큰 결과물). deskrpg-side phase1 (Data+Logic) + phase2 (Presentation API) 완료. UI (ReportPanel/HistoryModal)는 phase3/4. nanobot 팀원이 본 spec 따라 SubagentManager 완료 시점에 push.
