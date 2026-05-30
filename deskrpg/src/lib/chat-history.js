@@ -25,6 +25,8 @@ function rowToMemory(row) {
   // seed-v10 phase6 T-V37: kind="subagent_push" + metadata.subagentLabel이 있으면
   // content에 prefix를 미리 박아 반환 (클라이언트는 단순 표시).
   let content = row.content;
+  let reportCard = undefined;
+
   if (row.kind === "subagent_push" && row.metadata) {
     try {
       const meta = typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata;
@@ -35,9 +37,29 @@ function rowToMemory(row) {
       // metadata 파싱 실패 — content 원본 그대로
     }
   }
+
+  // seed-v11 AC-004 (revised UX): kind="report_card" → reportCard field 복원
+  if (row.kind === "report_card" && row.metadata) {
+    try {
+      const meta = typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata;
+      if (meta && typeof meta.reportId === "string" && meta.reportId.trim()) {
+        reportCard = {
+          reportId: meta.reportId,
+          title: typeof meta.title === "string" ? meta.title : null,
+          creatorSubAgentLabel: typeof meta.creatorSubAgentLabel === "string" ? meta.creatorSubAgentLabel : null,
+          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+        };
+        content = ""; // 카드 모양으로 표시되므로 content는 빈 문자열
+      }
+    } catch (_e) {
+      // metadata 파싱 실패 — 일반 메시지로 fallback
+    }
+  }
+
   return {
     role: row.role === "user" ? "player" : "npc",
     content,
+    ...(reportCard ? { reportCard } : {}),
     timestamp: row.createdAt ? new Date(row.createdAt).getTime() : Date.now(),
   };
 }

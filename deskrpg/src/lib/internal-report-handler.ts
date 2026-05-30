@@ -11,7 +11,7 @@
 //   - emit 실패 시 row 영속 + 500 (TRD-D-41) — 다음 history fetch에서 클라이언트 복원
 
 import { eq } from "drizzle-orm";
-import { db as defaultDb, channels, npcs, characters, agentReports, jsonForDb } from "@/db";
+import { db as defaultDb, channels, npcs, characters, agentReports, chatMessages, jsonForDb } from "@/db";
 
 export type ReportPushInput = {
   channelId: string;
@@ -145,6 +145,32 @@ export async function handleReportPush(
   } catch (err) {
     console.warn("[internal-report-handler] agent_reports insert failed:", err);
     return { ok: false, statusCode: 500, errorCode: "internal_error" };
+  }
+
+  // 보고서 도착 알림 카드를 chat_messages에 영속 저장 (사용자 UX 결정 2026-05-30).
+  // kind="report_card", content="" (UI에서 reportCard metadata로 렌더),
+  // metadata = { reportId, title, creatorSubAgentLabel } — history fetch 시 rowToMemory가
+  // NpcChatMessage.reportCard 필드로 변환.
+  // best-effort: 이 row insert 실패해도 agent_reports는 이미 영속 → 201 그대로 (카드만
+  // 새로고침 후 사라짐, 보고서 자체는 popover로 접근 가능).
+  try {
+    await dbHandle
+      .insert(chatMessages)
+      .values({
+        characterId: input.characterId,
+        npcId: input.npcId,
+        role: "assistant",
+        content: "",
+        kind: "report_card",
+        metadata: jsonForDb({
+          reportId,
+          title: input.title ?? null,
+          creatorSubAgentLabel: input.creatorSubAgentLabel ?? null,
+        }) as never,
+      } as never);
+  } catch (err) {
+    console.warn("[internal-report-handler] report_card chat_messages insert failed:", err);
+    // 비치명적 — 계속 진행
   }
 
   try {

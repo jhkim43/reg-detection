@@ -804,7 +804,6 @@ export class GameScene extends Phaser.Scene {
   private nearbyNpcs: NpcSprite[] = [];
   private nearbyPlayers: { id: string; name: string }[] = [];
   private dialogOpen = false;
-  private lastToastMessage: string | null = null;
   private lastChatInputEnabled: boolean | null = null;
   private editorKeys: { one?: Phaser.Input.Keyboard.Key; two?: Phaser.Input.Keyboard.Key; three?: Phaser.Input.Keyboard.Key; oKey?: Phaser.Input.Keyboard.Key } = {};
   private editorObjectMode = false;
@@ -2978,21 +2977,9 @@ export class GameScene extends Phaser.Scene {
       EventBus.emit("chat:input-enabled", inputEnabled);
     }
 
-    if (hasNearby && !this.dialogOpen) {
-      const targetName = nearby.length > 0
-        ? nearby[0].name
-        : nearbyP[0].name;
-      const msg = `Press / to talk to ${targetName}`;
-      if (msg !== this.lastToastMessage) {
-        this.lastToastMessage = msg;
-        EventBus.emit("toast:show", { message: msg });
-      }
-    } else if (!this.dialogOpen) {
-      if (this.lastToastMessage !== null) {
-        this.lastToastMessage = null;
-        EventBus.emit("toast:hide");
-      }
-    }
+    // NPC 근처 상시 "Press / to talk to ..." 토스트는 제거 (UX 정리 2026-05-30).
+    // 입력 가능 상태(chat:input-enabled)만 유지 — 사용자가 / 키 누르면 정상 대화 시작.
+    // NPC가 플레이어에게 걸어오는 npc:movement-arrived 케이스에선 여전히 한 번 토스트 표시.
   }
 
   // ---------------------------------------------------------------------------

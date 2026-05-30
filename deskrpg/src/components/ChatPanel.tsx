@@ -5,6 +5,21 @@ import { useT } from "@/lib/i18n";
 import { Pencil, UserMinus, RotateCcw, MessageSquare, ClipboardList, Undo2 } from "lucide-react";
 import type { NpcChatMessage } from "./NpcDialog";
 import TaskPanel from "./TaskPanel";
+
+// 카드용 상대시간 + 메시지용 시:분 포맷
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return "방금 전";
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  return new Date(iso).toLocaleDateString("ko-KR");
+}
+function formatHm(ts: number): string {
+  if (!Number.isFinite(ts)) return "";
+  return new Date(ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
 import TaskChatView, { type TaskMessage } from "./TaskChatView";
 import ChatInput from "./ChatInput";
 import Tab from "./ui/Tab";
@@ -53,6 +68,8 @@ interface ChatPanelProps {
   channelChatInputDisabled?: boolean;
   onSendChannelChat: (message: string) => void;
   currentPlayerName?: string;
+  // seed-v11 AC-004 (revised UX) — 채팅 카드 클릭 시 ReportPanel 열기
+  onOpenReport?: (reportId: string) => void;
 }
 
 const MIN_WIDTH = 250;
@@ -65,6 +82,7 @@ export default function ChatPanel({
   channelMessages, channelChatOpen, channelChatInputDisabled, onSendChannelChat, currentPlayerName,
   npcMoveState, onReturnNpc, socket, onDeleteTask, onRequestReportTask, onResumeTask, onCompleteTask,
   taskMessages, isTaskStreaming, onTaskSend, activeTaskId, onSetActiveTaskId,
+  onOpenReport,
 }: ChatPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [manualOpen, setManualOpen] = useState(false);
@@ -260,16 +278,42 @@ export default function ChatPanel({
                       {t("chat.npcPlaceholder", { name: dialogNpc!.npcName })}
                     </div>
                   )}
-                  {npcMessages.map((msg, i) => (
+                  {npcMessages.map((msg, i) => {
+                    const isStreaming = msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1;
+                    const timeText = msg.timestamp ? formatHm(msg.timestamp) : "";
+                    return (
                     <div key={i}>
-                      <ChatBubble
-                        sender={msg.role === "player" ? "player" : "npc"}
-                        streaming={msg.role === "npc" && isNpcStreaming && i === npcMessages.length - 1}
-                      >
-                        {msg.content}
-                      </ChatBubble>
+                      {msg.reportCard && onOpenReport && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenReport(msg.reportCard!.reportId)}
+                          className="my-1 w-full text-left rounded-md border border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-colors px-3 py-2"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base" aria-hidden>📄</span>
+                            <span className="flex-1 truncate text-text font-medium">
+                              {msg.reportCard.title || "보고서가 도착했습니다"}
+                            </span>
+                            <span className="text-caption text-amber-400 font-semibold">열기 →</span>
+                          </div>
+                          <div className="text-caption text-text-dim ml-6">
+                            {msg.reportCard.creatorSubAgentLabel || "Agent"} · {relativeTime(msg.reportCard.createdAt)}
+                          </div>
+                        </button>
+                      )}
+                      {msg.content && (
+                        <div className={msg.role === "player" ? "flex flex-col items-end" : "flex flex-col items-start"}>
+                          <ChatBubble sender={msg.role === "player" ? "player" : "npc"} streaming={isStreaming}>
+                            {msg.content}
+                          </ChatBubble>
+                          {timeText && !isStreaming && (
+                            <span className="text-[10px] text-text-dim mt-0.5 px-1">{timeText}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {/* seed-v9 AC-014 T-026 — Abort 버튼: 응답 streaming 중에만 노출 */}
                 {isNpcStreaming && onAbort && dialogNpc && (
