@@ -300,6 +300,11 @@ class ChannelManager:
 
                 channel = self.channels.get(msg.channel)
                 if channel:
+                    if "deskrpg" in msg.channel or msg.metadata.get("deskrpg_sync_type"):
+                        logger.info(
+                            "[DeskRPG Manager] Dispatching sync_type={} to channel={} (found={})",
+                            msg.metadata.get("deskrpg_sync_type"), msg.channel, channel.name,
+                        )
                     # Duplicate suppression is scoped to a known source message
                     # so repeated content from separate turns is still delivered.
                     if (
