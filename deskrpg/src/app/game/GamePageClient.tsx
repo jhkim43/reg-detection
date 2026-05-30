@@ -1052,10 +1052,10 @@ function GamePageInner() {
 
     const handleNpcAutoGreet = (data: { npcId: string; npcName: string }) => {
       // greeting은 npcGreetings ref에만 저장 — dialog 열릴 때 첫 메시지로 표시.
-      // 토스트/알림은 노이즈라 제거 (UX 정리 2026-05-30).
+      // 토스트/알림/npc:bubble 다 노이즈라 제거 (UX 정리 2026-05-30).
+      // 실제 새 메시지가 도착할 때(npc:movement-arrived 등) bubble은 여전히 표시됨.
       const greeting = t("game.npcGreeting", { name: data.npcName });
       npcGreetings.current.set(data.npcId, greeting);
-      EventBus.emit("npc:bubble", { npcId: data.npcId });
     };
 
     const handleToastShow = (data: { message: string }) => {
