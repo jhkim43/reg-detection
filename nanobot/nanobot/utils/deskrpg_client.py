@@ -32,7 +32,12 @@ class DeskRPGClient:
         ) or os.environ.get(
             "REGTRACK_INTERNAL_URL", "http://deskrpg-app:3000"
         )).rstrip("/")
-        self.secret = secret or os.environ.get("INTERNAL_RPC_SECRET", "test-secret")
+        self.secret = secret or os.environ.get("INTERNAL_RPC_SECRET")
+        if not self.secret:
+            logger.warning(
+                "[DeskRPG] INTERNAL_RPC_SECRET not set — requests will fail with 401. "
+                "Set env var INTERNAL_RPC_SECRET to match deskrpg's x-deskrpg-internal-secret.",
+            )
 
     # ------------------------------------------------------------------
     # Public API methods
@@ -105,11 +110,9 @@ class DeskRPGClient:
             "summary": summary,
             "status": status,
             "action": action,
+            "assignerCharacterId": assigner_character_id or "",
+            "ownerUserId": owner_user_id or "",
         }
-        if assigner_character_id:
-            payload["assignerCharacterId"] = assigner_character_id
-        if owner_user_id:
-            payload["ownerUserId"] = owner_user_id
         if metadata:
             payload["metadata"] = metadata
         return await self._request("POST", "/api/internal/tasks", payload)
@@ -146,6 +149,35 @@ class DeskRPGClient:
         if metadata:
             payload["metadata"] = metadata
         return await self._request("POST", "/api/internal/chat-push", payload)
+
+    async def create_report(
+        self,
+        channel_id: str,
+        npc_id: str,
+        character_id: str,
+        body_markdown: str,
+        title: str | None = None,
+        creator_sub_agent_label: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """POST /api/internal/reports — push a long markdown report to the ReportPanel.
+
+        Best for full analysis results (KB-scale markdown).
+        Returns the response JSON (containing ``persisted_report_id``) or None.
+        """
+        payload: dict[str, Any] = {
+            "channel_id": channel_id,
+            "npc_id": npc_id,
+            "character_id": character_id,
+            "body_markdown": body_markdown,
+        }
+        if title:
+            payload["title"] = title
+        if creator_sub_agent_label:
+            payload["creator_sub_agent_label"] = creator_sub_agent_label
+        if metadata:
+            payload["metadata"] = metadata
+        return await self._request("POST", "/api/internal/reports", payload)
 
     # ------------------------------------------------------------------
     # Internal helpers

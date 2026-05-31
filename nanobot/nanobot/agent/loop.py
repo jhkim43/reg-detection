@@ -486,14 +486,17 @@ class AgentLoop:
 
                         if metadata:
                             # DeskRPG 라우터 바디 양식 우선 파싱 (JS Camel/Snake 혼용 회피)
+                            # subagent _announce_result에서 보존한 deskrpg_* prefix fallback 지원
                             owner_id = (
                                 metadata.get("user_id") or 
                                 metadata.get("ownerUserId") or 
-                                metadata.get("owner_user_id")
+                                metadata.get("owner_user_id") or
+                                metadata.get("deskrpg_owner_user_id")
                             )
                             channel_uuid = (
                                 metadata.get("channel_id") or 
-                                metadata.get("channelId")
+                                metadata.get("channelId") or
+                                metadata.get("deskrpg_channel_id")
                             )
                             # 부모의 텍스트 기반 agentId 매칭 추출
                             parent_agent_uuid = (
@@ -503,12 +506,14 @@ class AgentLoop:
                             )
                             character_id = (
                                 metadata.get("character_id") or
-                                metadata.get("characterId")
+                                metadata.get("characterId") or
+                                metadata.get("deskrpg_character_id")
                             )
                             parent_npc_uuid = (
                                 metadata.get("npc_id") or
                                 metadata.get("parent_npc_uuid") or
-                                metadata.get("parentNpcUuid")
+                                metadata.get("parentNpcUuid") or
+                                metadata.get("deskrpg_parent_npc_uuid")
                             )
 
                         try:

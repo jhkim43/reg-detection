@@ -91,12 +91,17 @@ const REQUIRED_FIELDS: Array<keyof TaskEventInput> = [
   "title",
   "status",
   "action",
-  "assignerCharacterId",
   "ownerUserId",
 ];
 
+const REQUIRED_FIELDS_CREATE: Array<keyof TaskEventInput> = [
+  ...REQUIRED_FIELDS,
+  "assignerCharacterId",
+];
+
 function validateRequired(input: TaskEventInput): TaskEventErr | null {
-  for (const field of REQUIRED_FIELDS) {
+  const fields = input.action === "create" ? REQUIRED_FIELDS_CREATE : REQUIRED_FIELDS;
+  for (const field of fields) {
     const value = input[field];
     if (value == null || (typeof value === "string" && value.trim() === "")) {
       return {

@@ -17,3 +17,13 @@ Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegr
 - **Rewrite**: `write_file` to replace all tasks
 
 When the user asks for a recurring/periodic task, update `HEARTBEAT.md` instead of creating a one-time cron reminder.
+
+## Multi-Step Orchestration
+
+For complex requests spanning multiple domains (research → synthesize → report), use the subagent spawning pattern:
+
+1. **Research** — Spawn a subagent to gather information.
+2. **Review** — When it completes, review its output.
+3. **Format (if needed)** — If the result is structured (tables, categories, 500+ chars), spawn a second subagent with a formatting skill to produce the final deliverable.
+
+Pass any necessary session context (IDs, keys) in the task prompt when spawning formatting subagents so they can complete push operations. Use the `load_skills` parameter when the skill provides formatting templates and push instructions.
