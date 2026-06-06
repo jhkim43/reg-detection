@@ -79,11 +79,60 @@ curl -s -X POST "{{URL}}/vault/{{path}}" \
      --data-binary $'\n\n{{content}}'
 ```
 
+### 5. Surgical Edits (PATCH) — Heading / Block / Frontmatter Targeting
+
+Precisely update a specific section of a note without rewriting the entire file. Use `Target-Type` and `Target` headers to point to the exact location.
+
+```bash
+# Replace content under a specific heading (e.g. "## Findings")
+curl -s -X PATCH "{{URL}}/vault/{{path}}" \
+     -H "Authorization: {{TOKEN}}" \
+     -H "Operation: replace" \
+     -H "Target-Type: heading" \
+     -H "Target: Findings" \
+     -H "Content-Type: text/markdown" \
+     --data-binary "{{new_content}}"
+
+# Append content under a specific heading
+curl -s -X PATCH "{{URL}}/vault/{{path}}" \
+     -H "Authorization: {{TOKEN}}" \
+     -H "Operation: append" \
+     -H "Target-Type: heading" \
+     -H "Target: Findings" \
+     -H "Content-Type: text/markdown" \
+     --data-binary "{{content}}"
+
+# Replace a frontmatter field value (e.g. status: done)
+curl -s -X PATCH "{{URL}}/vault/{{path}}" \
+     -H "Authorization: {{TOKEN}}" \
+     -H "Operation: replace" \
+     -H "Target-Type: frontmatter" \
+     -H "Target: status" \
+     -H "Content-Type: application/json" \
+     --data '"{{new_value}}"'
+
+# Read a specific heading's content only (via GET with targeting)
+curl -s -X GET "{{URL}}/vault/{{path}}" \
+     -H "Authorization: {{TOKEN}}" \
+     -H "Target-Type: heading" \
+     -H "Target: Findings" \
+     -H "Accept: text/markdown"
+```
+
+### 6. Delete Note
+
+Permanently remove a file from the vault. Use with caution.
+
+```bash
+curl -s -X DELETE "{{URL}}/vault/{{path}}" \
+     -H "Authorization: {{TOKEN}}"
+```
+
 ---
 
 ## 🔗 Connection & Metadata (Graph & Tags)
 
-### 5. Connection Check (Links & Backlinks)
+### 7. Connection Check (Links & Backlinks)
 
 Understand the connection relationships in the graph view. Check who references this note and what this note references.
 
@@ -95,7 +144,7 @@ curl -s -X GET "{{URL}}/backlinks/{{path}}" -H "Authorization: {{TOKEN}}"
 curl -s -X GET "{{URL}}/links/{{path}}" -H "Authorization: {{TOKEN}}"
 ```
 
-### 6. Tag Analysis
+### 8. Tag Analysis
 
 Check all tags used in the vault and their frequency to understand the knowledge map.
 
@@ -107,7 +156,7 @@ curl -s -X GET "{{URL}}/tags/" -H "Authorization: {{TOKEN}}"
 
 ## 🗓️ Intelligence Tools
 
-### 7. Daily Note Management
+### 9. Daily Note Management
 
 Quickly retrieve or update today's record.
 
@@ -119,7 +168,7 @@ curl -s -X GET "{{URL}}/periodic/daily/" -H "Authorization: {{TOKEN}}" -H "Accep
 curl -s -X POST "{{URL}}/periodic/daily/" -H "Authorization: {{TOKEN}}" --data-binary "{{content}}"
 ```
 
-### 8. Check Currently Active File
+### 10. Check Currently Active File
 
 Retrieve information about the file currently activated by the Captain in the Obsidian app.
 
