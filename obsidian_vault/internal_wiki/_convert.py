@@ -387,14 +387,23 @@ def extract_raw_md():
 # === Stage 2: raw_md + spec → wiki (요약·메타·링크) ===
 
 def build_frontmatter(spec: DocSpec) -> str:
-    tags_yaml = ", ".join(spec.tags)
+    """Frontmatter tags에 slash hierarchy 통합 (inline 태그 제거)."""
+    inst_short = spec.source_institution.split('+')[0].strip()
+    # 기본 태그 + 자동 생성 slash 태그
+    all_tags = list(spec.tags)
+    all_tags.append("출처/내규")
+    all_tags.append(f"출처/{inst_short}")
+    all_tags.append("status/active")
+    all_tags.extend(f"영역/{sa}" for sa in spec.sub_area)
+    tags_yaml = "\n".join(f"  - {t}" for t in all_tags)
     sub_area_yaml = ", ".join(spec.sub_area)
     return f"""---
 title: "{spec.title}"
 date: {spec.date}
 source_institution: "{spec.source_institution}"
 document_type: "{spec.document_type}"
-tags: [{tags_yaml}]
+tags:
+{tags_yaml}
 status: "active"
 type: "사내규정"
 version: "{spec.version}"
@@ -415,9 +424,6 @@ def build_wiki_body(spec: DocSpec, raw_md_path: Path) -> str:
     raw_md_stem = raw_md_path.stem
     raw_md_size_kb = raw_md_path.stat().st_size // 1024 if raw_md_path.exists() else 0
     raw_md_lines = raw_md_path.read_text(encoding="utf-8").count("\n") if raw_md_path.exists() else 0
-
-    sub_area_tags = " ".join(f"#영역/{sa}" for sa in spec.sub_area)
-    inst_tag = f"#출처/{spec.source_institution.split('+')[0].strip()}"
 
     summary = SUMMARIES.get(spec.wiki_filename, {
         "core": ["TODO: 3~5 bullet"],
@@ -469,10 +475,6 @@ def build_wiki_body(spec: DocSpec, raw_md_path: Path) -> str:
 # 변경 이력
 
 - {spec.version} ({spec.effective_date}): 초기 셋업 (공개 자료 갈음)
-
----
-
-#출처/내규 #status/active {inst_tag} {sub_area_tags}
 """
 
 
@@ -507,7 +509,10 @@ def build_moc(sub_area: str, related_internal: list) -> str:
 type: MOC
 sub_area: {sub_area}
 date: 2026-06-06
-tags: [MOC, 영역인덱스]
+tags:
+  - MOC
+  - 영역인덱스
+  - 영역/{sub_area}
 ---
 
 # 영역: {sub_area}
@@ -528,10 +533,6 @@ tags: [MOC, 영역인덱스]
 ## 영향도 분석 (자동 갱신)
 
 - (아직 없음)
-
----
-
-#MOC #영역/{sub_area}
 """
 
 
