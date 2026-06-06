@@ -9,5 +9,12 @@
 """
 
 from .classify import classify_text, load_taxonomy, get_domain, INTERNAL_SUB_AREAS
+from .embed import EmbeddingIndex
 
-__all__ = ["classify_text", "load_taxonomy", "get_domain", "INTERNAL_SUB_AREAS"]
+__all__ = [
+    "classify_text",
+    "load_taxonomy",
+    "get_domain",
+    "INTERNAL_SUB_AREAS",
+    "EmbeddingIndex",
+]

@@ -18,13 +18,13 @@
 시중은행 처리방침은 모두 HTML 페이지 (SPA). `_download.py` (Playwright) 사용:
 
 ```bash
-# 1회 설치
-python3 -m venv /tmp/playwright-venv
-/tmp/playwright-venv/bin/pip install playwright
-/tmp/playwright-venv/bin/playwright install chromium
+# 1회 설치 — 자세히는 obsidian_vault/_tools/SETUP.md 참조
+source .venv/bin/activate
+pip install -r obsidian_vault/_tools/requirements.txt
+playwright install chromium
 
 # 실행 (4건 자동)
-/tmp/playwright-venv/bin/python obsidian_vault/internal_raw/_download.py
+python obsidian_vault/internal_raw/_download.py
 ```
 
 → `page.pdf()`로 렌더링된 페이지를 PDF로 저장.

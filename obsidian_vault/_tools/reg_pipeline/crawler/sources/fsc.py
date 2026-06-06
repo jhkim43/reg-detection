@@ -16,6 +16,7 @@ from ..base import (
     is_after,
     make_filename,
     parse_date,
+    download_attachments_with_priority,
 )
 
 SOURCE = "fsc"
@@ -147,68 +148,116 @@ def crawl_press(
     page,
     max_pages: int = 5,
 ) -> list[CrawlResult]:
-    """금융위 보도자료."""
+    """금융위 보도자료.
+
+    FSC 새 구조 (2026):
+      - 목록 .subject 안 a 태그로 상세 진입 (/no010101/{ID})
+      - 상세 페이지에 본문 + 첨부파일 (PDF/HWP/HWPX 함께)
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     results: list[CrawlResult] = []
 
+    # 1) 목록 수집
+    posts: list[dict] = []
     for page_num in range(1, max_pages + 1):
-        url = f"{PRESS_URL}?curPage={page_num}"
+        url = f"{PRESS_URL}?srchCtgry=&curPage={page_num}&srchKey=&srchText=&srchBeginDt=&srchEndDt="
         try:
             page.goto(url, timeout=20000)
-            page.wait_for_selector("ul li, table tbody tr", timeout=10000)
+            page.wait_for_selector(".subject", timeout=10000)
             time.sleep(1)
         except Exception:
             break
 
-        rows = page.query_selector_all("ul li.subject, table tbody tr")
+        subjects = page.query_selector_all(".subject")
         any_added = False
-        for row in rows:
+        for subj in subjects:
             try:
-                title_link = row.query_selector("a")
-                if not title_link:
+                link = subj.query_selector("a")
+                if not link:
                     continue
-                title = title_link.inner_text().strip()
-                href = title_link.get_attribute("href") or ""
+                title = link.inner_text().strip()
+                href = link.get_attribute("href") or ""
+                if not href or href.startswith("javascript"):
+                    continue
                 full_url = href if href.startswith("http") else f"https://www.fsc.go.kr{href}"
-                text = row.inner_text()
-                date = parse_date(text)
+
+                # 같은 .cont 컨테이너 텍스트에서 날짜 추출 (첨부파일명에 YYMMDD 포함)
+                cont = subj.evaluate_handle(
+                    "e => e.closest('.cont') || e.parentElement"
+                ).as_element()
+                cont_text = (cont.inner_text() if cont else title)
+                date = parse_date(cont_text)
+                if not date:
+                    # 6자리 패턴 (YYMMDD)
+                    import re as _re
+                    m = _re.search(r"\b(2[0-9])(\d{2})(\d{2})\b", cont_text)
+                    if m:
+                        date = "20" + m.group(1) + m.group(2) + m.group(3)
                 if not is_after(date, since_date):
                     continue
+
                 hist_key = f"{SOURCE}_press_{date}_{clean_filename(title, 50)}"
                 if history.has(hist_key):
                     continue
-
-                try:
-                    page.goto(full_url, timeout=15000)
-                    time.sleep(0.5)
-                    body_el = page.query_selector(".bd-view, .content, .view")
-                    body = body_el.inner_text().strip() if body_el else ""
-                    out_path = out_dir / make_filename(date, title, ".md")
-                    if not out_path.exists():
-                        out_path.write_text(f"# {title}\n\n{body}", encoding="utf-8")
-                        results.append(CrawlResult(
-                            source=SOURCE, title=title, date=date,
-                            url=full_url, out_path=out_path,
-                        ))
-                    history.add(hist_key)
-                    any_added = True
-                    page.go_back()
-                    time.sleep(0.5)
-                except Exception:
-                    continue
+                posts.append({
+                    "title": title, "date": date, "url": full_url,
+                    "hist_key": hist_key,
+                })
+                any_added = True
             except Exception:
                 continue
         if not any_added and page_num > 1:
             break
 
+    # 2) 상세 진입 → 본문 + 첨부
+    for post in posts:
+        try:
+            page.goto(post["url"], timeout=15000)
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+            time.sleep(1)
+
+            # 첨부파일 (PDF > Word > HWP 우선순위)
+            attach_results = download_attachments_with_priority(
+                page=page, out_dir=out_dir,
+                source=SOURCE, title=post["title"], date=post["date"],
+                list_url=post["url"],
+                attach_selectors=[
+                    "a[href*='/comm/getFile']",
+                    "a[href*='download']",
+                    "a[onclick*='download']",
+                    ".file_area a",
+                ],
+            )
+            results.extend(attach_results)
+
+            # 첨부가 없을 때만 본문 .md 저장 (PDF 있으면 변환 단계에서 처리)
+            if not attach_results:
+                body = ""
+                for sel in [".bd-view", ".content", ".view", ".bbs_view", ".sub_cont"]:
+                    body_el = page.query_selector(sel)
+                    if body_el:
+                        body = body_el.inner_text().strip()
+                        if body and len(body) > 30:
+                            break
+                out_path = out_dir / make_filename(post["date"], post["title"], ".md")
+                if not out_path.exists() and body:
+                    out_path.write_text(f"# {post['title']}\n\n{body}", encoding="utf-8")
+                    results.append(CrawlResult(
+                        source=SOURCE, title=post["title"], date=post["date"],
+                        url=post["url"], out_path=out_path,
+                    ))
+            history.add(post["hist_key"])
+            time.sleep(0.6)
+        except Exception as e:
+            print(f"  ⚠️ FSC press 상세 실패 {post['title']}: {e}")
+
     return results
 
 
 def crawl(out_dir, since_date, history, page):
-    """FSC 전체 (비조치 + 보도자료)."""
-    results = []
-    print(f"\n[{SOURCE}] 비조치의견서 크롤링...")
-    results.extend(crawl_no_action(out_dir, since_date, history, page))
+    """FSC 일배치 (v1: 보도자료만).
+
+    비조치의견서는 검색 트리거 필요 (JS 동적) → v2에서 추가.
+    """
     print(f"\n[{SOURCE}] 보도자료 크롤링...")
-    results.extend(crawl_press(out_dir, since_date, history, page))
-    return results
+    return crawl_press(out_dir, since_date, history, page)

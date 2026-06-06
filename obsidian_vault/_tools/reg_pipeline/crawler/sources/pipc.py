@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -12,7 +13,12 @@ from ..base import (
     is_after,
     make_filename,
     parse_date,
+    download_attachments_with_priority,
 )
+
+# PIPC onclick 패턴: javascript:fn_egov_downFile('FILE_xxx','N','pdf')
+# 마지막 인용 인자가 확장자
+_PIPC_EXT_RE = re.compile(r"['\"](\w{2,5})['\"]\s*\)\s*$")
 
 SOURCE = "pipc"
 BASE = "https://www.pipc.go.kr"
@@ -88,30 +94,25 @@ def _crawl_pipc_board(
             page.wait_for_selector("table", timeout=10000)
             time.sleep(1)
 
-            dl_links = page.query_selector_all(
-                "a[onclick*='downFile'], a[onclick*='FileDown'], a:has-text('다운로드')"
+            # PDF > Word > HWP 우선순위 + 확장자 필터
+            # PIPC anchor text는 "다운로드"이므로 onclick에서 확장자 추출
+            attach_results = download_attachments_with_priority(
+                page=page,
+                out_dir=out_dir,
+                source=SOURCE,
+                title=post["title"],
+                date=post["date"],
+                list_url=post["url"],
+                attach_selectors=[
+                    "a[onclick*='downFile']",
+                    "a[onclick*='FileDown']",
+                ],
+                ext_from_onclick=_PIPC_EXT_RE,
+                fallback_stem=clean_filename(post["title"], 80),
+                dedup_by="onclick",
             )
-            downloaded = 0
-            for link in dl_links:
-                try:
-                    with page.expect_download(timeout=12000) as dl_info:
-                        link.click()
-                    dl = dl_info.value
-                    safe = clean_filename(f"{post['date']}_{dl.suggested_filename}")
-                    out_path = out_dir / safe
-                    if out_path.exists():
-                        continue
-                    dl.save_as(str(out_path))
-                    downloaded += 1
-                    results.append(CrawlResult(
-                        source=SOURCE,
-                        title=post["title"],
-                        date=post["date"],
-                        url=post["url"],
-                        out_path=out_path,
-                    ))
-                except Exception:
-                    continue
+            results.extend(attach_results)
+            downloaded = len(attach_results)
 
             # 첨부 없으면 본문만 .md로
             if downloaded == 0:

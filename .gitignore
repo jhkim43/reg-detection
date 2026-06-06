@@ -235,3 +235,7 @@ __marimo__/
 # Obsidian personal settings
 obsidian_vault/.obsidian/
 .DS_Store
+
+# v13 — 임베딩 캐시
+.cache/
+~/.cache/huggingface/

@@ -9,25 +9,31 @@ import os
 from pathlib import Path
 
 
+# regtrack 루트 (cwd 무관하게 .env.integration 찾기 위해)
+# __file__ = _tools/reg_pipeline/llm_judge/client.py
+# 5단계 parent = regtrack/
+_REGTRACK_ROOT = Path(__file__).resolve().parents[4]
+
+
 def load_api_key(env_file: Path | None = None) -> str:
     """OPENROUTER_API_KEY 로드.
 
     우선순위:
-      1. 환경변수
-      2. env_file (.env.integration 등)
+      1. 환경변수 OPENROUTER_API_KEY
+      2. env_file 인자
+      3. regtrack 루트의 .env.integration / .env.local / .env
+      4. cwd의 .env.integration / .env.local / .env  (legacy)
     """
     # 1. 환경변수 직접
     key = os.getenv("OPENROUTER_API_KEY")
     if key:
         return key
 
-    # 2. .env 파일 파싱 (python-dotenv 없이 직접)
-    candidates = [env_file] if env_file else []
-    candidates.extend([
-        Path(".env.integration"),
-        Path(".env.local"),
-        Path(".env"),
-    ])
+    # 2~4. .env 파일 파싱 (python-dotenv 없이 직접)
+    candidates: list[Path] = [env_file] if env_file else []
+    for name in (".env.integration", ".env.local", ".env"):
+        candidates.append(_REGTRACK_ROOT / name)   # regtrack 루트
+        candidates.append(Path(name))              # cwd (legacy)
 
     for path in candidates:
         if path and path.exists():
@@ -39,7 +45,8 @@ def load_api_key(env_file: Path | None = None) -> str:
                     if val:
                         return val
     raise RuntimeError(
-        "OPENROUTER_API_KEY 미발견. 환경변수 또는 .env.integration에 추가 필요"
+        f"OPENROUTER_API_KEY 미발견. 환경변수 또는 "
+        f"{_REGTRACK_ROOT}/.env.integration 에 추가 필요"
     )
 
 

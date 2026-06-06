@@ -14,9 +14,10 @@ internal_raw_md/*.md → internal_wiki/개인정보/*.md (요약·메타·링크
   - 하나은행 (시중은행)
   - 토스뱅크 (인터넷전문은행, 핀테크 출신)
 
-사용법:
-    export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
-    /tmp/playwright-venv/bin/python obsidian_vault/internal_wiki/_convert.py
+사용법 (사전 셋업: obsidian_vault/_tools/SETUP.md 참조):
+    source .venv/bin/activate
+    export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"   # macOS, Linux는 보통 자동
+    python obsidian_vault/internal_wiki/_convert.py
 """
 
 from pathlib import Path

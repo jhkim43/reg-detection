@@ -26,7 +26,7 @@ sub_area: [수집동의, 처리위탁, 제3자제공, 안전성조치, 신용정
 source_doc: "KB은행_개인정보처리방침_20260606.pdf"
 source_url: "https://obank.kbstar.com/quics?page=C110564"
 substitution_note: "회사 실제 내규 반출 불가로 시중은행 공개 처리방침으로 갈음"
-related_external: []
+related_external: ["20260605_260605보도참고 신용협동조합법 시행령 개정안 입법예고"]
 ---
 
 # 개요
@@ -78,7 +78,7 @@ related_external: []
 
 > 외규 영향도 분석 시 본 내규에 매칭된 외규가 여기에 누적됨.
 
-- (아직 없음)
+- [[20260605_260605보도참고 신용협동조합법 시행령 개정안 입법예고]] ✨ NEW
 
 # 변경 이력
 

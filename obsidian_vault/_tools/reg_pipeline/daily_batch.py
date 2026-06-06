@@ -1,25 +1,30 @@
 """일일 배치 통합 entry.
 
-흐름:
-  1. 크롤링 (10 발행처)
-  2. raw → MD 변환
-  3. 분류 + 필터 (internal sub_area 매칭)
-  4. 매칭 후보 식별 (단어 분포 유사도, top-3)
-  5. LLM 위임 (영향 평가 + 요약·권고)
-  6. external_wiki 생성 (impact_score >= threshold)
-  7. internal_wiki related_external 갱신
+흐름 (7 stage):
+  1. 크롤링 (4 발행처: fsec/fsc/fss/pipc)
+  2. raw → MD 변환 (PDF/HWP/HWPX/DOC/DOCX → opendataloader-pdf via LibreOffice)
+  3. 분류 + 필터 (임베딩 sub_area 매칭, INTERNAL_SUB_AREAS 교집합)
+  4. 매칭 후보 식별 (internal_wiki 임베딩 코사인 top-K)
+  5. LLM 위임 (영향 평가 + 요약·권고, OpenRouter gpt-5-mini)
+  6. external_wiki 생성 (impact_score >= --min-score)
+  7. internal_wiki related_external 갱신 + 본문 "# 관련 외규" 섹션 append
 
 사용법:
+    # 1회 셋업은 _tools/SETUP.md 참조 (venv + pip install -r requirements.txt + brew)
     # OPENROUTER_API_KEY는 .env.integration에서 자동 로드
+    source .venv/bin/activate
     export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
-    /tmp/playwright-venv/bin/python obsidian_vault/_tools/reg_pipeline/daily_batch.py \\
-        --since 20260530
+    cd obsidian_vault/_tools
+    python -m reg_pipeline.daily_batch --since 20260530
 
-옵션:
-    --since YYYYMMDD     수집 시작일 (기본: 1주일 전)
-    --sources fsec,pipc  발행처 선택 (기본: 전체)
-    --no-llm             LLM 호출 건너뛰기 (분류 + 매칭만, 테스트용)
-    --crawl-only         크롤링만 (변환·분류 skip)
+옵션 (stage 실행 범위):
+    --since YYYYMMDD     수집 시작일 (기본: 1주일 전). 그 날짜 포함 ~ 오늘까지.
+    --sources fsec,pipc  발행처 선택 (기본: fsec,fsc,fss,pipc 전부)
+    --crawl-only         stage 1만 (크롤만, 변환·분류·LLM·wiki 모두 skip)
+    --no-classify        stage 1~2만 (크롤 + 변환만, 분류 이후 skip)
+    --no-llm             stage 1~7 다 실행하되 stage 5만 mock (impact_score=5 고정).
+                         실제 LLM 비용 없이 wiki/sync 산출물 형태 검증용.
+    --min-score N        external_wiki 진입 + internal sync 임계값 (기본 4)
 """
 
 from __future__ import annotations
@@ -48,11 +53,11 @@ from reg_pipeline.classifier import (  # noqa: E402
     classify_text,
     load_taxonomy,
     INTERNAL_SUB_AREAS,
+    EmbeddingIndex,
 )
-from reg_pipeline.classifier.embed_match import InternalCorpus, strip_frontmatter  # noqa: E402
 
 
-SOURCES = ["fsec", "fss", "fsc", "pipc", "law_center"]
+SOURCES = ["fsec", "fss", "fsc", "pipc"]  # law_center는 OpenAPI 신청 필요 (v2)
 
 
 def stage_1_crawl(sources: list[str], since_date: str, history: CrawlHistory) -> dict[str, int]:
@@ -96,10 +101,13 @@ def stage_2_convert() -> dict:
     return stats
 
 
-def stage_3_classify_filter(taxonomy: dict) -> list[dict]:
-    """raw_md 분류 + internal 매칭만 필터."""
+def stage_3_classify_filter(
+    embed_idx: EmbeddingIndex,
+    classify_threshold: float = 0.45,
+) -> list[dict]:
+    """raw_md 임베딩 분류 + internal 매칭만 필터."""
     print("\n" + "=" * 60)
-    print("[3/N] 분류 + 필터 (internal 매칭만)")
+    print(f"[3/N] 분류 + 필터 (임베딩, threshold={classify_threshold})")
     print("=" * 60)
     matched = []
     for source_dir in sorted(EXTERNAL_RAW_MD.iterdir()):
@@ -111,13 +119,21 @@ def stage_3_classify_filter(taxonomy: dict) -> list[dict]:
                 text = md.read_text(encoding="utf-8")
             except Exception:
                 continue
-            sub_areas, _ = classify_text(md.stem, text, taxonomy)
+            sub_areas_scored, _ = embed_idx.classify(
+                text=text,
+                title=md.stem,
+                threshold=classify_threshold,
+            )
+            if not sub_areas_scored:
+                continue
+            sub_areas = [sa for sa, _ in sub_areas_scored]
             relevant = [sa for sa in sub_areas if sa in INTERNAL_SUB_AREAS]
             if relevant:
                 matched.append({
                     "source": source_dir.name,
                     "raw_md": md,
                     "sub_areas": sub_areas,
+                    "sub_areas_scored": sub_areas_scored,
                     "matched_internal": relevant,
                     "text": text,
                 })
@@ -127,14 +143,21 @@ def stage_3_classify_filter(taxonomy: dict) -> list[dict]:
     return matched
 
 
-def stage_4_match_corpus(matched: list[dict], corpus: InternalCorpus, k: int = 3) -> list[dict]:
-    """internal corpus 와 매칭 후보 top-K."""
+def stage_4_match_corpus(
+    matched: list[dict],
+    embed_idx: EmbeddingIndex,
+    k: int = 3,
+    min_score: float = 0.30,
+) -> list[dict]:
+    """internal_wiki 임베딩 매칭 후보 top-K."""
     print("\n" + "=" * 60)
-    print("[4/N] internal 매칭 후보 식별 (단어 분포 유사도)")
+    print(f"[4/N] internal 매칭 후보 (임베딩 코사인, top-{k}, min={min_score})")
     print("=" * 60)
     for item in matched:
-        item["top_internal"] = corpus.top_k(item["text"], k=k)
-    print(f"  {len(matched)}건 각각 top-{k} 매칭 후보 식별")
+        item["top_internal"] = embed_idx.match_internal(
+            item["text"], k=k, min_score=min_score
+        )
+    print(f"  {len(matched)}건 각각 매칭 후보 식별")
     return matched
 
 
@@ -313,6 +336,7 @@ def main():
     parser.add_argument("--sources", default=",".join(SOURCES), help="발행처 콤마 구분")
     parser.add_argument("--no-llm", action="store_true", help="LLM 호출 skip (mock)")
     parser.add_argument("--crawl-only", action="store_true", help="크롤링만")
+    parser.add_argument("--no-classify", action="store_true", help="크롤링 + 변환까지만 (분류·LLM·wiki skip)")
     parser.add_argument("--min-score", type=int, default=4, help="wiki 진입 임계값")
     args = parser.parse_args()
 
@@ -330,14 +354,25 @@ def main():
         return
 
     stage_2_convert()
+    if args.no_classify:
+        print("\n🎉 (no-classify) 크롤 + 변환까지 완료")
+        return
+
+    # 임베딩 인덱스 (모델 1회 로드, sub_area + internal 캐시)
     taxonomy = load_taxonomy()
-    matched = stage_3_classify_filter(taxonomy)
+    embed_cache = ROOT / ".cache" / "embeddings.pkl"
+    embed_idx = EmbeddingIndex(
+        taxonomy=taxonomy,
+        internal_dir=INTERNAL_WIKI,
+        cache_path=embed_cache,
+    )
+
+    matched = stage_3_classify_filter(embed_idx)
     if not matched:
         print("\n매칭된 자료 없음. 종료.")
         return
 
-    corpus = InternalCorpus.from_folder(INTERNAL_WIKI)
-    matched = stage_4_match_corpus(matched, corpus)
+    matched = stage_4_match_corpus(matched, embed_idx)
     matched = stage_5_llm_judge(matched, use_llm=not args.no_llm, score_threshold=args.min_score)
     stage_6_build_wiki(matched, min_score=args.min_score)
     stage_7_sync_internal(matched, min_score=args.min_score)
