@@ -231,3 +231,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Obsidian personal settings
+obsidian_vault/.obsidian/
+.DS_Store
