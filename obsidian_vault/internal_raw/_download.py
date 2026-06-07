@@ -6,8 +6,9 @@
 
 방식: Playwright headless → page.pdf() (SPA HTML 페이지를 PDF로 인쇄)
 
-사용법:
-    /tmp/playwright-venv/bin/python obsidian_vault/internal_raw/_download.py
+사용법 (사전 셋업: obsidian_vault/_tools/SETUP.md 참조):
+    source .venv/bin/activate
+    python obsidian_vault/internal_raw/_download.py
 """
 
 import asyncio
