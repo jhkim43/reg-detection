@@ -225,6 +225,8 @@ class SubagentManager:
                 )
             from nanobot.agent.tools.push_report import PushReportTool
             tools.register(PushReportTool())
+            from nanobot.agent.tools.chat_push import ChatPushTool
+            tools.register(ChatPushTool())
             system_prompt = self._build_subagent_prompt(deskrpg_meta=status.deskrpg_meta)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -326,7 +328,7 @@ class SubagentManager:
         )
 
         await self.bus.publish_inbound(msg)
-        logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+        logger.info("Subagent [{}] announced result to session_key={} chat_id={}:{}", task_id, override, origin['channel'], origin['chat_id'])
 
         # DeskRPG sync: chat-push + task complete/cancel + NPC delete
         deskrpg_meta = deskrpg_meta or {}
@@ -338,9 +340,15 @@ class SubagentManager:
                 task_id, label, status, meta.get("npc_id"),
             )
 
-            # chat-push: notify parent NPC chat via DeskRPGClient directly
+            # chat_push + push_task 병렬 실행 (서로 독립, 응답 지연 단축)
+            # delete_npc만 그 후 await (404 방지 — task complete 선행 필요)
+            import asyncio
+
+            dc = DeskRPGClient()
+            coros: list = []
+
+            # 1) chat-push (parent NPC chat — parent_npc_uuid 사용)
             push_msg = f"{label} 태스크 {'완료' if is_ok else '실패'}: {task[:120]}"
-            # chat-push npc_id = deskrpg npcs.id UUID (deskrpg app metadata의 parent_npc_uuid)
             chat_push_npc_id = meta.get("parent_npc_uuid")
             if not chat_push_npc_id:
                 logger.warning(
@@ -349,11 +357,10 @@ class SubagentManager:
                 )
             else:
                 logger.info(
-                    "[DeskRPG Subagent] chat_push: label={} npc_id={} msg_len={}",
+                    "[DeskRPG Subagent] chat_push (parallel): label={} npc_id={} msg_len={}",
                     label, chat_push_npc_id, len(push_msg),
                 )
-                dc = DeskRPGClient()
-                await dc.chat_push(
+                coros.append(dc.chat_push(
                     session_key=meta.get("session_key", ""),
                     channel_id=meta["channel_id"],
                     npc_id=chat_push_npc_id,
@@ -362,18 +369,17 @@ class SubagentManager:
                     subagent_label=label,
                     task_npc_task_id=meta.get("subagent_id", task_id),
                     metadata={"phase": "complete"} if is_ok else {"phase": "failed"},
-                )
+                ))
 
-            # task complete / cancel (await before NPC delete to avoid 404)
-            dc_task = DeskRPGClient()
+            # 2) task complete / cancel (subagent NPC 의 task lifecycle 종료)
             task_action = "complete" if is_ok else "cancel"
             task_status = "complete" if is_ok else "cancelled"
             npc_task_id = meta.get("subagent_id", task_id)
             logger.info(
-                "[DeskRPG Subagent] task_{}: task_id={} label={}",
+                "[DeskRPG Subagent] task_{} (parallel): task_id={} label={}",
                 task_action, task_id, label,
             )
-            await dc_task.push_task(
+            coros.append(dc.push_task(
                 channel_id=meta["channel_id"],
                 npc_id=meta["npc_id"],
                 npc_task_id=npc_task_id,
@@ -383,14 +389,37 @@ class SubagentManager:
                 action=task_action,
                 assigner_character_id=meta.get("character_id") or "",
                 owner_user_id=meta.get("owner_user_id") or "",
-            )
+            ))
 
-            # NPC delete
+            # 병렬 실행 (DeskRPGClient는 best-effort라 예외 안 던지므로 gather 안전)
+            await asyncio.gather(*coros)
+
+            # 3) NPC delete (push_task 완료 후 — 404 방지)
             logger.info(
                 "[DeskRPG Subagent] npc_delete: npc_id={}",
                 meta.get("npc_id"),
             )
-            await dc_task.delete_npc(meta["npc_id"])
+            await dc.delete_npc(meta["npc_id"])
+
+            # 4) Trigger main LLM next turn via deskrpg relay.
+            #
+            # nanobot OpenAI API 서버 모드는 daemon consume_inbound 루프가 없어서
+            # publish_inbound 가 메인 turn 을 깨우지 못한다. deskrpg 가 nanobot
+            # OpenAI endpoint 를 새 채팅 요청으로 호출 → 메인 LLM 새 turn 시작.
+            logger.info(
+                "[DeskRPG Subagent] relay_subagent_result: trigger main turn for next spawn",
+            )
+            await dc.relay_subagent_result(
+                session_key=meta.get("session_key", ""),
+                channel_id=meta["channel_id"],
+                user_id=meta.get("owner_user_id") or "",
+                character_id=meta.get("character_id") or "",
+                parent_npc_id=meta.get("parent_npc_uuid") or "",
+                parent_npc_label="Supervisor",
+                subagent_label=label,
+                result_summary=result[:500],
+                status=status,
+            )
 
     # ------------------------------------------------------------------
     # DeskRPG checkpoint helpers

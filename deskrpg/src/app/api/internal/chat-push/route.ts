@@ -31,20 +31,27 @@ type RawBody = {
 };
 
 async function forwardSocketEmit(channelId: string, payload: unknown): Promise<void> {
-  // /_internal/emit의 표준 body 형식: { event, room, payload } — 다른 internal routes
-  // (npcs, tasks, llm-usage)와 동일. room=channelId로 io.to(room).emit(event, payload).
+  // Fire-and-forget: 응답 latency 단축. Socket emit 실패해도 chat_messages row는
+  // 이미 영속되었으므로 클라이언트는 다음 history fetch 또는 다른 socket 이벤트로
+  // 자연 복원됨. 이전엔 await + throw → 500 반환 (row 영속됐는데 사용자엔 실패) 의
+  // 모순도 함께 해소.
   const url = `${internalTransport.getInternalSocketBaseUrl()}/_internal/emit`;
-  const res = await fetch(url, {
+  void fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...internalTransport.buildInternalAuthHeaders(),
     },
     body: JSON.stringify({ event: "npc:push-message", room: channelId, payload }),
-  });
-  if (!res.ok) {
-    throw new Error(`socket emit forward failed: ${res.status}`);
-  }
+  })
+    .then((res) => {
+      if (!res.ok) {
+        console.warn(`[internal-chat-push] socket emit non-ok: ${res.status}`);
+      }
+    })
+    .catch((err) => {
+      console.warn("[internal-chat-push] socket emit error:", err);
+    });
 }
 
 export async function POST(req: NextRequest) {

@@ -14,6 +14,18 @@ RUN apt-get update && \
     ln -fs /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
+# reg_pipeline 의존성 — Java (opendataloader-pdf), LibreOffice (HWP/DOC/DOCX→PDF),
+# Playwright Chromium용 system libs
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        default-jdk-headless \
+        libreoffice-core libreoffice-writer \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 \
+        libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+        fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install Python dependencies first (cached layer)
@@ -21,6 +33,16 @@ COPY pyproject.toml README.md LICENSE ./
 RUN mkdir -p nanobot && touch nanobot/__init__.py && \
     uv pip install --system --no-cache . && \
     uv pip install --system watchdog
+
+# reg_pipeline Python deps (Playwright 브라우저는 entrypoint에서 install)
+RUN uv pip install --system --no-cache \
+        playwright \
+        pypdf \
+        opendataloader-pdf \
+        pyyaml \
+        sentence-transformers \
+        openai \
+        olefile
 
 # Copy the full source and install
 COPY nanobot/ nanobot/
@@ -37,8 +59,10 @@ RUN useradd -m -u 1000 -s /bin/bash nanobot && \
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
+# Playwright Chromium 다운로드 (nanobot user의 ~/.cache/ms-playwright/에 저장)
 USER nanobot
 ENV HOME=/home/nanobot
+RUN playwright install chromium 2>&1 | tail -5 || echo "(playwright install warning — proceeding)"
 
 # Gateway default port
 EXPOSE 18790

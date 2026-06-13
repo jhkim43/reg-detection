@@ -1,0 +1,23 @@
+# Telegram 수신자 페르소나 등록 (step_telegram.py 가 읽음).
+#
+# 동작:
+#   - 각 recipient 에게 개별 메시지 발송 (chat_id 별 sendMessage)
+#   - filter_only_focus: false (default) — 모든 자료 표시하되 focus_sub_areas 와
+#     매칭되는 항목은 ⭐ prefix 로 강조
+#   - filter_only_focus: true — focus_sub_areas 와 매칭되는 자료만 전송
+#
+# focus_sub_areas 키는 reg_pipeline/classifier/taxonomy.yaml 의 sub_area 이름과
+# 정확히 일치해야 한다 (안전성조치/수집동의/처리위탁/제3자제공/신용정보/개인정보/
+# IT안전성/망분리/클라우드/정보보안).
+
+recipients:
+  - chat_id: "8723700171"
+    name: "김정민"
+    department: "정보보호부"
+    role: "차장"
+    focus_sub_areas:
+      - IT안전성
+      - 망분리
+      - 클라우드
+      - 정보보안
+    # filter_only_focus: false  # 기본값

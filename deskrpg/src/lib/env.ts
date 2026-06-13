@@ -14,5 +14,5 @@ export const env = {
   // nanobot mode routes agent calls to NANOBOT_API_URL (/v1/chat/completions, OpenAI-compatible).
   get AI_PROVIDER() { return (process.env.AI_PROVIDER || "openclaw").toLowerCase(); },
   get NANOBOT_API_URL() { return process.env.NANOBOT_API_URL || "http://localhost:8900/v1"; },
-  get NANOBOT_MODEL() { return process.env.NANOBOT_MODEL || "qwen/qwen3.6-35b-a3b"; },
+  get NANOBOT_MODEL() { return process.env.NANOBOT_MODEL || "google/gemma-4-31b-it"; },
 };

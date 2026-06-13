@@ -10,7 +10,7 @@
   - judge + score: 한 번에
   - summary + recommend: 한 번에
 
-LLM 모델: openai/gpt-5-mini (OpenRouter)
+LLM 모델: google/gemma-4-31b-it (OpenRouter)
 """
 
 from .client import LLMClient, load_api_key
