@@ -1,0 +1,17 @@
+# reg_pipeline Python 의존성
+# 설치: pip install -r obsidian_vault/_tools/requirements.txt
+#
+# 이 파일은 pip 패키지만. OS 도구 (Java 21, LibreOffice, Playwright 브라우저)는
+# pip로 못 깔리므로 SETUP.md §1·§2 참조하여 OS별로 별도 설치.
+#
+#   - Java 21        — opendataloader-pdf 가 PDF→MD 변환 시 호출 (JVM 필요)
+#   - LibreOffice    — HWP/DOC/DOCX → PDF 변환 (Java 별개)
+#   - Chromium       — Playwright 브라우저 (playwright install chromium 명령)
+
+playwright>=1.40
+pypdf>=4.0
+opendataloader-pdf>=0.1
+pyyaml>=6.0
+sentence-transformers>=2.5
+openai>=1.0
+olefile>=0.47
