@@ -17,7 +17,7 @@ function getApiUrl() {
 }
 
 function getModel() {
-  return process.env.NANOBOT_MODEL || "qwen/qwen3.6-35b-a3b";
+  return process.env.NANOBOT_MODEL || "google/gemma-4-31b-it";
 }
 
 function buildSystemPrompt(npcName, _persona) {

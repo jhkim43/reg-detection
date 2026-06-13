@@ -5,7 +5,7 @@
   2. raw → MD 변환 (PDF/HWP/HWPX/DOC/DOCX → opendataloader-pdf via LibreOffice)
   3. 분류 + 필터 (임베딩 sub_area 매칭, INTERNAL_SUB_AREAS 교집합)
   4. 매칭 후보 식별 (internal_wiki 임베딩 코사인 top-K)
-  5. LLM 위임 (영향 평가 + 요약·권고, OpenRouter gpt-5-mini)
+  5. LLM 위임 (영향 평가 + 요약·권고, OpenRouter google/gemma-4-31b-it)
   6. external_wiki 생성 (impact_score >= --min-score)
   7. internal_wiki related_external 갱신 + 본문 "# 관련 외규" 섹션 append
 
@@ -167,7 +167,7 @@ def stage_5_llm_judge(matched: list[dict], use_llm: bool, score_threshold: int =
     use_llm=False면 mock 결과 (score=5, 빈 요약).
     """
     print("\n" + "=" * 60)
-    print(f"[5/N] LLM 위임 ({'OpenRouter/gpt-5-mini' if use_llm else 'mock'})")
+    print(f"[5/N] LLM 위임 ({'OpenRouter/google/gemma-4-31b-it' if use_llm else 'mock'})")
     print("=" * 60)
     if not use_llm:
         for item in matched:
@@ -345,7 +345,7 @@ def main():
 
     print(f"📅 since_date: {since_date}")
     print(f"📋 sources: {sources}")
-    print(f"🤖 LLM: {'mock' if args.no_llm else 'OpenRouter/gpt-5-mini'}")
+    print(f"🤖 LLM: {'mock' if args.no_llm else 'OpenRouter/google/gemma-4-31b-it'}")
 
     history = CrawlHistory.load(HISTORY_FILE)
     stage_1_crawl(sources, since_date, history)

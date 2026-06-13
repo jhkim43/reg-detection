@@ -73,16 +73,15 @@ export async function POST(req: NextRequest) {
 }
 
 async function forwardSocketEmit(channelId: string, payload: unknown): Promise<void> {
-  try {
-    await fetch(`${internalTransport.getInternalSocketBaseUrl()}/_internal/emit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...internalTransport.buildInternalAuthHeaders(),
-      },
-      body: JSON.stringify({ event: "task:event", room: channelId, payload }),
-    });
-  } catch (err) {
-    console.warn("[internal-tasks] socket emit forward failed:", err);
-  }
+  // Fire-and-forget: 응답 latency 단축. task row는 이미 upsert 완료된 상태.
+  void fetch(`${internalTransport.getInternalSocketBaseUrl()}/_internal/emit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...internalTransport.buildInternalAuthHeaders(),
+    },
+    body: JSON.stringify({ event: "task:event", room: channelId, payload }),
+  }).catch((err) => {
+    console.warn("[internal-tasks] socket emit error:", err);
+  });
 }
