@@ -31,19 +31,25 @@ type RawBody = {
 };
 
 async function forwardSocketEmit(channelId: string, payload: unknown): Promise<void> {
-  // /_internal/emit의 표준 body 형식: { event, room, payload } — v10 chat-push와 동일.
+  // Fire-and-forget: 응답 latency 단축. Socket emit 실패해도 agent_reports row는
+  // 이미 영속되어 클라이언트는 ReportPanel 새로 열거나 다음 socket 이벤트로 복원됨.
   const url = `${internalTransport.getInternalSocketBaseUrl()}/_internal/emit`;
-  const res = await fetch(url, {
+  void fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...internalTransport.buildInternalAuthHeaders(),
     },
     body: JSON.stringify({ event: "agent-report:ready", room: channelId, payload }),
-  });
-  if (!res.ok) {
-    throw new Error(`socket emit forward failed: ${res.status}`);
-  }
+  })
+    .then((res) => {
+      if (!res.ok) {
+        console.warn(`[internal-reports] socket emit non-ok: ${res.status}`);
+      }
+    })
+    .catch((err) => {
+      console.warn("[internal-reports] socket emit error:", err);
+    });
 }
 
 export async function POST(req: NextRequest) {

@@ -73,6 +73,23 @@ class LLMJudge:
                 primary_match=str(payload.get("primary_match", "")),
                 affected_articles=list(payload.get("affected_articles", [])),
             )
+
+            # 가드: classifier top_internal 0건이거나 LLM 이 primary_match 를 비/placeholder
+            # 로 반환했다면, 우리 내규 중 직접 매칭되는 항목이 없는 상태. 강제 0 으로 내리진
+            # 않고 (사전적/간접 영향 가능성 인정), impact_score 를 4 (일반 자료 하단) 로 cap
+            # 하여 "영향 큰 자료(>=7)" 에는 절대 들어가지 않도록 한다. 시연 투명성을 위해
+            # reason 앞에 가드 라벨 prefix.
+            placeholder_matches = {"", "매칭 후보 없음", "없음", "n/a", "na", "-"}
+            pm_norm = (impact.primary_match or "").strip().lower()
+            UNMATCHED_CAP = 4
+            if not matched_internals or pm_norm in placeholder_matches:
+                impact.has_impact = False
+                if impact.impact_score > UNMATCHED_CAP:
+                    impact.reason = (
+                        f"[가드: 매칭 내규 없음 → impact {impact.impact_score}점에서 "
+                        f"{UNMATCHED_CAP}점으로 cap] " + (impact.reason or "")
+                    ).strip()
+                    impact.impact_score = UNMATCHED_CAP
         except Exception as e:
             return EvaluationResult(impact=ImpactResult(
                 has_impact=False, impact_score=0,

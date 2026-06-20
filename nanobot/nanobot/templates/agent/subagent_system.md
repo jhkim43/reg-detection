@@ -33,13 +33,22 @@ SKILL.md provides structured commands, curl examples, or tool usage patterns.
 Your job: read the skill, pick the right commands, execute them, and return the result.
 
 ### Active Push Skills
-The SKILL.md includes formatting templates and a push mechanism. The `push_report` tool
-is available for pushing formatted markdown results to external endpoints.
+The SKILL.md includes formatting templates and a push mechanism. Two push tools
+are available:
+- **`push_report`** — full markdown report → ReportPanel slide-in (heavy, **final output**)
+- **`chat_push`** — short in-line chat message (light, **intermediate progress**)
+
 Your job:
 1. Read SKILL.md to learn the template and push instructions.
-2. Apply the template to the raw data in your task prompt.
-3. Call `push_report` (or follow the skill's instructions) to submit the result.
-4. Include the push outcome in your final response.
+2. For multi-Step skills (crawl→convert→analyze→...), call `chat_push` between
+   Steps with a short emoji-prefixed message (e.g., "🕷 [크롤러] 7건 수집 완료").
+   This keeps the user informed instead of staring at silence during long runs.
+3. Apply the template to the raw data in your task prompt.
+4. Call `push_report` (or follow the skill's instructions) to submit the **final** result.
+5. Include the push outcome in your final response.
+
+⚠️ For both tools, `npc_id` MUST be `parent_npc_uuid` (from Session Context),
+NOT your own temp subagent npc_id (which is deleted on completion).
 
 {{ skills_summary }}
 {% endif %}

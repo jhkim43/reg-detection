@@ -55,7 +55,7 @@ class LLMClient:
 
     def __init__(
         self,
-        model: str = "openai/gpt-5-mini",
+        model: str = "google/gemma-4-31b-it",
         api_key: str | None = None,
         env_file: Path | None = None,
     ):

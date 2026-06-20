@@ -60,7 +60,7 @@ class EmbeddingIndex:
             internal_dir=Path("internal_wiki/개인정보"),
             cache_path=Path(".cache/embeddings.pkl"),
         )
-        sub_areas = idx.classify(external_text, threshold=0.45)
+        sub_areas = idx.classify(external_text, threshold=0.6)
         top = idx.match_internal(external_text, k=3)
     """
 
@@ -133,7 +133,7 @@ class EmbeddingIndex:
     def classify(
         self,
         text: str,
-        threshold: float = 0.45,
+        threshold: float = 0.6,
         title_excludes: list[str] | None = None,
         title: str = "",
     ) -> tuple[list[tuple[str, float]], str]:
