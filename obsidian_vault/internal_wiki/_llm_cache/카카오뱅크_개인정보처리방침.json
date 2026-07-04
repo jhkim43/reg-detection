@@ -1,0 +1,472 @@
+{
+  "generated_by": "llm",
+  "analysis_version": "internal-wiki-llm-v1",
+  "document_profile": {
+    "purpose": "정보주체의 자유와 권리 보호를 위해 개인정보 처리에 관한 절차 및 기준을 안내하고 고충을 처리함",
+    "scope": "카카오뱅크가 제공하는 상품 및 서비스 이용과 관련한 개인정보 처리 전반",
+    "data_subjects": [
+      "고객",
+      "만 14세 미만 아동",
+      "법정대리인"
+    ],
+    "data_categories": [
+      "개인정보",
+      "개인신용정보",
+      "민감정보",
+      "고유식별정보",
+      "가명정보",
+      "개인위치정보",
+      "행태정보"
+    ],
+    "processing_lifecycle": [
+      "수집",
+      "이용",
+      "보관",
+      "제공",
+      "위탁",
+      "파기"
+    ],
+    "regulatory_basis": [
+      "개인정보 보호법",
+      "신용정보의 이용 및 보호에 관한 법률",
+      "특정 금융거래정보의 보고 및 이용 등에 관한 법률",
+      "외국환거래법",
+      "전자금융거래법",
+      "상법"
+    ]
+  },
+  "core_summary": [
+    {
+      "text": "카카오뱅크는 법령 및 정보주체의 동의를 기반으로 개인정보를 최소한으로 처리하며, 특히 디지털 환경에 최적화된 행태정보 수집 및 가명정보 처리, 국외 이전 절차를 명문화하고 있음",
+      "evidence_quote": "적법하게 개인정보를 처리하고 안전하게 관리하고 있습니다",
+      "source_line": 7,
+      "validation": "verified"
+    }
+  ],
+  "control_map": [
+    {
+      "control_area": "수집동의",
+      "sub_area": [
+        "수집동의"
+      ],
+      "policy_requirement": "필요 최소한의 개인정보 처리 및 목적 외 사용 금지, 목적 변경 시 사전 동의 이행",
+      "operating_standard": "개인정보 처리 상세현황 경로를 통해 목적/항목 확인 및 법정대리인 동의 절차(7가지 방법) 준수",
+      "owner_hint": "개인정보보호 담당부서",
+      "risk_if_changed": "수집 항목 및 목적 변경 시 처리방침 업데이트 및 재동의 절차 누락 위험",
+      "evidence_quote": "필요한 최소한의 개인정보를 처리합니다. 개인정보는 다음의 목적 외의 용도로는 사용되지 않으며",
+      "source_line": 83,
+      "validation": "verified"
+    },
+    {
+      "control_area": "처리위탁",
+      "sub_area": [
+        "처리위탁"
+      ],
+      "policy_requirement": "위탁계약 시 법정 필수 명시사항(목적 외 처리금지, 보호조치, 재위탁 제한, 감독, 손해배상) 포함 및 수탁자 감독",
+      "operating_standard": "재위탁 시 은행의 사전 동의 획득 및 재수탁자/업무내용 공개",
+      "owner_hint": "정보보호기획팀",
+      "risk_if_changed": "수탁사 변경 또는 재위탁 관리 미흡 시 개인정보 보호법 제26조 위반",
+      "evidence_quote": "위탁업무 수행목적 외 개인정보 처리 금지, 기술적·관리적 보호조치, 재위탁 제한, 수탁자에 대한 관리·감독, 손해배상 등 책임에 관한 사항을 문서에 명시",
+      "source_line": 181,
+      "validation": "verified"
+    },
+    {
+      "control_area": "제3자제공",
+      "sub_area": [
+        "제3자제공"
+      ],
+      "policy_requirement": "법률의 특별한 규정 또는 정보주체의 동의가 있는 경우에만 필요 최소한의 범위로 제공",
+      "operating_standard": "금융감독원, 금융정보분석원, 한국은행 등 법적 근거에 따른 제공 리스트 관리 및 동의 기반 제공 현황 공개",
+      "owner_hint": "컴플라이언스/개인정보 담당부서",
+      "risk_if_changed": "동의 없는 제3자 제공 시 법적 제재 및 고객 권익 침해",
+      "evidence_quote": "고객의 동의, 법률의 특별한 규정 등 「개인정보 보호법」 제17조 및 제18조에 해당하는 경우에만 필요 최소한의 범위로 개인정보를 제3자에게 제공",
+      "source_line": 144,
+      "validation": "verified"
+    },
+    {
+      "control_area": "안전성조치",
+      "sub_area": [
+        "안전성조치"
+      ],
+      "policy_requirement": "관리적·기술적·물리적 보호조치 이행 및 외부 인증(ISMS-P, ISO 27701/27018) 유지",
+      "operating_standard": "내부관리계획 수립/시행, 접근권한 최소화, 중요 데이터 암호화, 전산실 접근 통제",
+      "owner_hint": "정보보호실",
+      "risk_if_changed": "보안 사고 발생 시 안전성 확보조치 미비로 인한 과징금 및 책임 가중",
+      "evidence_quote": "안전성 확보에 필요한 관리적·기술적·물리적 조치를 하고 있습니다",
+      "source_line": 279,
+      "validation": "verified"
+    },
+    {
+      "control_area": "신용정보",
+      "sub_area": [
+        "신용정보"
+      ],
+      "policy_requirement": "신용정보법 등 관련 법령에 따른 보유기간 준수 및 가명처리 시 안전관리",
+      "operating_standard": "금융거래 종료일로부터 5년(신용정보법) 또는 10년(상법) 등 법정 보존기간 적용 및 분리 보관",
+      "owner_hint": "신용정보 관리부서",
+      "risk_if_changed": "보유기간 경과 후 미파기 시 신용정보법 위반",
+      "evidence_quote": "신용정보의 이용 및 보호에 관한 법률 제20조의2 계좌 개설 및 거래내역 등 금융거래정보 (금융)거래 종료일로부터 5년",
+      "source_line": 0,
+      "validation": "not_found"
+    }
+  ],
+  "processing_coverage": [
+    {
+      "topic": "문서 목적 및 적용 범위",
+      "status": "covered",
+      "summary": "개인정보 보호법 제30조에 따른 처리방침 수립 및 공개",
+      "related_topics": [],
+      "evidence_quote": "「개인정보 보호법」 제30조에 따라 정보주체에게 개인정보 처리에 관한 절차 및 기준을 안내",
+      "source_line": 7,
+      "validation": "verified"
+    },
+    {
+      "topic": "처리 목적",
+      "status": "covered",
+      "summary": "최소한의 개인정보 처리 및 목적 외 사용 금지 명시",
+      "related_topics": [
+        "수집동의"
+      ],
+      "evidence_quote": "필요한 최소한의 개인정보를 처리합니다. 개인정보는 다음의 목적 외의 용도로는 사용되지 않으며",
+      "source_line": 83,
+      "validation": "verified"
+    },
+    {
+      "topic": "처리 항목",
+      "status": "covered",
+      "summary": "필수적/선택적 정보 처리 및 상세현황 링크 제공",
+      "related_topics": [
+        "수집동의"
+      ],
+      "evidence_quote": "필수적 정보 및 선택적 정보를 처리하고 있습니다",
+      "source_line": 105,
+      "validation": "verified"
+    },
+    {
+      "topic": "보유 및 이용기간",
+      "status": "covered",
+      "summary": "법령 및 동의받은 기간 내 처리, 법정 보존기간(5년, 10년 등) 상세 구분",
+      "related_topics": [
+        "신용정보",
+        "파기"
+      ],
+      "evidence_quote": "법령에 따른 개인정보 보유·이용기간 또는 정보주체로부터 개인정보를 수집 시에 동의받은 보유·이용기간 내에서",
+      "source_line": 95,
+      "validation": "verified"
+    },
+    {
+      "topic": "제3자 제공",
+      "status": "covered",
+      "summary": "법적 근거 기반 제공 및 동의 기반 제공 구분 운영",
+      "related_topics": [
+        "수집동의"
+      ],
+      "evidence_quote": "법률의 특별한 규정에 의거해 정보주체의 동의 없이 개인정보를 제3자에게 제공하는 경우는 다음과 같습니다",
+      "source_line": 137,
+      "validation": "verified"
+    },
+    {
+      "topic": "처리위탁 및 재위탁",
+      "status": "covered",
+      "summary": "위탁계약서 필수사항 명시 및 재위탁 시 사전 동의 절차 운영",
+      "related_topics": [
+        "안전성조치"
+      ],
+      "evidence_quote": "수탁자가 당사의 개인정보 처리 업무를 재위탁하는 경우 은행의 동의를 받고 있으며",
+      "source_line": 185,
+      "validation": "verified"
+    },
+    {
+      "topic": "국외 이전",
+      "status": "covered",
+      "summary": "해외송금 서비스 등을 위한 국외 제3자 이전 및 거부권 안내",
+      "related_topics": [
+        "제3자 제공"
+      ],
+      "evidence_quote": "정보주체로부터 동의를 받고 수집한 개인정보를 아래와 같이 국외의 제3자에게 필요 최소한으로 이전",
+      "source_line": 198,
+      "validation": "verified"
+    },
+    {
+      "topic": "파기",
+      "status": "covered",
+      "summary": "책임자 승인 후 전자적 파일 복구불가 파기 및 종이문서 분쇄/소각",
+      "related_topics": [
+        "보유 및 이용기간"
+      ],
+      "evidence_quote": "파기 절차 : 개인정보 파기 계획을 수립하고 , 파기 사유가 발생한 개인정보를 선정하여 책임자 승인을 받아 파기",
+      "source_line": 252,
+      "validation": "verified"
+    },
+    {
+      "topic": "정보주체 권리 및 행사방법",
+      "status": "covered",
+      "summary": "열람, 정정, 삭제, 처리정지, 동의철회 및 자동화된 결정 거부/설명 요구권 보장",
+      "related_topics": [],
+      "evidence_quote": "자신의 개인정보의 열람, 정정·삭제, 처리정지 및 동의 철회, 자동화된 결정 거부·설명 요구",
+      "source_line": 277,
+      "validation": "verified"
+    },
+    {
+      "topic": "안전성 확보조치",
+      "status": "covered",
+      "summary": "관리적/기술적/물리적 조치 및 ISMS-P 등 인증 유지",
+      "related_topics": [],
+      "evidence_quote": "안전성 확보에 필요한 관리적·기술적·물리적 조치를 하고 있습니다",
+      "source_line": 279,
+      "validation": "verified"
+    },
+    {
+      "topic": "자동 수집 장치 및 행태정보",
+      "status": "covered",
+      "summary": "쿠키 및 광고식별자 수집, 거부 방법 및 행태정보 처리 기준 명시",
+      "related_topics": [],
+      "evidence_quote": "‘쿠키’를 이용하며, 앱에서 맞춤형 광고를 위하여 광고식별자를 수집· 이용합니다",
+      "source_line": 309,
+      "validation": "verified"
+    },
+    {
+      "topic": "가명정보",
+      "status": "covered",
+      "summary": "통계작성, 과학적 연구 목적의 가명처리 및 재식별 방지 조치",
+      "related_topics": [
+        "신용정보"
+      ],
+      "evidence_quote": "원래의 상태로 복원하기 위한 추가 정보를 삭제하는 등 재식별할 수 없도록 가명정보를 안전하게 관리",
+      "source_line": 384,
+      "validation": "verified"
+    },
+    {
+      "topic": "신용정보/민감정보/생체정보/연계정보(CI)",
+      "status": "partial",
+      "summary": "민감정보 비공개 원칙 및 처리현황 링크 제공, 신용정보법 준수. 생체정보/CI 구체적 항목은 링크 내 존재 추정",
+      "related_topics": [
+        "안전성조치"
+      ],
+      "evidence_quote": "은행은 고객의 민감정보를 공개하고 있지 않습니다",
+      "source_line": 425,
+      "validation": "verified"
+    },
+    {
+      "topic": "책임자 및 고충처리",
+      "status": "covered",
+      "summary": "개인정보보호책임자(정보보호실장) 및 담당부서(정보보호기획팀) 지정",
+      "related_topics": [],
+      "evidence_quote": "개인정보보호책임자 : 정보보호실장 민경표",
+      "source_line": 0,
+      "validation": "not_found"
+    },
+    {
+      "topic": "변경 고지 및 시행일",
+      "status": "covered",
+      "summary": "개정사항 비교표를 통한 공개 및 시행일자 명시",
+      "related_topics": [],
+      "evidence_quote": "변경 전·후를 개정사항 비교표를 통해 공개 합니다",
+      "source_line": 473,
+      "validation": "verified"
+    }
+  ],
+  "review_points": [
+    {
+      "trigger": "개인정보 보호법 또는 신용정보법 개정",
+      "review_action": "법정 보존기간 및 파기 절차의 적정성 재검토",
+      "target_sections": [
+        "제8조 (개인정보의 파기 절차 및 방법에 관한 사항)"
+      ],
+      "reason": "법령에 따른 보존근거 및 기간이 변경될 경우 파기 대상 선정 기준이 바뀌어야 함",
+      "evidence_quote": "다른 법령에 따라 보존하여야 하는 경우",
+      "source_line": 229,
+      "validation": "verified"
+    },
+    {
+      "trigger": "신규 수탁사 계약 또는 위탁 업무 변경",
+      "review_action": "위탁계약서 내 법정 필수 기재사항 포함 여부 및 처리방침 업데이트",
+      "target_sections": [
+        "제6조 (개인정보 처리의 위탁에 관한 사항)"
+      ],
+      "reason": "수탁자 변경 시 처리방침 고지 의무가 있으며, 계약서 미비 시 법 위반 소지 있음",
+      "evidence_quote": "위탁업무의 내용이나 수탁자가 변경될 경우에는 본 개인정보처리방침을 통해 고지하겠습니다",
+      "source_line": 188,
+      "validation": "verified"
+    },
+    {
+      "trigger": "신규 해외 제휴 서비스 도입",
+      "review_action": "국외 이전 항목, 국가, 보유기간 및 동의 절차 검토",
+      "target_sections": [
+        "제7조 (개인정보의 국외이전에 관한 사항)"
+      ],
+      "reason": "국외 이전은 별도의 동의가 필요하며, 이전받는 자의 관리 수준 확인이 필요함",
+      "evidence_quote": "정보주체로부터 동의를 받고 수집한 개인정보를 아래와 같이 국외의 제3자에게 필요 최소한으로 이전",
+      "source_line": 198,
+      "validation": "verified"
+    }
+  ],
+  "external_matching_terms": [
+    {
+      "sub_area": "수집동의",
+      "terms": [
+        "필요 최소한",
+        "목적 외 용도",
+        "법정대리인 동의"
+      ],
+      "rationale": "수집 단계의 적법성 및 최소 수집 원칙 준수 여부를 외규와 매칭하기 위함"
+    },
+    {
+      "sub_area": "처리위탁",
+      "terms": [
+        "재위탁 제한",
+        "관리·감독",
+        "수탁자"
+      ],
+      "rationale": "수탁사 관리 체계 및 재위탁 통제 프로세스를 외규의 위탁 관리 기준과 매칭하기 위함"
+    },
+    {
+      "sub_area": "안전성조치",
+      "terms": [
+        "내부관리계획",
+        "접근통제",
+        "암호화",
+        "ISMS-P"
+      ],
+      "rationale": "기술적/관리적 보호조치 수준을 금융보안 가이드라인 및 외규 기준과 매칭하기 위함"
+    }
+  ],
+  "gaps_or_uncertainties": [
+    {
+      "item": "상세 개인정보 처리 항목 및 민감정보 리스트",
+      "reason": "원문 내에 '상세현황 바로가기' 링크로 처리되어 있어 실제 수집 항목의 전체 리스트를 확인할 수 없음",
+      "severity": "medium"
+    },
+    {
+      "item": "생체인증 정보의 구체적 처리 절차",
+      "reason": "민감정보 처리현황 링크로 대체되어 있어, 생체정보의 수집/이용/파기 세부 프로세스가 원문에 명시되지 않음",
+      "severity": "medium"
+    }
+  ],
+  "evidence_index": [
+    {
+      "quote": "적법하게 개인정보를 처리하고 안전하게 관리하고 있습니다",
+      "source_line": 7,
+      "validation": "verified"
+    },
+    {
+      "quote": "필요한 최소한의 개인정보를 처리합니다. 개인정보는 다음의 목적 외의 용도로는 사용되지 않으며",
+      "source_line": 83,
+      "validation": "verified"
+    },
+    {
+      "quote": "위탁업무 수행목적 외 개인정보 처리 금지, 기술적·관리적 보호조치, 재위탁 제한, 수탁자에 대한 관리·감독, 손해배상 등 책임에 관한 사항을 문서에 명시",
+      "source_line": 181,
+      "validation": "verified"
+    },
+    {
+      "quote": "고객의 동의, 법률의 특별한 규정 등 「개인정보 보호법」 제17조 및 제18조에 해당하는 경우에만 필요 최소한의 범위로 개인정보를 제3자에게 제공",
+      "source_line": 144,
+      "validation": "verified"
+    },
+    {
+      "quote": "안전성 확보에 필요한 관리적·기술적·물리적 조치를 하고 있습니다",
+      "source_line": 279,
+      "validation": "verified"
+    },
+    {
+      "quote": "신용정보의 이용 및 보호에 관한 법률 제20조의2 계좌 개설 및 거래내역 등 금융거래정보 (금융)거래 종료일로부터 5년",
+      "source_line": 0,
+      "validation": "not_found"
+    },
+    {
+      "quote": "「개인정보 보호법」 제30조에 따라 정보주체에게 개인정보 처리에 관한 절차 및 기준을 안내",
+      "source_line": 7,
+      "validation": "verified"
+    },
+    {
+      "quote": "필요한 최소한의 개인정보를 처리합니다. 개인정보는 다음의 목적 외의 용도로는 사용되지 않으며",
+      "source_line": 83,
+      "validation": "verified"
+    },
+    {
+      "quote": "필수적 정보 및 선택적 정보를 처리하고 있습니다",
+      "source_line": 105,
+      "validation": "verified"
+    },
+    {
+      "quote": "법령에 따른 개인정보 보유·이용기간 또는 정보주체로부터 개인정보를 수집 시에 동의받은 보유·이용기간 내에서",
+      "source_line": 95,
+      "validation": "verified"
+    },
+    {
+      "quote": "법률의 특별한 규정에 의거해 정보주체의 동의 없이 개인정보를 제3자에게 제공하는 경우는 다음과 같습니다",
+      "source_line": 137,
+      "validation": "verified"
+    },
+    {
+      "quote": "수탁자가 당사의 개인정보 처리 업무를 재위탁하는 경우 은행의 동의를 받고 있으며",
+      "source_line": 185,
+      "validation": "verified"
+    },
+    {
+      "quote": "정보주체로부터 동의를 받고 수집한 개인정보를 아래와 같이 국외의 제3자에게 필요 최소한으로 이전",
+      "source_line": 198,
+      "validation": "verified"
+    },
+    {
+      "quote": "파기 절차 : 개인정보 파기 계획을 수립하고 , 파기 사유가 발생한 개인정보를 선정하여 책임자 승인을 받아 파기",
+      "source_line": 252,
+      "validation": "verified"
+    },
+    {
+      "quote": "자신의 개인정보의 열람, 정정·삭제, 처리정지 및 동의 철회, 자동화된 결정 거부·설명 요구",
+      "source_line": 277,
+      "validation": "verified"
+    },
+    {
+      "quote": "안전성 확보에 필요한 관리적·기술적·물리적 조치를 하고 있습니다",
+      "source_line": 279,
+      "validation": "verified"
+    },
+    {
+      "quote": "‘쿠키’를 이용하며, 앱에서 맞춤형 광고를 위하여 광고식별자를 수집· 이용합니다",
+      "source_line": 309,
+      "validation": "verified"
+    },
+    {
+      "quote": "원래의 상태로 복원하기 위한 추가 정보를 삭제하는 등 재식별할 수 없도록 가명정보를 안전하게 관리",
+      "source_line": 384,
+      "validation": "verified"
+    },
+    {
+      "quote": "은행은 고객의 민감정보를 공개하고 있지 않습니다",
+      "source_line": 425,
+      "validation": "verified"
+    },
+    {
+      "quote": "개인정보보호책임자 : 정보보호실장 민경표",
+      "source_line": 0,
+      "validation": "not_found"
+    },
+    {
+      "quote": "변경 전·후를 개정사항 비교표를 통해 공개 합니다",
+      "source_line": 473,
+      "validation": "verified"
+    },
+    {
+      "quote": "다른 법령에 따라 보존하여야 하는 경우",
+      "source_line": 229,
+      "validation": "verified"
+    },
+    {
+      "quote": "위탁업무의 내용이나 수탁자가 변경될 경우에는 본 개인정보처리방침을 통해 고지하겠습니다",
+      "source_line": 188,
+      "validation": "verified"
+    },
+    {
+      "quote": "정보주체로부터 동의를 받고 수집한 개인정보를 아래와 같이 국외의 제3자에게 필요 최소한으로 이전",
+      "source_line": 198,
+      "validation": "verified"
+    }
+  ],
+  "validation_notes": [
+    "원문에서 evidence_quote를 찾지 못함: 신용정보의 이용 및 보호에 관한 법률 제20조의2 계좌 개설 및 거래내역 등 금융거래정보 (금융)거래 종료일로부터 5년",
+    "원문에서 evidence_quote를 찾지 못함: 개인정보보호책임자 : 정보보호실장 민경표"
+  ]
+}
