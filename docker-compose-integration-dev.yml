@@ -67,7 +67,7 @@ services:
       - ~/.nanobot:/home/nanobot/.nanobot
       - ./nanobot/nanobot:/app/nanobot
       # reg_pipeline 사용을 위한 vault·캐시·환경 마운트 (sub-agent가 cwd=api-workspace에서 cd obsidian_vault/_tools 가능)
-      - ./obsidian_vault:/home/nanobot/.nanobot/workspace/obsidian_vault
+      #- ./obsidian_vault:/home/nanobot/.nanobot/workspace/obsidian_vault
       - ./.cache:/home/nanobot/.nanobot/workspace/.cache
       - ./.env.integration:/home/nanobot/.nanobot/workspace/.env.integration:ro
     environment:
