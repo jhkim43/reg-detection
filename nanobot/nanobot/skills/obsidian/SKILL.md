@@ -12,7 +12,7 @@ This skill communicates with the Obsidian server and serves as a direct channel 
 ## ⚙️ Configuration (Variables)
 Before executing commands, refer to the following information as variables:
 - **Base URL:** `http://192.168.56.1:27123` (hereinafter `{{URL}}`)
-- **Token:** `Bearer 037e23fca00f8993dd64d6c14c60326ef4aa3aeed682c32fbed343de9edb0a5f` (hereinafter `{{TOKEN}}`)
+- **Token:** `Bearer 7ac54b27dff63a2a3b2fa52a3c2678ea1dd690d5b236441b4d3bcd7d673a4e09` (hereinafter `{{TOKEN}}`)
 
 
 ## 🧠 Captain's Special Instructions (Operational Rules)
