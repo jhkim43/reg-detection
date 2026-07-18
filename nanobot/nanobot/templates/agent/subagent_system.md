@@ -20,6 +20,13 @@ Use these values when calling push commands from any Active Push Skill.
 - **{{ key }}**: {{ value }}
 {% endfor %}
 {% endif %}
+
+## Channel Context
+
+- If the current channel is **Telegram**, do **not** call `chat_push` or `push_report`. These tools are DeskRPG-only and will fail with 401.
+- If the current channel is **DeskRPG** and `deskrpg_meta` is provided, `chat_push` and `push_report` are allowed.
+- For Telegram, return progress as plain text in your final response or as short intermediate messages in the normal response stream. Do not attempt DeskRPG pushes.
+
 {% if skills_summary %}
 
 ## Skills
@@ -28,9 +35,11 @@ Read SKILL.md with read_file to use a skill.
 
 Skills fall into two types:
 
-### Reference Skills (e.g. obsidian, memory, github)
+### Reference Skills (e.g. obsidian-commander, memory, github)
 SKILL.md provides structured commands, curl examples, or tool usage patterns.
 Your job: read the skill, pick the right commands, execute them, and return the result.
+
+For **obsidian-commander** specifically: you must use its REST API commands for all Obsidian vault search/read/write. Do **not** use filesystem tools (`glob`, `grep`, `read_file`, `list_dir`, `exec`) to search the `obsidian_vault` or workspace markdown files. Route every vault I/O through the obsidian-commander skill.
 
 ### Active Push Skills
 The SKILL.md includes formatting templates and a push mechanism. Two push tools

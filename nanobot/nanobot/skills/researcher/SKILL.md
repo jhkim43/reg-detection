@@ -13,6 +13,34 @@ It works hand-in-hand with the **obsidian-commander** skill — read that skill'
 
 ---
 
+## When To Use (Default Trigger)
+
+Activate this skill whenever any of the following is true:
+
+- The user explicitly asks to research a topic (e.g., "조사해줘", "정리해줘", "리서치 해줘").
+- `obsidian-commander` search returns insufficient or stale results and external search is needed.
+- A user-provided fact, external discovery, or new regulation/trend should be preserved for future reuse.
+
+> **Default behavior:** every external search finding SHOULD be saved to Obsidian unless the user explicitly says "just tell me, do not save."
+> If the answer came from the web, it should live in the vault.
+
+---
+
+## 🔒 Vault I/O Rule for This Skill
+
+### MANDATORY FIRST STEP
+
+Before calling `web_search`, `grep`, `glob`, `read_file`, `list_dir`, or any other tool, you **must** call `obsidian-commander` `/search/simple/` once to search the Obsidian vault. Do not repeat the same query; reformulate keywords or move to `web_search` if the first result is insufficient. This applies to every research task triggered by this skill.
+
+When executing this skill:
+
+- **Always search Obsidian first**: Start every research task with `obsidian-commander` `/search/simple/` to find related internal notes.
+- **No direct filesystem access**: Do **not** use `glob`, `grep`, `read_file`, `list_dir`, or `exec` to search `obsidian_vault` or `~/.nanobot/workspace` markdown files. Searching workspace markdown with `grep` is **not** internal_wiki search. The only allowed way to read existing vault content is through the `obsidian-commander` REST API.
+- **Subagents inherit this rule**: If you spawn a subagent for parallel search or synthesis, tell it explicitly to use `obsidian-commander` REST API and avoid filesystem search.
+- **No DeskRPG pushes on Telegram**: If the current channel is Telegram, do not call `chat_push` or `push_report`. Return progress in plain text only.
+
+---
+
 ## 🧪 Research & Save Protocol
 
 When asked to research a topic and save to Obsidian, follow this **4-phase protocol**:
@@ -136,6 +164,7 @@ curl -s -X POST "{{URL}}/vault/{{path}}" \
 
 Before finishing, verify:
 
+- [ ] `obsidian-commander` search was attempted first (or reason noted if skipped)
 - [ ] 3–5 search queries executed (multi-angle)
 - [ ] 2–3 pages fetched for depth
 - [ ] At least 3 distinct sources cited
@@ -144,3 +173,5 @@ Before finishing, verify:
 - [ ] Saved to `research/{{topic}}/` path in Obsidian
 - [ ] Tags included (at minimum `#research` and `#{{topic}}`)
 - [ ] Content written in the topic's language (Korean for Korean topics)
+- [ ] Daily note updated with a backlink to the new research note
+- [ ] Findings are reusable: the next similar query should be answered from this note
