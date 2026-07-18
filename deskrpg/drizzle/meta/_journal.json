@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1774998891487,
+      "tag": "0000_big_karnak",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775705194647,
+      "tag": "0001_furry_khan",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779016800000,
+      "tag": "0002_llm_usage_records",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779484200000,
+      "tag": "0003_v9_cleanup_legacy_persona",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779487800000,
+      "tag": "0004_v9_nanobot_agent_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779849600000,
+      "tag": "0005_v10_npcs_parent_agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779936000000,
+      "tag": "0006_v10_tasks_npc_name_snapshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780022400000,
+      "tag": "0007_v10_tasks_npc_set_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780281600000,
+      "tag": "0008_v10_chat_messages_push",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780540800000,
+      "tag": "0009_v11_agent_reports",
+      "breakpoints": true
+    }
+  ]
+}

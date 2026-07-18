@@ -1,0 +1,175 @@
+date: "2026-05-16T10:12:56"
+topic: "RegTrack — 금융 규제 자동 모니터링 시스템 (12주, 5개 소스, 24h 탐지 + LLM 영향도 + 대시보드)"
+charter_ref: "Project Charter_4팀_0514.docx"
+
+mode: brownfield  # base repo (jhkim43/reg-detection @ dev/nanobot) exists
+weights:
+  goal_clarity: 0.35
+  constraint_clarity: 0.25
+  success_criteria: 0.25
+  context_clarity: 0.15
+
+dimensions:
+  goal_clarity: 0.95
+  constraint_clarity: 0.92
+  success_criteria: 0.90
+  context_clarity: 0.90
+
+ambiguity_score: 0.08
+gate: "PASS (≤ 0.20)"
+
+answers:
+  - question: "최종 사용자(End User)는 누구인가?"
+    answer: "교내 시연용 가상 사용자 (실제 운영보다 데모 시나리오와 발표 효과 우선)"
+    dimension: goal
+    clarity_delta: +0.15
+
+  - question: "현행 페인 포인트가 무엇인가?"
+    answer: "수동 웹서핑으로 5개 사이트 매일 확인, 부서 간 공유·협업 부재, 규제 본문이 길어 영향도 판단에 시간 소요, 변경 이력 추적 어려움"
+    dimension: goal
+    clarity_delta: +0.10
+
+  - question: "12주 발표 자리에서 시연하는 5분 — 가장 강력한 오프닝은?"
+    answer: "'이 규제가 우리 리테일 부서에 미치는 영향' → LLM이 근거 문구까지 짚어서 분석 (영향도 분석의 지능성을 주인공으로)"
+    dimension: success
+    clarity_delta: +0.20
+
+  - question: "심사위원이 기억할 단 하나의 기술적 자신감은?"
+    answer: "UX 완성도 — 대시보드가 실제 제품 같음. 구체적으로 '에이전트가 게임 캐릭터 형태로 돌아다니는' 모습 (deskrpg 활용)"
+    dimension: success
+    clarity_delta: +0.15
+
+  - question: "MVP 깊이는?"
+    answer: "FSS 1개 소스 깊게 → 여러 게시판(보도·규정·해설) → 신규/개정 구분 → 영향도 → 필터링·타임라인까지 end-to-end. 나머지 4개 소스는 인터페이스만 증명"
+    dimension: goal
+    clarity_delta: +0.20
+
+  - question: "기술 스택 일부 정해진 것은?"
+    answer: |
+      - Python 생태계 (크롤링·AI)
+      - LLM은 OpenAI/Claude API (자체 호스팅 X)
+      - 백엔드: nanobot (Python, github.com/nanobot-ai/nanobot 추정) fork — LLM 사용량 등 기능 개선해 커스텀
+      - 프론트: deskrpg (Next.js + TypeScript, github.com/dandacompany/deskrpg) fork — 픽셀 아트 RPG UI
+      - 지식베이스/원문 브라우저: Obsidian markdown vault
+      - Base repo: github.com/jhkim43/reg-detection @ dev/nanobot
+    dimension: constraint
+    clarity_delta: +0.30
+
+  - question: "팀 협업 흐름은?"
+    answer: "feature 브랜치 → dev/nanobot 통합 브랜치 → main 마일스톤마다 병합 (4명 팀)"
+    dimension: context
+    clarity_delta: +0.15
+
+  - question: "deskrpg 통합 깊이는?"
+    answer: "deskrpg fork해서 RegTrack 대시보드로 변조 — 풍경·쿨키·NPC 자산을 새로 디자인 (적극적 소유, 공수 큼)"
+    dimension: constraint
+    clarity_delta: +0.10
+
+  - question: "핵심 시연 시나리오 30초 스크립트 (= acceptance criteria)?"
+    answer: |
+      사용자 캐릭 입장
+      → 크롤러 NPC가 수집한 신규 규제 보고
+      → 사용자가 분석 NPC에게 '리테일 영향' 질문
+      → 분석 NPC가 근거 구절 인용해서 답변
+    dimension: success
+    clarity_delta: +0.25
+
+  - question: "정량 KPI(시연 우선)?"
+    answer: |
+      - 탐지 ≤ 1h (시연일 기준)
+      - NPC 보고 시각·청각 활성
+      - 필터 4개 이상 작동
+      - FSS 1개 소스 완전 동작
+    dimension: success
+    clarity_delta: +0.20
+
+  - question: "LLM 비용 예산?"
+    answer: "2개월 반에 $100 (월 ~$40, 저렴 모델·캐싱·컨텍스트 절약 필요)"
+    dimension: constraint
+    clarity_delta: +0.15
+
+  - question: "배포/데이터 보존?"
+    answer: "노트북 로컬(docker compose 가정), 단 Obsidian vault는 git 저장소로 sync해서 팀원과 공유"
+    dimension: constraint
+    clarity_delta: +0.10
+
+  - question: "3-tier 매핑 검증 (Presentation/Logic/Data)?"
+    answer: |
+      사용자 채택 (옵션 2+3+4 결합):
+      - Presentation: Next.js deskrpg fork (RPG UI · 대시보드 · NPC 조종)
+      - Logic: Python nanobot fork (Agent · 영향도 · RAG with BM25 우선) + 별도 크롤러 서비스(scrapy/playwright)
+      - Data: SQLite + Obsidian markdown vault (PostgreSQL/pgvector 제거 — 시연용 단순화)
+      ※ Vector DB는 일정 여유 시 추가
+    dimension: context
+    clarity_delta: +0.20
+
+  - question: "12주 일정 양보 우선순위?"
+    answer: "양보 없이 모두 원래 스코프 — 일정 광기 수용 (사용자 명시적 결정)"
+    dimension: constraint
+    clarity_delta: +0.05
+
+decisions:
+  - "MVP 1차 스코프: FSS 단일 소스 end-to-end, 나머지 4개 소스는 인터페이스 증명만"
+  - "프론트엔드 deskrpg fork — 자산(풍경·쿨키·NPC) 적극 리스킨"
+  - "백엔드 nanobot(Python) fork — LLM 사용량 모니터링 등 커스텀"
+  - "데이터 레이어 단순화: SQLite + Obsidian markdown vault (Vector DB는 stretch)"
+  - "Logic에서 크롤러는 별도 서비스(scrapy/playwright)로 분리"
+  - "시연 acceptance: 캐릭터 입장 → 크롤러 NPC 보고 → 분석 NPC RAG 응답 (근거 인용 포함)"
+  - "KPI: 탐지≤1h(시연일), NPC 시각·청각 보고, 필터≥4, FSS 완전동작"
+  - "LLM 예산 $100 / 2.5개월 → 모델 선택·캐싱·컨텍스트 압축 필수"
+  - "Obsidian vault git sync로 팀원 공유"
+
+assumptions_surfaced:
+  - "사용자가 '양보 없이 광기 수용' 선언 — 12주 안에 deskrpg 풀 리스킨 + nanobot fork + RAG + 5소스 크롤러는 4명 팀에 매우 도전적. 마일스톤 슬립 시 양보 우선순위 재논의 필요"
+  - "4명 중 누가 픽셀 아트 NPC·맵 자산을 그릴지 미정 (역할 매트릭스 명시 필요)"
+  - "Obsidian vault git sync 시 보안 검토 필요 (개인정보·민감 규제 본문 노출 우려)"
+  - "데이터 소량 가정 — 12주 동안 수집되는 규제 본문량으로는 SQLite + BM25 충분하다는 가정. 1개 게시판 일평균 게시물 수치 확인 필요"
+  - "5개 소스 중 바젤위원회는 영문 — 한국어 기반 영향도 분석 시 번역 또는 다국어 LLM 처리 필요. 시연일 기준 FSS만 한정이면 후순위"
+  - "nanobot 'fork' 시 upstream 변경 추적 전략 미정 (rebase vs squash, 연동 빈도)"
+  - "deskrpg는 'AI 미팅룸/맵 에디터/멀티플레이어' 등 RegTrack과 무관한 기능 다수 — 어디까지 keep/cut할지 미결"
+
+risks:
+  scope_overrun:
+    severity: high
+    note: "사용자 명시적 광기 수용 선언으로 mitigation은 마일스톤 단위 재평가에 의존"
+  asset_design_capacity:
+    severity: medium
+    note: "4명 팀 중 픽셀 아트 디자인 역량/시간 미확인"
+  llm_cost_overrun:
+    severity: medium
+    note: "$100/2.5개월 = 빡빡한 예산. RAG 재순위·임베딩·요약 호출에 캐싱 필수"
+  source_html_change:
+    severity: low_at_demo
+    note: "차터 risk와 동일. Flexible Parser + 알림. 시연일 직전 회복 시간 확보 필요"
+  obsidian_vault_security:
+    severity: medium
+    note: "git sync 시 vault 공개 범위·민감 정보 검토 필요"
+
+architecture_layers:
+  presentation:
+    runtime: "Next.js + TypeScript (deskrpg fork)"
+    responsibilities: "RPG UI 렌더, NPC/캐릭터 입력 처리, 대시보드 카드/필터/타임라인, Obsidian vault 원문 임베드 또는 외부 링크"
+  logic:
+    runtime: "Python (nanobot fork + 별도 크롤러)"
+    responsibilities: "Agent 워크플로우 (수집·분석 NPC 등), 신규/개정 분류, 영향도 분석(LLM + Citation), RAG (BM25 우선, pgvector stretch)"
+  data:
+    runtime: "SQLite + Obsidian markdown vault (git sync)"
+    responsibilities: "메타·이력 영속화, 규제 원문 markdown 저장, 사용자가 직접 vault 열어 원문 확인 가능"
+
+scope_in:
+  - "FSS 보도·규정·해설 게시판 크롤러 (1개 소스 end-to-end)"
+  - "신규/개정 분류"
+  - "LLM 영향도 분석 (근거 구절 citation 포함)"
+  - "deskrpg fork RPG 대시보드 (캐릭터·NPC·필터·타임라인)"
+  - "Obsidian vault markdown 저장·git sync"
+  - "시연 시나리오 4단계 (캐릭터 입장 → 크롤러 NPC 보고 → 분석 NPC 응답)"
+  - "기타 4개 소스(BOK/FSC/국회·관보/바젤위) 인터페이스 증명 (코드 구조·README)"
+
+scope_out:
+  - "프로덕션 운영(보안, 권한, 멀티 테넌트)"
+  - "모바일 반응형"
+  - "PostgreSQL/pgvector (stretch로만)"
+  - "장기 데이터 보관 (12주 종료 후 폐기 OK)"
+  - "deskrpg 원본의 AI 미팅룸·맵 에디터 등 RegTrack 무관 기능"
+
+next_step: "/seed — 위 결정·결심·범위·리스크를 immutable 명세로 결정화"

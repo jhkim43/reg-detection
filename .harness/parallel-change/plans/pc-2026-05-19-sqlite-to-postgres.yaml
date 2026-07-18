@@ -1,0 +1,53 @@
+schema_version: 1
+id: pc-2026-05-19-sqlite-to-postgres
+title: SQLite → PostgreSQL 단일화 (seed-v9 D-15/D-17)
+created_at: '2026-05-19T01:22:04Z'
+created_by: deukkyu
+target:
+  type: ''
+  description: ''
+old:
+  symbol: better-sqlite3 + schema-sqlite (dual-mode SQLite path)
+  files: []
+  caller_pattern: (better-sqlite3|schema-sqlite|sqlite-base-schema)
+new:
+  symbol: drizzle-orm/node-postgres (Postgres-only)
+  files: []
+  caller_pattern: drizzle-orm/node-postgres
+caller_scan:
+  exclude_files: []
+  exclude_dirs:
+  - .git
+  - node_modules
+  - dist
+  - build
+  - .harness
+  - .next
+  - drizzle
+  scan_dirs:
+  - deskrpg/src
+  - deskrpg/server.js
+  - deskrpg/migrate.js
+  - deskrpg/dev-server.ts
+  - deskrpg/scripts
+  - deskrpg/package.json
+  - deskrpg/drizzle.config.ts
+  - deskrpg/drizzle-sqlite.config.ts
+phases:
+  current: expand
+  history:
+  - phase: expand
+    entered_at: '2026-05-19T01:22:04Z'
+expand_criteria:
+- Both old and new signatures exist in the codebase
+- Tests exist for new signature
+migrate_criteria:
+- All known callers switched to new signature
+contract_criteria:
+- Zero callers reference old signature
+last_check:
+  timestamp: '2026-05-19T01:24:47Z'
+  caller_count_old: 5
+  caller_count_new: 4
+  state_consistent: true
+notes: []

@@ -1,0 +1,29 @@
+schema_version: 1
+last_modified: '2026-05-18T23:52:22Z'
+active:
+- name: ouroboros
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: init
+- name: living-spec
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: parallel-change
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: rfc-driven
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+- name: incident-review
+  activated_at: '2026-05-18T23:52:22Z'
+  activated_by: user
+history:
+- action: set_active
+  names:
+  - ouroboros
+  - living-spec
+  - parallel-change
+  - rfc-driven
+  - incident-review
+  timestamp: '2026-05-18T23:52:22Z'
+  actor: user
+conflict_policy: first-wins

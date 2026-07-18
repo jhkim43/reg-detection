@@ -1,0 +1,155 @@
+date: "2026-05-30"
+seed_ref: "seed-v11.yaml"
+branch: "feat/v11-phase4-history-verify"
+scope: "v11 cycle 전체 (phase 1~4 통합 검증)"
+
+stages:
+  mechanical:
+    result: "pass"
+    details:
+      harness_gates: "PASS (secrets/boundaries/structure 0 violations)"
+      type_check: "PASS (npx tsc --noEmit exit 0)"
+      tests: "PASS (26/26 — handler 8 + service 6 + POST route 6 + GET route 6)"
+      ui_tests: "manual (사용자 화면 검증 7 시나리오 PASS)"
+
+  semantic:
+    result: "pass"
+    ac_compliance:
+      met: 7
+      partial: 1
+      total: 8
+    goal_alignment: "aligned + 진화"
+    ontology_drift: "low"
+    layer_compliance: "pass"
+    test_by_layer:
+      data: "schema parity + migration + ON DELETE SET NULL 동작 검증 ✓"
+      logic: "handler 8 + service 6 + 화이트박스 검증 ✓"
+      presentation: "route 12 + UI 화면 검증 (popover/카드/패널/토스트 흐름 모두 PASS)"
+
+  ac_breakdown:
+    AC-001:
+      status: "met"
+      evidence: "agent_reports table + Drizzle 0009 + schema parity (PG/SQLite) + character_id CASCADE / npc_id SET NULL"
+      verified_at: "phase1 (PR1)"
+    AC-002:
+      status: "met"
+      evidence: "POST /api/internal/reports (route + handler + 8 unit + 6 integration tests). curl manual 9 scenarios PASS"
+      verified_at: "phase1+2"
+    AC-003:
+      status: "met (UX 진화)"
+      evidence: |
+        ReportPanel.tsx + A1 모던 톤 (네이비 + 골드) + 슬라이드 모드 + PDF 다운로드
+        + close 버튼. 사용자 화면 검증 PASS.
+        UX 모델 변경 (always-on → click-to-open) — seed amendment에 명시.
+      verified_at: "phase3 (PR3)"
+    AC-004:
+      status: "met"
+      evidence: |
+        socket "agent-report:ready" listener + 채팅 카드 (영속) + 다른 NPC 토스트 (8초)
+        + 클릭 시 NPC 전환 + history fetch + sprite bubble + 알림 일관 read.
+      verified_at: "phase3 (PR3)"
+    AC-005:
+      status: "partial (deferred to backlog)"
+      evidence: |
+        헤더 popover (5건) 구현으로 일반 사용 cover. HistoryModal (50건+검색) 미구현
+        — seed-v11 v11-backlog-7로 이관. 누적량 30+ 시점에 진행.
+      verified_at: "phase3+4"
+    AC-006:
+      status: "met"
+      evidence: |
+        통합 검증 완료 (phase4): NPC 삭제 → agent_reports.npc_id NULL,
+        chat_messages CASCADE 삭제, metadata.creatorSubAgentLabel snapshot 보존,
+        GET /api/reports에서 creatorNpcName=null + creatorSubAgentLabel='리서치담당'
+        fallback 동작. UI에서 popover/패널 라벨 표시 그대로.
+      verified_at: "phase4 (PR4 — 본 평가)"
+    AC-007:
+      status: "met"
+      evidence: |
+        docs/api/internal-events-contract.md Section 12 (정식 spec) +
+        docs/api/internal-events-curl-guide.md §5 (curl 실습 예시).
+        나노봇 팀원 참조용 단일 진실 원천.
+      verified_at: "phase2+3"
+    AC-008:
+      status: "met"
+      evidence: |
+        GET /api/reports route + report-list-service + 12 tests (6 service + 6 route).
+        세션 쿠키 JWT 인증, npcId 필터, limit clamp, character scope 격리 모두 검증.
+      verified_at: "phase1+2"
+
+  constraint_check:
+    must:
+      - check: "agent_reports 별 테이블 (chat_messages 혼합 금지)"
+        result: "pass"
+      - check: "character_id NOT NULL CASCADE + npc_id nullable SET NULL"
+        result: "pass — 통합 검증 PASS"
+      - check: "INTERNAL_RPC_SECRET 인증 (x-user-id 불요)"
+        result: "pass"
+      - check: "report.npc_id = parent npc_id (sub-agent 아님)"
+        result: "pass — D-33 준수"
+      - check: "creator_sub_agent_label metadata snapshot 보존"
+        result: "pass — NPC 삭제 후 snapshot fallback 동작"
+      - check: "react-markdown + rehype-sanitize (raw HTML 차단)"
+        result: "pass — react-markdown 기본 raw HTML 차단"
+      - check: "Idempotency-Key dedup (in-memory TTL 10분)"
+        result: "pass — curl 검증 PASS"
+      - check: "socket event channelId broadcast — 현재 NPC 패널 + 다른 NPC 토스트"
+        result: "pass — UI 시나리오 PASS"
+      - check: "새로고침 후 영속"
+        result: "pass — chat_messages report_card row + agent_reports 둘 다 영속"
+      - check: "NPC 삭제 시 보고서 보존"
+        result: "pass — agent_reports.npc_id NULL + snapshot fallback"
+    must_not:
+      - check: "chat_messages에 본문 저장"
+        result: "pass — agent_reports에만 본문"
+      - check: "raw HTML 렌더"
+        result: "pass — react-markdown 차단"
+      - check: "user-auth로 internal endpoint 노출"
+        result: "pass — POST /api/internal은 secret-only"
+      - check: "현재 NPC 무관한 보고서 자동 표시"
+        result: "pass — 토스트만 표시, 패널은 사용자 클릭 시 열림"
+      - check: "PATCH/PUT 단일 reportId"
+        result: "pass — 단발성 push만 (lifecycle은 future)"
+
+  judgment:
+    result: "skip"
+    reason: |
+      Stage 2가 명확히 PASS (7 met + 1 partial-by-design-deferred-to-backlog).
+      AC-005 (HistoryModal)는 popover(5건)로 부분 대체 + backlog 트래킹 결정.
+      모호 ambiguity 없음.
+
+verdict: "pass"
+
+ux_evolution_summary: |
+  phase3 사용자 화면 검증 중 UX 모델 크게 진화. 시드 must는 유지 (슬롯 1개,
+  영속, 모던 톤, 단발성 push, sanitize)되었으나 모드 디테일 변경:
+  - TRD-D-39 (always-on slot) → click-to-open (헤더 버튼 + 채팅 카드 + popover)
+  - TRD-D-40 (📚 history 버튼) → 헤더 popover 5건으로 일부 대체
+  - 다수 노이즈 정리 (Press / hint, 자동 인사, 가까이 가면 뜨는 ...)
+  - 슬라이드 모드 + PDF 다운로드 + 채팅 시간 표시 + 카드 상대시간 등 폴리시
+
+  사용자 검증 시나리오 7건 모두 PASS:
+  S1. 헤더 popover 5건 → 패널 슬라이드인
+  S2. NPC 채팅 카드 + 영속 (새로고침 후 유지)
+  S3. 다른 NPC 토스트 + 클릭 → NPC 전환 + history + 패널 + sprite bubble + 배지 reset
+  S4. 슬라이드 모드 (마크다운 --- 구분자, 키보드 ← →)
+  S5. A1 모던 톤 (네이비 헤딩 + 골드 액센트 + 표 zebra)
+  S6. PDF 다운로드 (window.print + A4 + 한글 폰트)
+  S7. 채팅 메시지 시:분 표시 + 카드 상대시간
+
+  결과: phase3 PR3 머지 (#35), phase4 PR4 평가 통과.
+
+post_cycle_followups:
+  - id: "v11-backlog-7"
+    priority: "low"
+    item: "ReportHistoryModal (50건 + 검색·필터) — 누적량 30+ 시점에 진행"
+  - id: "F-nanobot"
+    priority: "blocker for E2E"
+    item: "nanobot fork 측 SubagentManager 완료 hook → POST /api/internal/reports 호출 + Idempotency-Key (별 PR, 다른 팀원)"
+  - id: "F-tests"
+    priority: "low"
+    item: "ReportPanel + ChatPanel reportCard 단위 테스트 보강 (현재 manual)"
+  - id: "F-pdf"
+    priority: "low"
+    item: "PDF 다이렉트 다운로드 (html2pdf 또는 Puppeteer 검토)"
+
+issues: []

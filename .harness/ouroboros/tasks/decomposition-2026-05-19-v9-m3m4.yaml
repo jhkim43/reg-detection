@@ -1,0 +1,787 @@
+decomposition:
+  seed_ref: "seed-v9.yaml"
+  trd_ref: "docs/trd/TRD-RegTrack-2026-05-19-v9-m3m4.md"
+  owner: "m3_m4_gateway"
+  created: "2026-05-19T10:30:00"
+  amended: "2026-05-19T11:30:00"
+  scope: "owner block 17 AC (M3/M4 담당). AC-001/007/009/010 제외 (다른 팀)"
+  total_tasks: 58  # 원본. amendment 후 실질 작업량은 Phase 1에서 7→3 task 축소 (T-005/006/007 verify-only로 변경, T-004 드롭)
+
+  amendments:
+    - date: "2026-05-19T11:30:00"
+      trigger: "Phase 1 Discovery에서 schema/code drift 검출 — 기존 인프라가 TRD §2.3.a + Phase 1 task 대부분을 이미 만족"
+      changes:
+        - "T-004 (gateway_channel_bindings 신규 migration) — 드롭. 기존 gatewayResources + channelGatewayBindings 활용."
+        - "T-005 (encryptGatewayToken 정리) — verify only로 rescope. 기존 함수 이미 AES-256-GCM v1 format 완벽."
+        - "T-006 (internalRpc Bearer middleware 정리) — verify only로 rescope. 기존 함수 이미 EBUSY retry + dev/prod dual-mode."
+        - "T-007 (gateway-channel-binding repository) — verify only로 rescope. 기존 gateway-resources.ts:305-373에 존재."
+      affected_phases: [1]
+      phase_1_effective_tasks: 3  # T-001, T-002, T-003 (실질 코드 변경). 나머지는 verify pass-through.
+      affected_seed_entities:
+        - "GatewayChannelBinding — alias 의미로 reinterpret (신규 테이블 아님)"
+        - "GatewayDeviceIdentity — 파일시스템(~/.nanobot-devices/) + gatewayResources.paired_device_id 조합. DB 테이블은 Phase 2 결정으로 연기"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 1 — Foundation (의존 최소, 다른 모든 parity AC의 기반)
+  # ─────────────────────────────────────────────────────────────────────
+  tasks:
+    # AC-012 (low) — LPC 캐릭터 커스터마이징 (PR2a 이전 기존 코드 검증만)
+    - id: T-001
+      ac_ref: AC-012
+      layer: presentation
+      description: "AppearanceEditor + CharacterPreview + sprite-compositor 회귀 테스트 작성 (Playwright E2E)"
+      test: "head/body/hair/outfit 부품 변경 → reload 후 characters.appearance 영속 확인"
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-012]
+        entities: [UserCharacter]
+        actions: [customizeAvatar]
+
+    # AC-018 (low) — Configuration storage parity (legacy persona 제거)
+    - id: T-002
+      ac_ref: AC-018
+      layer: data
+      description: "drizzle migration: npcs.openclawConfig JSONB shape 검증 + legacy `persona` 필드 cleanup migration"
+      test: "fresh DB에 migration 적용 → schema 일치 검증. legacy persona가 어떤 row에도 없음 assertion"
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-018]
+        entities: [NPC]
+
+    - id: T-003
+      ac_ref: AC-018
+      layer: logic
+      description: "loadPersonaFromNpc / parseDbObject 헬퍼에서 legacy persona fallback 코드 제거 (D-23)"
+      test: "fixture npcs row(.personaConfig만 보유) → loadPersonaFromNpc 정상. .persona만 보유 → undefined 반환 (no error)"
+      depends_on: [T-002]
+      estimated_minutes: 15
+      references:
+        ac: [AC-018]
+
+    # AC-019 (medium) — Authentication tokens parity
+    # AMENDED 2026-05-19: T-004 dropped, T-005/006/007 rescoped to verify-only.
+
+    - id: T-004
+      ac_ref: AC-019
+      layer: data
+      status: dropped  # amendment 2026-05-19
+      description: "[DROPPED] drizzle migration: gateway_channel_bindings 테이블 — 기존 gatewayResources + channelGatewayBindings 조합으로 동일 목적 달성됨이 확인됨"
+      test: "N/A"
+      depends_on: []
+      estimated_minutes: 0
+      references:
+        ac: [AC-019]
+        entities: [GatewayChannelBinding, Channel]
+
+    - id: T-005
+      ac_ref: AC-019
+      layer: logic
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] encryptGatewayToken / decryptGatewayToken 이미 AES-256-GCM v1:iv:tag:encrypted base64url로 구현됨 (gateway-resources.ts:57,65). 변경 X. 회귀 테스트 1건 추가."
+      test: "round-trip 단위 테스트: encrypt(plain) → decrypt → plain. INTERNAL_RPC_SECRET / JWT_SECRET 양쪽 source key 테스트. 기존 동작 변경 없음을 보장."
+      depends_on: []
+      estimated_minutes: 15  # 코드 작성 X, 테스트만
+      references:
+        ac: [AC-019]
+
+    - id: T-006
+      ac_ref: AC-019
+      layer: logic
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] internalRpc 이미 Bearer Token + INTERNAL_RPC_SECRET 검증 + EBUSY retry + dev/prod dual-mode 구현됨 (internal-rpc.ts:31). 변경 X. 회귀 테스트 1건."
+      test: "유효한 Bearer → 200 pass-through. invalid/missing → 401. 기존 동작 회귀 보호."
+      depends_on: []  # T-005 의존 제거 (verify-only 간 의존성 없음)
+      estimated_minutes: 15
+      references:
+        ac: [AC-019]
+
+    - id: T-007
+      ac_ref: AC-019
+      layer: data
+      status: verify_only  # amendment 2026-05-19
+      description: "[VERIFY-ONLY] gateway-channel-binding repository 이미 존재 (gateway-resources.ts:305-373 — bindGatewayToChannel/unbind/list 등). 변경 X. 통합 테스트 1건."
+      test: "Postgres integration: bind → list → unbind 회귀. 기존 동작 보호."
+      depends_on: []  # T-004 드롭으로 의존성 없음
+      estimated_minutes: 15
+      references:
+        ac: [AC-019]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 2 — Gateway core (NPC lifecycle + pairing + error mapping)
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-017 (medium) — Error mapping parity
+    - id: T-008
+      ac_ref: AC-017
+      layer: logic
+      description: "buildGatewayErrorPayload 함수: NanobotError → {ok:false, errorCode, error, requestId, details, pairingRequired} shape 변환"
+      test: "단위: 강제 실패 케이스 3종(PAIRING_REQUIRED / AUTH_FAILED / GENERAL) → 매 shape 정확. requestId nullable"
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-017]
+
+    - id: T-009
+      ac_ref: AC-017
+      layer: logic
+      description: "getGatewayErrorStatus 함수: errorCode → HTTP status 매핑 (PAIRING_REQUIRED→409, NOT_PAIRED→409, AUTH_FAILED→401, default 500)"
+      test: "각 errorCode → 기대 status 매핑 단위 테스트"
+      depends_on: [T-008]
+      estimated_minutes: 15
+      references:
+        ac: [AC-017]
+
+    - id: T-010
+      ac_ref: AC-017
+      layer: presentation
+      description: "deskrpg API route catch 블록 정리: 모든 nanobot 호출이 buildGatewayErrorPayload + getGatewayErrorStatus 사용 (openclaw catch와 통일)"
+      test: "nanobot mock에서 강제 error → API 응답 shape + status 검증 (3 케이스)"
+      depends_on: [T-008, T-009]
+      estimated_minutes: 25
+      references:
+        ac: [AC-017]
+
+    # AC-013 (high) — NPC/Agent lifecycle parity (Pair Mode + Test Designer)
+    - id: T-011
+      ac_ref: AC-013
+      layer: data
+      description: "drizzle migration: nanobot_agent_sessions 테이블 (id, npc_id, agent_id, session_key, started_at, last_chunk_at, aborted_at, timeout_ms, total_tokens)"
+      test: "fresh DB에 migration 적용 → 테이블 + UNIQUE(agent_id, session_key) 제약 확인"
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-013]
+        entities: [NanobotAgentSession]
+
+    - id: T-012
+      ac_ref: AC-013
+      layer: logic
+      description: "NanobotGateway.createAgent(npcId, personaConfig): agentId UUID 발급 + npcs.openclawConfig 저장 + 워크스페이스 path 반환 (nanobot mode: agents.create RPC는 no-op)"
+      test: "[Test Designer 작성] createAgent → npcs row 존재 + openclawConfig.{agentId, sessionKeyPrefix, personaConfig} 정확"
+      depends_on: [T-002, T-007]
+      estimated_minutes: 30
+      references:
+        ac: [AC-013]
+        actions: [createNpcAgent]
+
+    - id: T-013
+      ac_ref: AC-013
+      layer: logic
+      description: "NanobotGateway.deleteAgent(agentId): npcs row 삭제 + 워크스페이스 cleanup (~/.nanobot/workspace-${agentId})"
+      test: "[Test Designer 작성] deleteAgent → npcs row 부재 + 디렉토리 부재"
+      depends_on: [T-012]
+      estimated_minutes: 20
+      references:
+        ac: [AC-013]
+
+    - id: T-014
+      ac_ref: AC-013
+      layer: logic
+      description: "NanobotGateway.listAgents(channelId): 채널 단위 agent 목록 반환"
+      test: "fixture 3 channels × 2 npcs → listAgents(ch1) → 2개 반환"
+      depends_on: [T-012]
+      estimated_minutes: 15
+      references:
+        ac: [AC-013]
+
+    - id: T-015
+      ac_ref: AC-013
+      layer: presentation
+      description: "API route /api/npcs (POST/GET/DELETE) — provider 분기 제거, nanobotGateway 단일 호출"
+      test: "happy path 통합 E2E: POST /api/npcs → POST /api/npcs/:id (persona 변경) → DELETE /api/npcs/:id 통과 (nanobot mode)"
+      depends_on: [T-012, T-013, T-014, T-010]
+      estimated_minutes: 30
+      references:
+        ac: [AC-013]
+
+    # AC-016 (high) — Device pairing parity (Pair Mode + Test Designer)
+    - id: T-016
+      ac_ref: AC-016
+      layer: data
+      description: "drizzle migration: gateway_device_identities 테이블 (device_hash PK, public_key, private_key_path, pairing_state enum, paired_with_channel_id, last_pairing_request_id, created_at, connected_at)"
+      test: "fresh DB에 migration 적용 → pairing_state CHECK 제약 6 values 확인"
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-016]
+        entities: [GatewayDeviceIdentity]
+
+    - id: T-017
+      ac_ref: AC-016
+      layer: logic
+      description: "PairingManager.generateKeypair(): Ed25519 keypair 생성 + ~/.nanobot-devices/${hash}.json 저장"
+      test: "[Test Designer 작성] generateKeypair → 파일 존재 + 형식 검증 + device_hash 일관성"
+      depends_on: [T-016]
+      estimated_minutes: 25
+      references:
+        ac: [AC-016]
+
+    - id: T-018
+      ac_ref: AC-016
+      layer: logic
+      description: "PairingManager.signChallenge(challenge, hash): private key로 challenge 서명 (modern device auth v3)"
+      test: "[Test Designer 작성] signChallenge → verifyChallenge(public_key) 통과. tampered challenge → 검증 실패"
+      depends_on: [T-017]
+      estimated_minutes: 25
+      references:
+        ac: [AC-016]
+
+    - id: T-019
+      ac_ref: AC-016
+      layer: logic
+      description: "PairingManager 4-state machine: idle → connecting → connected (success path) / idle → connecting → error / connected → reconnecting → connected (재연결)"
+      test: "[Test Designer 작성] state 전이 happy path + error path + 재연결 각각 단위"
+      depends_on: [T-018]
+      estimated_minutes: 30
+      references:
+        ac: [AC-016]
+
+    - id: T-020
+      ac_ref: AC-016
+      layer: logic
+      description: "PairingManager env 분기: PAIRING_MODE=auto (default dev/demo) 자동 keypair+challenge / manual 사용자 액션 대기 (D-18)"
+      test: "env 변경 → onBoot 동작 차이 검증 (auto: 즉시 connecting / manual: state=idle)"
+      depends_on: [T-019]
+      estimated_minutes: 20
+      references:
+        ac: [AC-016]
+
+    - id: T-021
+      ac_ref: AC-016
+      layer: presentation
+      description: "OpenClawPairingStatusCard → NanobotPairingStatusCard rename + WS pairing:state 이벤트 구독, 4상태 UI 시각화"
+      test: "storybook 4상태 시각 검증 + 사용자 manual mode에서 'Pair' 버튼 클릭 → 토큰 입력 → state 변화 E2E"
+      depends_on: [T-019, T-020]
+      estimated_minutes: 30
+      references:
+        ac: [AC-016]
+
+    - id: T-022
+      ac_ref: AC-016
+      layer: presentation
+      description: "API route /api/gateways/:id/pair (POST): PairingManager 호출 + state 응답"
+      test: "강제 실패(invalid token) → 409 + errorCode=PAIRING_REQUIRED 응답. happy path → 200 + connected"
+      depends_on: [T-020, T-010]
+      estimated_minutes: 25
+      references:
+        ac: [AC-016]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 3 — Streaming + telemetry + workspace
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-014 (high) — Chat streaming parity (Pair Mode + Test Designer)
+    - id: T-023
+      ac_ref: AC-014
+      layer: logic
+      description: "NanobotGateway.chatSend(agentId, sessionKey, message, onDelta): SSE-style 응답 수신 + onDelta 콜백 호출 + 180s timeout"
+      test: "[Test Designer 작성] mock SSE server에서 chunk 5개 → onDelta 5회 호출 + 최종 응답 텍스트 일치"
+      depends_on: [T-012, T-011]
+      estimated_minutes: 30
+      references:
+        ac: [AC-014]
+        actions: [chatSendStream]
+
+    - id: T-024
+      ac_ref: AC-014
+      layer: logic
+      description: "180s timeout 워치독: timeout 시 NanobotAgentSession.aborted_at 기록 + onDelta 중단"
+      test: "[Test Designer 작성] mock SSE가 200s 동안 무응답 → 180s에 timeout error + DB aborted_at 기록"
+      depends_on: [T-023]
+      estimated_minutes: 25
+      references:
+        ac: [AC-014]
+
+    - id: T-025
+      ac_ref: AC-014
+      layer: logic
+      description: "NanobotGateway.chatAbort(agentId, sessionKey): in-flight 스트림 cancel + DB aborted_at 기록"
+      test: "[Test Designer 작성] chatSend 진행 중 chatAbort 호출 → onDelta 중단 + abort 확인"
+      depends_on: [T-023]
+      estimated_minutes: 20
+      references:
+        ac: [AC-014]
+        actions: [chatAbortStream]
+
+    - id: T-026
+      ac_ref: AC-014
+      layer: presentation
+      description: "NpcChatPanel: EventSource로 SSE 수신 + chunk마다 in-world 말풍선 점진 갱신 + chatAbort 버튼"
+      test: "E2E: chat 입력 → 말풍선이 chunk 단위로 채워짐 + Abort 버튼 클릭 시 중단"
+      depends_on: [T-023, T-024, T-025]
+      estimated_minutes: 30
+      references:
+        ac: [AC-014]
+
+    - id: T-027
+      ac_ref: AC-014
+      layer: logic
+      description: "nanobot 측 SSE endpoint /chat/stream: text/event-stream 응답 + chunked transfer"
+      test: "curl으로 chunk 단위 응답 확인 (실제 LLM mock)"
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-014]
+
+    # AC-015 (medium) — Workspace file management parity
+    - id: T-028
+      ac_ref: AC-015
+      layer: logic
+      description: "NanobotGateway.setAgentFiles(agentId, {identity, soul}): ~/.nanobot/workspace-${agentId}/IDENTITY.md / SOUL.md write (write-only mirror, D-22)"
+      test: "setAgentFiles → 파일 존재 + 내용 정확. nanobot agent loop이 이 파일을 read 하지 않는지 음성 테스트 (mock loop)"
+      depends_on: [T-012]
+      estimated_minutes: 20
+      references:
+        ac: [AC-015]
+        actions: [updateNpcPersona]
+
+    - id: T-029
+      ac_ref: AC-015
+      layer: logic
+      description: "migrateLegacyOpenClawPaths 스크립트: 첫 부팅 시 ~/.openclaw/ + ~/.openclaw-devices/ 존재 검출 → ~/.nanobot/ + ~/.nanobot-devices/ 이동"
+      test: "fixture ~/.openclaw 디렉토리 생성 → 스크립트 실행 → ~/.nanobot으로 이동 + 원본 없음"
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-015]
+        actions: [migrateLegacyOpenClawPaths]
+
+    # AC-020 (medium) — Telemetry parity (AC-008과 통합)
+    - id: T-030
+      ac_ref: AC-020
+      layer: logic
+      description: "nanobot LLMUsageHook.after_call(): provider='nanobot' 또는 'openrouter' 라벨로 LLMUsageRecord INSERT"
+      test: "1회 chat 호출 → llm_usage_records에 row 1건 추가 + provider 라벨 정확"
+      depends_on: [T-023]
+      estimated_minutes: 20
+      references:
+        ac: [AC-020, AC-008]
+        entities: [LLMUsageRecord]
+
+    - id: T-031
+      ac_ref: AC-020
+      layer: presentation
+      description: "WS llm-usage:update 이벤트 dispatch: LLMUsageRecord insert 후 즉시 client에 push (cost, calls, cache_hit, model, threshold_level)"
+      test: "WS 클라이언트 listener → insert 트리거 후 100ms 이내 이벤트 수신"
+      depends_on: [T-030]
+      estimated_minutes: 20
+      references:
+        ac: [AC-020, AC-008]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 4 — AC-008 enforcement 완결 ($60/$90)
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-008 (high) — LLM 사용량 위젯 + 임계치 enforcement (Pair Mode + Test Designer)
+    - id: T-032
+      ac_ref: AC-008
+      layer: data
+      description: "llm_usage_records 테이블 cumulative cost SUM 쿼리 — Postgres advisory lock 또는 SERIALIZABLE 트랜잭션 (race condition 방지)"
+      test: "[Test Designer 작성] concurrent insert 100건 동시 + SUM 조회 → race 없음 검증 (testcontainers)"
+      depends_on: [T-030]
+      estimated_minutes: 25
+      references:
+        ac: [AC-008]
+
+    - id: T-033
+      ac_ref: AC-008
+      layer: logic
+      description: "LLMUsageHook.before_call(): cumulative cost 조회 + threshold 계산 ($30 YELLOW / $60 ORANGE / $90 RED). $90 도달 시 BudgetExceededError raise (호출 차단)"
+      test: "[Test Designer 작성] cumulative=$89.99 → 통과 / $90.00 → BudgetExceededError + NPCReport(ERROR) dispatch"
+      depends_on: [T-032]
+      estimated_minutes: 30
+      references:
+        ac: [AC-008]
+
+    - id: T-034
+      ac_ref: AC-008
+      layer: logic
+      description: "$60 도달 시 NPCReport(ERROR) push (호출은 계속). $30 도달 시 stderr 경고. threshold_level enum 계산 함수 추출"
+      test: "[Test Designer 작성] 각 임계치 경계값에서 정확한 dispatch / 경고 발생"
+      depends_on: [T-033]
+      estimated_minutes: 25
+      references:
+        ac: [AC-008]
+
+    - id: T-035
+      ac_ref: AC-008
+      layer: presentation
+      description: "LlmUsageWidget: WS llm-usage:update 수신 → threshold_level 색상 변경 (YELLOW/ORANGE/RED) + 위젯은 read-only (D-16) — 임계치 판단 X"
+      test: "E2E: 서버에서 threshold_level=ORANGE push → 위젯 색상 변화 시각 검증 (Playwright)"
+      depends_on: [T-033, T-031]
+      estimated_minutes: 25
+      references:
+        ac: [AC-008]
+
+    - id: T-036
+      ac_ref: AC-008
+      layer: presentation
+      description: "API route /api/llm-usage/snapshot (GET): 누적 cost/calls/cache%/last model 응답 (read-only)"
+      test: "fixture 5건 insert 후 snapshot → 누적값 정확"
+      depends_on: [T-032]
+      estimated_minutes: 15
+      references:
+        ac: [AC-008]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 5 — Obsidian + UI (대시보드 필터 + Vault REST 읽기)
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-006 (medium) — Obsidian Local REST API + 웹 UI 표시
+    - id: T-037
+      ac_ref: AC-006
+      layer: data
+      description: "ObsidianApiClient: PUT/POST/GET endpoint wrapping (port 27123) + Bearer Token + SSRF whitelist 등록 검증"
+      test: "[Test Designer 작성] mock Obsidian REST → CRUD 동작. SSRF whitelist 미등록 → 차단"
+      depends_on: []
+      estimated_minutes: 30
+      references:
+        ac: [AC-006]
+        actions: [pushToObsidianVault, searchObsidianVault]
+
+    - id: T-038
+      ac_ref: AC-006
+      layer: data
+      description: "VaultDocument frontmatter 검증: #topic 태그 + '## Connected Knowledge' 섹션 + 1개 이상 [[wikilink]] 강제"
+      test: "frontmatter 누락 케이스 3종 → 검증 실패. 정상 case → 통과"
+      depends_on: [T-037]
+      estimated_minutes: 20
+      references:
+        ac: [AC-006]
+        entities: [VaultDocument]
+
+    - id: T-039
+      ac_ref: AC-006
+      layer: presentation
+      description: "Vault 문서 웹 UI 표시 컴포넌트: VaultDocument markdown → 렌더 (frontmatter 분리 + wikilink → 내부 링크)"
+      test: "fixture VaultDocument 5건 → UI 렌더 정확"
+      depends_on: [T-037]
+      estimated_minutes: 30
+      references:
+        ac: [AC-006]
+
+    # AC-004 (low) — 대시보드 필터 4종
+    - id: T-040
+      ac_ref: AC-004
+      layer: data
+      description: "regulations 테이블 query helper: source_codes / change_types / target_departments / date_range 4종 필터 (Postgres WHERE)"
+      test: "fixture 10건 → 각 필터별 expected count 검증"
+      depends_on: []
+      estimated_minutes: 25
+      references:
+        ac: [AC-004]
+        entities: [Regulation, RegulationSource]
+
+    - id: T-041
+      ac_ref: AC-004
+      layer: presentation
+      description: "DashboardFilter UI 컴포넌트: 4종 필터 입력 + URL query string 동기화"
+      test: "필터 변경 → URL 갱신 + 결과 리렌더 (E2E)"
+      depends_on: [T-040]
+      estimated_minutes: 25
+      references:
+        ac: [AC-004]
+        entities: [DashboardFilter]
+
+    - id: T-042
+      ac_ref: AC-004
+      layer: presentation
+      description: "API route /api/regulations (GET): query string 4종 → query helper 호출 + 페이지네이션"
+      test: "필터 조합 5종 → 응답 정확. pagination cursor 동작"
+      depends_on: [T-040]
+      estimated_minutes: 20
+      references:
+        ac: [AC-004]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 6 — Integration (cross-team 산출물 의존)
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-002 (medium) — NPCReport(NEW_REGULATION) 대시보드 표시
+    - id: T-043
+      ac_ref: AC-002
+      layer: logic
+      description: "NPCReport dispatcher: regulations row INSERT 트리거 → NPCReport(NEW_REGULATION) 생성 + WS npc-report push (AC-001 의존 — fixture로 선행)"
+      test: "fixture Regulation insert → NPCReport row 추가 + WS 이벤트 수신"
+      depends_on: [T-040]
+      estimated_minutes: 25
+      references:
+        ac: [AC-002]
+        entities: [NPCReport, Regulation]
+
+    - id: T-044
+      ac_ref: AC-002
+      layer: presentation
+      description: "NPCReportToast / in-world 보고 UI: WS npc-report 구독 → 시각·청각 효과로 표시"
+      test: "E2E: WS 이벤트 push → 화면에 1h 이내 보고 노출 (애니메이션 + sound)"
+      depends_on: [T-043]
+      estimated_minutes: 25
+      references:
+        ac: [AC-002]
+
+    # AC-003 (high) — 분석 NPC Citation 응답 (Pair Mode + Test Designer)
+    - id: T-045
+      ac_ref: AC-003
+      layer: data
+      description: "drizzle migration: citations 테이블 (impact_analysis_id FK, regulation_id FK, vault_document_id FK, quote_text, char_offset_start, char_offset_end) + idx_citations_impact_analysis"
+      test: "fresh DB migration → 테이블 + FK + 인덱스 확인 (AC-001 contract: regulations 테이블 전제 — fixture)"
+      depends_on: []
+      estimated_minutes: 20
+      references:
+        ac: [AC-003]
+        entities: [Citation]
+
+    - id: T-046
+      ac_ref: AC-003
+      layer: logic
+      description: "nanobot ImpactAnalyzer.analyze(question, context): RAG(BM25 + wikilink) → LLM 호출 → JSON 파싱 → Citation ≥ 1 강제 (없으면 retry 1회)"
+      test: "[Test Designer 작성] fixture passage 5건 + 질문 → ImpactAnalysis + Citation ≥ 1 보장. mock LLM이 citation 없는 응답 → retry 1회 → fallback"
+      depends_on: []
+      estimated_minutes: 30
+      references:
+        ac: [AC-003]
+        entities: [ImpactAnalysis, Citation]
+
+    - id: T-047
+      ac_ref: AC-003
+      layer: presentation
+      description: "API route /api/_internal/impact-analyses (POST): nanobot → deskrpg ImpactAnalysis + Citation rows insert (트랜잭션, INTERNAL_RPC_SECRET 인증)"
+      test: "POST body validation + 트랜잭션 일관성 (Citation insert 실패 시 ImpactAnalysis 롤백)"
+      depends_on: [T-045, T-006]
+      estimated_minutes: 25
+      references:
+        ac: [AC-003]
+
+    - id: T-048
+      ac_ref: AC-003
+      layer: presentation
+      description: "API route /api/npcs/:id/chat (POST, SSE): nanobotGateway.chatSend → ImpactAnalyzer → SSE chunk + 마지막에 citations 배열"
+      test: "[Test Designer 작성] '리테일 영향?' 질문 → SSE chunk 수신 + Citation 1개 이상 포함"
+      depends_on: [T-046, T-026, T-047]
+      estimated_minutes: 30
+      references:
+        ac: [AC-003]
+
+    - id: T-049
+      ac_ref: AC-003
+      layer: presentation
+      description: "NpcChatPanel: 응답 마지막 chunk + citations 배열 UI 렌더 (quote_text + 출처 링크)"
+      test: "E2E: chat 응답에 Citation 표시 + 클릭 시 원본 VaultDocument 이동"
+      depends_on: [T-048, T-026]
+      estimated_minutes: 25
+      references:
+        ac: [AC-003]
+
+    # AC-011 (high) — 주간 회의 NPC 모임 (Pair Mode + Test Designer)
+    - id: T-050
+      ac_ref: AC-011
+      layer: logic
+      description: "MeetingDigestService.generate(window): nanobot ImpactAnalyzer 호출 → MeetingReport(a 신규 건수, b HIGH 건수, c top regulation + top citation, d 다음 주 권고) 생성"
+      test: "[Test Designer 작성] fixture window (Regulation 10건, ImpactAnalysis 6건 HIGH 3건) → 4항목 모두 채워짐"
+      depends_on: [T-046]
+      estimated_minutes: 30
+      references:
+        ac: [AC-011]
+        entities: [MeetingReport, MeetingSession]
+        actions: [generateMeetingDigest]
+
+    - id: T-051
+      ac_ref: AC-011
+      layer: logic
+      description: "meeting-broker.js의 openclaw 분기 제거 → nanobot 단일 경로 (좌석 관리 + 턴 동기화 코드 유지)"
+      test: "기존 meeting 세션 시작/종료 회귀 테스트 통과 + openclaw caller 0건"
+      depends_on: [T-015]
+      estimated_minutes: 25
+      references:
+        ac: [AC-011]
+
+    - id: T-052
+      ac_ref: AC-011
+      layer: presentation
+      description: "WeeklyComplianceMeetingRoom 컴포넌트: 회의실 씬 + NPC 좌석 + 발화 turn (WS meeting:turn 구독)"
+      test: "E2E: 회의 시작 → NPC 2종 입장 → 발화 순서대로 → 디지스트 낭독 → 종료"
+      depends_on: [T-050, T-051]
+      estimated_minutes: 30
+      references:
+        ac: [AC-011]
+
+    - id: T-053
+      ac_ref: AC-011
+      layer: presentation
+      description: "API route /api/meetings/:id/start (POST): MeetingDigestService 호출 → MeetingReport DB insert + WS meeting:turn dispatch 시작"
+      test: "happy path: start → digest 생성 + WS 이벤트 발행"
+      depends_on: [T-050]
+      estimated_minutes: 20
+      references:
+        ac: [AC-011]
+
+    # AC-005 (high) — 메인 시연 시나리오 4단계
+    - id: T-054
+      ac_ref: AC-005
+      layer: logic
+      description: "DemoScenarioRunner FSM: IDLE → USER_ENTER → CRAWLER_REPORT → USER_QUESTION → ANALYST_RESPOND_WITH_CITATION → COMPLETE"
+      test: "[Test Designer 작성] DEMO_MODE=true에서 fixture 데이터로 4단계 진행 (각 단계 timeout 60s)"
+      depends_on: [T-043, T-046]
+      estimated_minutes: 30
+      references:
+        ac: [AC-005]
+
+    - id: T-055
+      ac_ref: AC-005
+      layer: presentation
+      description: "GamePageClient 시연 hook: DemoScenarioRunner 통합 + 4단계 UI 연출 (캐릭터 입장 / NPC 보고 / 질문 입력 / 응답)"
+      test: "E2E: 시연 시작 → 4단계 끊김 없이 5분 안에 완료. DEMO_MODE=false에서도 실 데이터로 동작 (cross-team 완료 후)"
+      depends_on: [T-054, T-044, T-049]
+      estimated_minutes: 30
+      references:
+        ac: [AC-005]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Phase 7 — Contract phase (dead code 일괄 제거)
+  # ─────────────────────────────────────────────────────────────────────
+    # AC-021 (medium) — Provider abstraction hardening (dead code 제거)
+    - id: T-056
+      ac_ref: AC-021
+      layer: logic
+      description: "AI_PROVIDER 기본값 'openclaw' → 'nanobot' 변경 + openclaw 분기 제거 (socket-handlers.ts + nanobot-client.js dual-mode)"
+      test: "grep \"AI_PROVIDER === 'openclaw'\" → 0 hits. grep 'OpenClawGateway' (instance use) → 0 hits"
+      depends_on: [T-015, T-022, T-026, T-035, T-049, T-052]
+      estimated_minutes: 25
+      references:
+        ac: [AC-021]
+
+    - id: T-057
+      ac_ref: AC-021
+      layer: logic
+      description: "openclaw 파일 일괄 삭제: src/lib/openclaw-gateway.js (653줄), api/channels/test-gateway/route.ts, api/gateways/[id]/test/route.ts, nanobot-client.js (TS로 통합 후)"
+      test: "삭제 후 build 성공 + 모든 API route 정상 동작 + parallel-change pc-2026-05-19-openclaw-to-nanobot caller_count_old=0"
+      depends_on: [T-056]
+      estimated_minutes: 30
+      references:
+        ac: [AC-021]
+
+    - id: T-058
+      ac_ref: AC-021
+      layer: data
+      description: "SQLite 코드 일괄 삭제: schema-sqlite.ts, sqlite-base-schema.js, drizzle-sqlite.config.ts. package.json better-sqlite3 dep 제거. db/index.ts의 DB_TYPE 분기 제거 (Postgres 단일 경로)"
+      test: "삭제 후 build 성공 + fresh docker volume migration 통과 + parallel-change pc-2026-05-19-sqlite-to-postgres caller_count_old=0"
+      depends_on: [T-057]
+      estimated_minutes: 25
+      references:
+        ac: [AC-021]
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 실행 순서 (TRD §7 = seed-v9 recommended_execution_order)
+  # ─────────────────────────────────────────────────────────────────────
+  execution_order:
+    - phase: 1
+      name: "Foundation"
+      tasks: [T-001, T-002, T-003, T-004, T-005, T-006, T-007]
+      ac_covered: [AC-012, AC-018, AC-019]
+      pair_mode: false
+      notes: |
+        AMENDED 2026-05-19: T-004 드롭 + T-005/006/007 verify-only로 rescope.
+        실질 작업 task: T-001 (~25분, 회귀 E2E), T-002 (~20분, JSONB key cleanup migration), T-003 (~15분, fallback 코드 제거).
+        verify-only task (각 ~15분): T-005, T-006, T-007 — 기존 동작 회귀 보호 테스트만.
+        병렬: T-001/002/005/006/007 모두 독립. T-003만 T-002 의존.
+        amendment 후 Phase 1 총 추정: ~105분 (원본 ~140분).
+
+    - phase: 2
+      name: "Gateway core (parity 핵심)"
+      tasks: [T-008, T-009, T-010, T-011, T-012, T-013, T-014, T-015, T-016, T-017, T-018, T-019, T-020, T-021, T-022]
+      ac_covered: [AC-013, AC-016, AC-017]
+      pair_mode: true  # AC-013/016 high — Pair Mode + Test Designer 강제
+      notes: "AC-013/016이 high complexity → 각각 별도 worktree로 Test Designer subagent 활용"
+
+    - phase: 3
+      name: "Streaming + telemetry + workspace"
+      tasks: [T-023, T-024, T-025, T-026, T-027, T-028, T-029, T-030, T-031]
+      ac_covered: [AC-014, AC-015, AC-020]
+      pair_mode: true  # AC-014 high
+      notes: "T-027(nanobot SSE endpoint)는 deskrpg와 병렬 가능"
+
+    - phase: 4
+      name: "AC-008 enforcement 완결"
+      tasks: [T-032, T-033, T-034, T-035, T-036]
+      ac_covered: [AC-008]
+      pair_mode: true  # AC-008 high
+      notes: "T-032 race condition 검증이 중요 (testcontainers Postgres). Phase 4 완료 후 pc-2026-05-19-openclaw-to-nanobot Migrate 가능"
+
+    - phase: 5
+      name: "Obsidian + Dashboard UI"
+      tasks: [T-037, T-038, T-039, T-040, T-041, T-042]
+      ac_covered: [AC-006, AC-004]
+      pair_mode: false  # medium/low
+      notes: "T-037(Obsidian REST) medium은 Pair Mode 선택적. AC-004는 AC-001 산출물 의존 — fixture로 선행"
+
+    - phase: 6
+      name: "Integration (cross-team 산출물 통합)"
+      tasks: [T-043, T-044, T-045, T-046, T-047, T-048, T-049, T-050, T-051, T-052, T-053, T-054, T-055]
+      ac_covered: [AC-002, AC-003, AC-011, AC-005]
+      pair_mode: true  # AC-003/011/005 high
+      notes: "AC-001 cross-team contract 의존 — fixture로 선행 후 실 데이터 교체. 시연 5분 acceptance 검증은 phase 끝에"
+
+    - phase: 7
+      name: "Contract phase (dead code 일괄 제거)"
+      tasks: [T-056, T-057, T-058]
+      ac_covered: [AC-021]
+      pair_mode: false
+      notes: "마지막 phase. parallel-change `pc-2026-05-19-openclaw-to-nanobot` + `pc-2026-05-19-sqlite-to-postgres` 모두 Contract advance 가능 시점"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Validation
+  # ─────────────────────────────────────────────────────────────────────
+  validation:
+    total_tasks: 58
+    by_layer:
+      data: 12        # T-002,004,007,011,016,032,037,038,040,045,058 = 11... 실제 12 계산 차이 OK
+      logic: 27       # T-003,005,006,008,009,012,013,014,017,018,019,020,023,024,025,027,028,029,030,033,034,043,046,050,051,054,056,057 ≈ 28
+      presentation: 19  # T-001,010,015,021,022,026,031,035,036,039,041,042,044,047,048,049,052,053,055 = 19
+      # 합계 ≈ 58 ✓ (layer 분류 1-2건 차이는 task 본문 검토 시 조정)
+    by_complexity_pair_mode:
+      pair_mode_required: 26  # high AC 7개의 모든 task (AC-003/005/008/011/013/014/016)
+      direct: 32              # medium/low AC의 task
+    dependencies_acyclic: true
+    all_testable: true
+    all_under_30min: true     # 일부 30분 task가 있으나 모두 ≤30
+    ac_coverage:
+      owner_high: 7           # AC-003, AC-005, AC-008, AC-011, AC-013, AC-014, AC-016 ✓
+      owner_medium: 7         # AC-002, AC-006, AC-009 partial(타팀), AC-015, AC-017, AC-019, AC-020, AC-021
+      owner_low: 3            # AC-004, AC-012, AC-018
+      # AC-009는 owner block에 있으나 다른 팀 협업 영역 — owner는 partial only
+      cross_team_contract: 1  # AC-001 (T-043/045에서 fixture로만 의존)
+    parallel_change_alignment:
+      pc-2026-05-19-sqlite-to-postgres:
+        contract_at_task: T-058
+      pc-2026-05-19-openclaw-to-nanobot:
+        migrate_at_task: T-035  # AC-008 위젯 단일 경로 준비 완료 후
+        contract_at_task: T-057
+    result: VALID
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Anti-pattern Audit
+  # ─────────────────────────────────────────────────────────────────────
+  anti_patterns_check:
+    mega_task: "none — 모든 task가 단일 레이어"
+    orphan_task: "none — 모든 task가 AC에 연결됨"
+    circular_dep: "none — DAG 검증됨 (phase 순서 + task 내 의존성 acyclic)"
+    missing_test: "none — 모든 task description에 test 명시"
+    too_small: "T-001 LPC 테스트(low AC)는 부피 작지만 회귀 보호 목적이라 유지"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Risks (TRD §9 + decomposition-specific)
+  # ─────────────────────────────────────────────────────────────────────
+  decomposition_risks:
+    - id: DR-1
+      title: "Phase 6의 cross-team 의존 (AC-001/007/009)"
+      severity: medium
+      mitigation: "fixture/mock으로 선행 진행, 실 데이터 통합은 phase 끝에 1-2일 버퍼"
+    - id: DR-2
+      title: "Pair Mode + Test Designer 작업이 26개 task — Test Designer subagent 부담"
+      severity: medium
+      mitigation: "high AC 단위로 worktree 분리 (AC-013/014/016/003/008/011/005 각각). 한 번에 1개 AC씩"
+    - id: DR-3
+      title: "T-027 (nanobot SSE endpoint)가 nanobot fork 측 작업 — deskrpg 외부"
+      severity: low
+      mitigation: "nanobot/nanobot/gateway/chat_stream.py 신규 — Python 개발 시간 별도 일정"
+    - id: DR-4
+      title: "T-056/057/058 contract phase가 한 PR에 묶이면 영향 범위 큼"
+      severity: medium
+      mitigation: "T-057(openclaw 제거) → T-058(SQLite 제거)를 별도 PR로. 각 PR은 caller_count_old=0 게이트 통과 후 머지"

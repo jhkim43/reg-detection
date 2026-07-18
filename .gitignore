@@ -14,7 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python distutils 'lib/' — restricted to repo root so it does not eat deskrpg/src/lib/.
+/lib/
 lib64/
 parts/
 sdist/
@@ -149,6 +150,9 @@ activemq-data/
 
 # Environments
 .env
+.env.local
+.env.*.local
+.env.integration
 .envrc
 .venv
 env/
@@ -156,6 +160,17 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# RegTrack project — analysis/design artifacts and runtime
+.review-artifacts/
+.harness/ouroboros/session.db
+vault/                      # Obsidian vault — 별도 private repo로 sync (Obsidian Git plugin)
+.DS_Store                   # macOS
+
+# Project Charter — 시작 전 팀 합의문서 (PII 포함, repo 외부 보관)
+Project Charter_*.docx
+Project*Charter*.docx
+
 
 # Spyder project settings
 .spyderproject
@@ -216,3 +231,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Obsidian personal settings
+obsidian_vault/.obsidian/
+.DS_Store
+
+# v13 — 임베딩 캐시
+.cache/
+~/.cache/huggingface/

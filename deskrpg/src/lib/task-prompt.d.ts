@@ -1,0 +1,2 @@
+export declare function normalizeTaskPromptLocale(locale?: string | null): "en" | "ko" | "ja" | "zh";
+export declare function buildTaskSessionPrompt(task: { title: string; npcTaskId: string; status: string; summary: string | null; createdAt: string }, locale?: string | null): string;
