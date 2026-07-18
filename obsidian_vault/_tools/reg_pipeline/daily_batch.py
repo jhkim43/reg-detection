@@ -31,10 +31,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import yaml
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent.parent.parent  # → regtrack/
@@ -288,6 +291,40 @@ source_md: "external_raw_md/{item['source']}/{item['raw_md'].name}"
     return created
 
 
+def _append_internal_reference(content: str, external_stem: str) -> str:
+    """내규 frontmatter와 관련 외규 섹션에 외규 링크를 중복 없이 누적한다."""
+    field_match = re.search(r"(?m)^related_external:\s*(.*)$", content)
+    if field_match:
+        try:
+            related = yaml.safe_load(field_match.group(1)) or []
+        except yaml.YAMLError:
+            related = []
+        if not isinstance(related, list):
+            related = []
+        if external_stem not in related:
+            related.append(external_stem)
+        replacement = "related_external: " + json.dumps(related, ensure_ascii=False)
+        content = content[:field_match.start()] + replacement + content[field_match.end():]
+
+    external_wikilink = f"[[{external_stem}]]"
+    section_header = "# 관련 외규 (자동 갱신)"
+    placeholder = "- (아직 없음)"
+    if external_wikilink in content:
+        return content
+    if placeholder in content:
+        return content.replace(placeholder, f"- {external_wikilink}", 1)
+    if section_header not in content:
+        return content.rstrip() + f"\n\n{section_header}\n\n- {external_wikilink}\n"
+
+    section_start = content.index(section_header) + len(section_header)
+    next_section = re.search(r"(?m)^# (?!#)", content[section_start:])
+    insert_at = section_start + next_section.start() if next_section else len(content)
+    before = content[:insert_at].rstrip()
+    after = content[insert_at:].lstrip("\n")
+    separator = "\n\n" if after else "\n"
+    return before + f"\n- {external_wikilink}" + separator + after
+
+
 def stage_7_sync_internal(matched: list[dict], min_score: int = 4) -> int:
     """internal_wiki/개인정보/{wiki}.md 의 related_external 갱신."""
     print("\n" + "=" * 60)
@@ -306,22 +343,9 @@ def stage_7_sync_internal(matched: list[dict], min_score: int = 4) -> int:
             continue
         try:
             content = internal_path.read_text(encoding="utf-8")
-            external_wikilink = f"[[{item['raw_md'].stem}]]"
-            if external_wikilink in content:
-                continue  # 이미 있음
-            # related_external: [] → [...]
-            updated_content = content.replace(
-                "related_external: []",
-                f"related_external: [\"{item['raw_md'].stem}\"]",
-                1,
-            )
-            # 관련 외규 섹션도 append
-            if "# 관련 외규 (자동 갱신)" in updated_content:
-                updated_content = updated_content.replace(
-                    "- (아직 없음)",
-                    f"- {external_wikilink} ✨ NEW",
-                    1,
-                )
+            updated_content = _append_internal_reference(content, item["raw_md"].stem)
+            if updated_content == content:
+                continue
             internal_path.write_text(updated_content, encoding="utf-8")
             updated += 1
         except Exception as e:

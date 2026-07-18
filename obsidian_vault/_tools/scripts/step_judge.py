@@ -78,6 +78,41 @@ def _save_cache(cache_path: Path, cache: dict) -> None:
     cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _cached_evaluation(item: dict, cache: dict) -> dict | None:
+    raw_path = item["raw_md"]
+    try:
+        mtime = os.path.getmtime(raw_path)
+    except OSError:
+        mtime = 0.0
+    cached = cache.get(raw_path)
+    if cached and cached.get("mtime") == mtime and cached.get("evaluation"):
+        return cached
+    return None
+
+
+def _impact_level(score: int) -> str:
+    if score >= 7:
+        return "우선 검토"
+    if score >= 4:
+        return "일반 검토"
+    return "낮음"
+
+
+def _start_message(total: int) -> str:
+    return f"[대상 확정] 신규 문서 중 영향평가 대상 {total}건을 판정합니다."
+
+
+def _progress_message(
+    current: int,
+    total: int,
+    score: int,
+) -> str:
+    return (
+        f"[진행 {current}/{total}] 영향평가 진행 중\n"
+        f"최근 문서 영향도 {score}/10 ({_impact_level(score)})"
+    )
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--matched_path", default="/tmp/regtrack-matched.json")
@@ -101,23 +136,18 @@ def main():
     cache = _load_cache(cache_path)
     cache_hits = 0
     cache_misses = 0
-
+    cached_by_index = [_cached_evaluation(item, cache) for item in matched]
     if can_progress and total_n:
         _progress_chat_push(
             args.channel_id, args.npc_id, args.session_key, args.subagent_label,
-            f"[영향평가] 시작 — 총 {total_n}건 (cache 조회 후 신규만 LLM 판정)",
+            _start_message(total_n),
         )
 
-    for i, item in enumerate(matched, start=1):
+    for i, (item, cached) in enumerate(zip(matched, cached_by_index), start=1):
         raw_path = item["raw_md"]
-        try:
-            mtime = os.path.getmtime(raw_path)
-        except OSError:
-            mtime = 0.0
         cache_key = raw_path
-        cached = cache.get(cache_key)
 
-        if cached and cached.get("mtime") == mtime and cached.get("evaluation"):
+        if cached:
             # cache hit — LLM 호출 skip, 기존 evaluation 재사용
             item["evaluation"] = cached["evaluation"]
             item["is_new"] = False
@@ -143,16 +173,18 @@ def main():
             }
             item["evaluation"] = evaluation
             item["is_new"] = True
+            try:
+                mtime = os.path.getmtime(raw_path)
+            except OSError:
+                mtime = 0.0
             cache[cache_key] = {"mtime": mtime, "evaluation": evaluation}
             cache_misses += 1
 
         if can_progress and (i % args.progress_every == 0 or i == total_n):
             score = item["evaluation"].get("impact_score", 0)
-            badge = "🔴" if score >= 7 else "🟡" if score >= 4 else "⚪"
-            tag = "신규" if item.get("is_new") else "캐시"
             _progress_chat_push(
                 args.channel_id, args.npc_id, args.session_key, args.subagent_label,
-                f"[영향평가] 진행 {i}/{total_n} ({tag}) — 최근: {badge} impact {score}",
+                _progress_message(i, total_n, score),
             )
 
     _save_cache(cache_path, cache)
@@ -161,8 +193,9 @@ def main():
     new_items = [m for m in matched if m.get("is_new")]
     high = sum(1 for m in matched if m.get("evaluation", {}).get("impact_score", 0) >= 7)
     mid = sum(1 for m in matched if 4 <= m.get("evaluation", {}).get("impact_score", 0) < 7)
+    low = total_n - high - mid
     print(json.dumps({
-        "high": high, "mid": mid, "total": total_n,
+        "high": high, "mid": mid, "low": low, "total": total_n,
         "new": len(new_items), "cached": cache_hits,
     }))
 

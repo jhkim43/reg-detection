@@ -26,6 +26,14 @@ except ImportError:
     yaml = None
 
 
+SOURCE_KR = {
+    "fsec": "금융보안원",
+    "fsc": "금융위원회",
+    "fss": "금융감독원",
+    "pipc": "개인정보보호위원회",
+}
+
+
 def get_env(key: str) -> str | None:
     """env -> .env.integration fallback (nanobot allowed_env_keys 우회)."""
     v = os.environ.get(key)
@@ -88,6 +96,12 @@ def load_stats() -> dict:
         return {}
 
 
+def _date_kr(value: str | None) -> str:
+    if value and len(value) == 8 and value.isdigit():
+        return f"{int(value[:4])}년 {int(value[4:6])}월 {int(value[6:])}일"
+    return "미상"
+
+
 def build_empty_text_for_recipient(recipient: dict) -> str:
     """신규 외규 0 건일 때 짧은 알림. 옵션 으로 발송 skip 가능."""
     name = (recipient.get("name") or "").strip()
@@ -103,8 +117,7 @@ def build_empty_text_for_recipient(recipient: dict) -> str:
     return (
         f"{greeting}\n\n"
         "📋 오늘 외규 업데이트 알림\n\n"
-        "오늘은 신규 외규가 없습니다. 이미 수집·분석된 자료라 추가 분석을 중단했습니다.\n"
-        "(crawl_history dedup 결과)"
+        "해당 수집 기간에 새로 확인된 외부 규제 문서가 없습니다."
     )
 
 
@@ -147,31 +160,35 @@ def build_text_for_recipient(recipient: dict, matched: list[dict], stats: dict |
     crawl = s.get("crawl") or {}
     ingest = s.get("ingest") or {}
     impact_s = s.get("impact") or {}
+    if s.get("since") and s.get("until"):
+        lines.append(f"수집 기간: {_date_kr(s.get('since'))} ~ {_date_kr(s.get('until'))}")
     if crawl or ingest or impact_s:
         lines.append("")
-        lines.append("🧭 파이프라인 산출")
+        lines.append("🧭 처리 결과")
         if crawl:
             per = crawl.get("per_source") or {}
             crawl_total = crawl.get("total", sum(per.values()))
-            per_str = " · ".join(f"{k} {v}" for k, v in per.items()) if per else ""
-            lines.append(f"• 크롤링: 총 {crawl_total}건" + (f" ({per_str})" if per_str else ""))
+            per_str = " · ".join(
+                f"{SOURCE_KR.get(k, k)} {v}건" for k, v in per.items() if v
+            )
+            lines.append(f"• 신규 원본: {crawl_total}건" + (f" ({per_str})" if per_str else ""))
         if ingest:
             lines.append(
-                f"• 변환·분류: 변환 {ingest.get('convert_success', 0)}건 / "
-                f"분류 통과 {ingest.get('classified_matched', 0)}건"
+                f"• 신규 문서: {ingest.get('new_md_count', 0)}건 / "
+                f"영향평가 대상 {ingest.get('classified_matched', 0)}건"
             )
         if impact_s:
             lines.append(
-                f"• 위키 갱신: external {impact_s.get('external_created', 0)}건 신규 / "
-                f"internal {impact_s.get('internal_synced', 0)}건 갱신"
+                f"• 위키 반영: 외부 규제 {impact_s.get('external_created', 0)}건 / "
+                f"관련 내규 연결 {impact_s.get('internal_synced', 0)}건"
             )
 
     lines.append("")
     lines.append("📊 영향 평가")
-    lines.append(f"• 분류 통과 (정보보호 도메인 매칭): {len(visible)}건")
-    lines.append(f"  └ 내규에 매우 큰 영향 (impact ≥ 7): {len(high)}건")
-    lines.append(f"  └ 내규에 영향 있음 (impact 4~6): {len(mid)}건")
-    lines.append(f"  └ 참고만 (impact 0~3, 아카이브 only): {len(low)}건")
+    lines.append(f"• 내규 연관 문서: {len(visible)}건")
+    lines.append(f"  └ 우선 검토 (7~10점): {len(high)}건")
+    lines.append(f"  └ 일반 검토 (4~6점): {len(mid)}건")
+    lines.append(f"  └ 참고 (0~3점): {len(low)}건")
     if focus and not filter_only_focus:
         lines.append("")
         lines.append("ℹ️ ⭐ 표시 = 귀하 관심 영역(" + ", ".join(sorted(focus)) + ") 매칭")
@@ -197,7 +214,7 @@ def build_text_for_recipient(recipient: dict, matched: list[dict], stats: dict |
             ev = h.get("evaluation") or {}
             mark = "⭐ " if is_focus(h) else "- "
             score = ev.get("impact_score")
-            lines.append(f"{mark}{_stem(h.get('raw_md', ''))} (impact {score})")
+            lines.append(f"{mark}{_stem(h.get('raw_md', ''))} (영향도 {score}/10)")
             brief = _impact_brief(ev)
             if brief:
                 lines.append(f"   ↳ {brief}")
@@ -209,16 +226,16 @@ def build_text_for_recipient(recipient: dict, matched: list[dict], stats: dict |
             ev = m_.get("evaluation") or {}
             mark = "⭐ " if is_focus(m_) else "- "
             score = ev.get("impact_score")
-            lines.append(f"{mark}{_stem(m_.get('raw_md', ''))} (impact {score})")
+            lines.append(f"{mark}{_stem(m_.get('raw_md', ''))} (영향도 {score}/10)")
 
     if low:
         lines.append("")
-        lines.append("🔵 참고만 (정보보호 영역 매칭, 내규 영향 작음 — 아카이브 only)")
+        lines.append("🔵 참고 (내규 영향 낮음, 외부 규제 위키 보관)")
         for l_ in low[:5]:
             ev = l_.get("evaluation") or {}
             mark = "⭐ " if is_focus(l_) else "- "
             score = ev.get("impact_score")
-            lines.append(f"{mark}{_stem(l_.get('raw_md', ''))} (impact {score})")
+            lines.append(f"{mark}{_stem(l_.get('raw_md', ''))} (영향도 {score}/10)")
 
     return "\n".join(lines)
 

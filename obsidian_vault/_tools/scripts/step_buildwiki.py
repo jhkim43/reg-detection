@@ -1,20 +1,45 @@
 """Step 8 helper — external_wiki 생성 + internal_wiki sync. cwd가 obsidian_vault/_tools 가정.
 
 입력: /tmp/regtrack-judged.json (step_judge 결과)
-stdout: {"created": C, "synced": S} JSON 1줄
+stdout: {"written": W, "created": C, "updated": U, "synced": S} JSON 1줄
 """
 import sys, json
 sys.path.insert(0, ".")
 from pathlib import Path
-from reg_pipeline.daily_batch import stage_6_build_wiki, stage_7_sync_internal
+from reg_pipeline.daily_batch import EXTERNAL_WIKI, stage_6_build_wiki, stage_7_sync_internal
 
-matched = json.load(open("/tmp/regtrack-judged.json"))
-for item in matched:
-    item["raw_md"] = Path(item["raw_md"])
 
-# external_wiki = 정보보호 도메인 아카이브. 분류 통과한 모든 자료 영구 보존
-# (min_score=0). impact 낮은 자료도 검토·reference 용도로 살림.
-created = stage_6_build_wiki(matched, min_score=0)
-# internal_wiki sync = 사내 내규 자동 갱신. 영향 큰 자료만 (impact >= 4).
-synced = stage_7_sync_internal(matched, min_score=4)
-print(json.dumps({"created": created, "synced": synced}))
+EXTERNAL_WIKI_MIN_SCORE = 0
+INTERNAL_WIKI_MIN_SCORE = 4
+
+
+def build_wikis(judged_path: Path = Path("/tmp/regtrack-judged.json")) -> dict:
+    matched = json.loads(judged_path.read_text(encoding="utf-8"))
+    for item in matched:
+        item["raw_md"] = Path(item["raw_md"])
+
+    # 외부 규제 위키는 분류를 통과한 신규 문서를 모두 보관한다.
+    existing = sum(
+        (EXTERNAL_WIKI / item["source"] / item["raw_md"].name).exists()
+        for item in matched
+    )
+    written = stage_6_build_wiki(matched, min_score=EXTERNAL_WIKI_MIN_SCORE)
+    created = max(0, written - existing)
+    updated = written - created
+
+    # 관련 내규 연결은 영향도 4점 이상부터 수행한다.
+    synced = stage_7_sync_internal(matched, min_score=INTERNAL_WIKI_MIN_SCORE)
+    return {
+        "written": written,
+        "created": created,
+        "updated": updated,
+        "synced": synced,
+    }
+
+
+def main() -> None:
+    print(json.dumps(build_wikis()))
+
+
+if __name__ == "__main__":
+    main()
